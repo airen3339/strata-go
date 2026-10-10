@@ -65,7 +65,7 @@ The Java glyph preserves the path from Devicon's `icons/java/java-plain.svg` (Gi
 - Derived asset: `data/themes/catalog.toml`
 - Full license: [`data/licenses/Tinted-Theming-MIT.txt`](data/licenses/Tinted-Theming-MIT.txt)
 
-The bundled catalog contains curated Base16 palettes derived from this project alongside Strata's original themes. The Base16 mapping to Strata's semantic UI tokens is documented in the catalog.
+The bundled catalog contains curated Base16 palettes derived from this project, with a few foreground values adjusted for readability (noted in the catalog), alongside Strata's original themes. The Base16 mapping to Strata's semantic UI tokens is documented in the catalog.
 
 ## GTK and GStreamer media-runtime patch kit
 
