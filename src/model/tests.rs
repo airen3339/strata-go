@@ -52,6 +52,25 @@ fn breadcrumbs_preserve_each_native_ancestor() {
 }
 
 #[test]
+fn lexical_normalization_resolves_dot_segments_without_touching_the_filesystem() {
+    for (input, expected) in [
+        (&b"/fixture/documents/../pictures"[..], &b"/fixture/pictures"[..]),
+        (b"/tmp/./../tmp", b"/tmp"),
+        (b"/..", b"/"),
+        (b"/../..", b"/"),
+        (b"/a/b/../../..", b"/"),
+        (b"/fixture/\xff\xfe/../\xfd", b"/fixture/\xfd"),
+    ] {
+        let input = Path::new(OsStr::from_bytes(input));
+        assert_eq!(
+            lexically_normalized(input).as_os_str(),
+            OsStr::from_bytes(expected),
+            "{input:?}"
+        );
+    }
+}
+
+#[test]
 fn uri_locations_remain_explicit_and_have_one_breadcrumb() {
     let trash = Location::uri("trash:///");
 

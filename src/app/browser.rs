@@ -10,7 +10,9 @@ use std::{
 
 use crate::{
     app::navigation::{EntryInsertion, EntrySplice, NavigationPath, NavigationState},
-    model::{FileEntry, Location, SortDirection, SortKey, ViewPreferences},
+    model::{
+        FileEntry, Location, SortDirection, SortKey, ViewPreferences, lexically_normalized,
+    },
     services::{
         ArchiveFormat, CompressRequest, CreateDirectoryRequest, CreateFileRequest, DeleteRequest,
         DirectoryChange, DirectoryRequest, ExtractRequest, FileSource, LoadHandle,
@@ -4723,19 +4725,9 @@ fn looks_like_scp_shorthand(input: &str) -> bool {
 }
 
 /// Joins natively, so a non-UTF-8 base stays byte-exact, and resolves `.` and
-/// `..` lexically like a shell's `cd`.
+/// `..` as text.
 fn join_relative(base: &Path, relative: &str) -> PathBuf {
-    let mut path = base.to_path_buf();
-    for component in Path::new(relative).components() {
-        match component {
-            std::path::Component::ParentDir => {
-                path.pop();
-            }
-            std::path::Component::Normal(name) => path.push(name),
-            _ => {}
-        }
-    }
-    path
+    lexically_normalized(&base.join(relative))
 }
 
 fn is_relative_path_input(input: &str) -> bool {
