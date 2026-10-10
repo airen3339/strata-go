@@ -7,9 +7,9 @@ use std::collections::HashSet;
 
 use super::{
     Theme, ThemeManager, ThemeTokens, azure_tokens, blend, builtins, canonical_color, color_to_hex,
-    custom_theme_id, is_omarchy_theme_event, merge_builtin_and_custom_themes, slugify,
-    source_palette_from_quattro, source_style_scheme_xml, themes_directory, title_case_slug,
-    tokens_from_quattro, validate_tokens,
+    custom_theme_id, is_omarchy_theme_event, merge_builtin_and_custom_themes, omarchy::contrast,
+    slugify, source_palette_from_quattro, source_style_scheme_xml, themes_directory,
+    title_case_slug, tokens_from_quattro, validate_tokens,
 };
 use crate::test_support::{gtk_test, texture_has_visible_pixels};
 
@@ -50,6 +50,34 @@ fn bundled_catalog_is_valid_unique_and_alphabetical() {
     ] {
         assert!(!ids.contains(removed), "{removed} should not be bundled");
     }
+}
+
+#[test]
+fn bundled_themes_keep_body_text_readable() {
+    let floors: [(&str, fn(&ThemeTokens) -> &str, f64); 2] = [
+        ("background", |tokens| &tokens.background, 4.5),
+        ("surface", |tokens| &tokens.surface, 3.0),
+    ];
+    // The upstream Material Lighter base05 is the regression this guards against;
+    // keep the fixture discriminating if the floors are ever tuned.
+    let (_, _, background_floor) = floors[0];
+    assert!(contrast("#80CBC4", "#FAFAFA") < background_floor);
+
+    let themes = builtins();
+    assert!(!themes.is_empty());
+    let mut failures = Vec::new();
+    for theme in &themes {
+        for (role, color, floor) in floors {
+            let ratio = contrast(&theme.tokens.text, color(&theme.tokens));
+            if ratio < floor {
+                failures.push(format!(
+                    "{} text on {role} is {ratio:.2}:1, below the {floor}:1 floor",
+                    theme.id
+                ));
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
 #[test]
