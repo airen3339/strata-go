@@ -720,23 +720,17 @@ fn should_activate_single_click(
     activation: ClickActivation,
     control: bool,
     shift: bool,
-    preserve_group: bool,
 ) -> bool {
     let configured = if is_directory {
         activation.folders
     } else {
         activation.files
     };
-    press_count == 1 && configured == ClickCount::One && !control && !shift && !preserve_group
+    press_count == 1 && configured == ClickCount::One && !control && !shift
 }
 
-fn should_preview_pointer_press(
-    press_count: i32,
-    control: bool,
-    shift: bool,
-    preserve_group: bool,
-) -> bool {
-    press_count == 1 && !control && !shift && !preserve_group
+fn should_preview_pointer_press(press_count: i32, control: bool, shift: bool) -> bool {
+    press_count == 1 && !control && !shift
 }
 
 pub(super) fn is_column_background(surface: &gtk::Widget, picked: &gtk::Widget) -> bool {
