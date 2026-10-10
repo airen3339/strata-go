@@ -201,6 +201,18 @@ between selections; a folder shows the placeholder. List hides the drawer on a
 folder or unsupported file and keeps its horizontal scroll origin. Neither view
 has trailing columns, so the right-pane rules above do not apply.
 
+## Pointer presses
+
+In every view and in the file chooser, a plain click on blank chrome or on a
+disabled control (such as **Next audio file** on the last track) in a preview
+that is showing something, including its placeholder, never changes the
+selection, so the preview keeps showing it. The empty reserved slot in Columns
+shows nothing, so a click there clears the selection like the space beside the
+columns. A drag from blank preview chrome into the listing still starts a
+marquee. A drag from the preview
+header's file icon and name, including the gaps around them, drags the file
+instead.
+
 ## Verification owners
 
 | Rule | Owner |
@@ -224,6 +236,8 @@ has trailing columns, so the right-pane rules above do not apply.
 | Narrow windows shrink then hide the preview | `test_quick_preview.py::test_narrow_window_prioritizes_the_last_column_and_restores_the_latest_preview` |
 | Peek strips reveal clipped columns | `test_preview_session.py::test_peek_click_reveals_a_column_without_activating_rows_or_toolbar_actions` |
 | Default overflow appearance | `tests/e2e/scenarios/test_visual_baselines.py::test_columns_overflow_baseline` |
+| Blank clicks and disabled controls in a showing preview keep the selection; the empty reserved slot clears; preview drags still marquee | `tests/e2e/scenarios/test_background_selection.py::test_preview_blank_click_keeps_the_selection_and_a_drag_still_selects`, `::test_disabled_transport_click_keeps_the_selection`, `::test_clicking_beside_the_last_column_clears_selection`, `src/ui/marquee/tests.rs::keeping_origins_clear_only_outside_the_content_they_show`, `::chrome_origin_click_policy_decides_when_a_plain_click_clears` |
+| Disabled controls are rejected like enabled ones on every chrome origin | `src/ui/marquee/tests.rs::disabled_controls_are_rejected_like_enabled_ones` |
 
 Scenarios that need several parent columns visible at once opt out of the
 reservation with the `unreserved_columns` fixture; see

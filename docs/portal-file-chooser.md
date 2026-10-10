@@ -252,6 +252,7 @@ Use `--folder /absolute/path` for your own files, `--theme classic-light` for a 
 Check these interactions:
 
 - Single-selection requests remain single-selection with Ctrl/Shift clicks, including grouped List sections. Multiple-selection requests return all selected files.
+- A plain click on blank space in a preview that is showing something keeps the selection; in multiple-selection requests, dragging from it into the file list starts a marquee. A plain click on blank sidebar space still clears the selection.
 - Ctrl+L edits the location; Ctrl+F opens the browser filter; F5 refreshes; Ctrl+H or Ctrl+. toggles hidden files. Remote locations in the address bar show an error. For file-open requests, paste a direct `http(s)` URL in Name and click Open to download and select a temporary local file.
 - Space opens/closes a preview. Escape dismisses a filter/menu/preview before cancelling the chooser.
 - Ctrl+Shift+N or the **New Folder** icon beside Refresh immediately creates `new folder` (or the first free `new folder (1)`, `(2)`, etc.) and selects its entire name for editing. Enter or clicking away commits a valid name. Escape or an empty/invalid name keeps the allocated default name; the directory is not deleted. Existing files and folders follow the same rename rules; files retain extension-aware name selection. In folder requests, Ctrl+Enter accepts the current folder when the file view has focus.
