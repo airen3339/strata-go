@@ -211,3 +211,150 @@ fn enter_on_a_video_preview_opens_it_where_it_stopped() {
         },
     );
 }
+
+/// The window map first, then the focused widget's own key handling.
+fn press_through(fixture: &KeyboardFixture, key: Key, mods: ModifierType) -> &'static str {
+    if fixture.press(key, mods) {
+        return "window map";
+    }
+    let focused = gtk::prelude::RootExt::focus(&fixture.window).expect("focused widget");
+    let controllers = focused.observe_controllers();
+    for keys in (0..controllers.n_items()).filter_map(|index| {
+        controllers
+            .item(index)
+            .and_downcast::<gtk::EventControllerKey>()
+    }) {
+        if keys.emit_by_name::<bool>("key-pressed", &[&key, &0u32, &mods]) {
+            return "timeline";
+        }
+    }
+    "nobody"
+}
+
+#[test]
+fn page_home_and_end_seek_a_focused_timeline_in_both_key_maps() {
+    crate::test_support::gtk_test(
+        "ui::window::tests::keyboard_dispatch::video_clips::page_home_and_end_seek_a_focused_timeline_in_both_key_maps",
+        || {
+            const DURATION: i64 = 60_000_000;
+            const TICK: i64 = 1_000_000 / crate::media::FPS as i64;
+            // The last frame: seeking to the duration itself would end the stream.
+            const LAST: i64 = 59_966_666;
+            const NONE: ModifierType = ModifierType::empty();
+            const SHIFT: ModifierType = ModifierType::SHIFT_MASK;
+            crate::ui::media::use_test_streams(true);
+            let fixture = KeyboardFixture::with_provider(Rc::new(MediaPreview));
+            std::fs::write(
+                fixture._directory.path().join("b.mp4"),
+                b"\x00\x00\x00\x18ftypmp42\x00\x00\x00\x00mp42isom",
+            )
+            .expect("clip");
+            let preferences = PreferenceManager::shared();
+            preferences.set_tenxer_mode(true);
+            preferences.set_group_by_type(false);
+            preferences.set_preview_autoplay(false);
+            let browser = fixture.view.browser();
+            fixture.preview.observe_browser(&browser);
+            fixture.view.refresh();
+            wait_loaded(&browser, 0);
+            browser.set_folders_first(0, false);
+            browser.set_sort(0, SortKey::Name, SortDirection::Ascending);
+            fixture.view.set_view_mode(BrowserMode::List);
+            move_to_named(&fixture, &browser, "b.mp4");
+            fixture.press(Key::l, NONE);
+            settle("the clip", || {
+                preview_has_focus(&fixture) && shows_clip(&fixture, "b.mp4")
+            });
+            let media = fixture.preview.media_for_test().expect("video stream");
+            settle("a seekable stream", || {
+                media.is_seekable() && media.duration() == DURATION
+            });
+            let timeline = widget_with_class(&fixture.preview.widget(), "preview-waveform")
+                .expect("timeline");
+
+            let mut mismatches = Vec::new();
+            for tenxer in [true, false] {
+                preferences.set_tenxer_mode(tenxer);
+                timeline.grab_focus();
+                settle("timeline focus", || {
+                    gtk::prelude::RootExt::focus(&fixture.window).as_ref() == Some(&timeline)
+                });
+                // The default map leaves these keys to the timeline, whose own
+                // tests cover every key; one seek and one jump prove the route.
+                for (in_default_map, start, key, mods, expected) in [
+                    (false, 20_000_000, Key::Right, NONE, 25_000_000),
+                    (true, 20_000_000, Key::Right, SHIFT, 50_000_000),
+                    (false, 40_000_000, Key::Left, SHIFT, 10_000_000),
+                    (false, 20_000_000, Key::Page_Up, NONE, 50_000_000),
+                    (false, 40_000_000, Key::Page_Down, NONE, 10_000_000),
+                    (false, 20_000_000, Key::Home, NONE, 0),
+                    (false, 20_000_000, Key::_0, NONE, 0),
+                    (false, 20_000_000, Key::End, NONE, LAST),
+                    (true, 20_000_000, Key::G, SHIFT, LAST),
+                ] {
+                    if !tenxer && !in_default_map {
+                        continue;
+                    }
+                    media.seek(start);
+                    settle("the starting position", || {
+                        (media.timestamp() - start).abs() <= TICK
+                    });
+                    let owner = press_through(&fixture, key, mods);
+                    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+                    while (media.timestamp() - expected).abs() > TICK
+                        && std::time::Instant::now() < deadline
+                    {
+                        glib::MainContext::default().iteration(false);
+                        std::thread::sleep(std::time::Duration::from_millis(2));
+                    }
+                    let timestamp = media.timestamp();
+                    if (timestamp - expected).abs() > TICK {
+                        mismatches.push(format!(
+                            "10xer={tenxer} {mods:?}+{}: handled by {owner}, timestamp={timestamp}, expected≈{expected}",
+                            key.name().unwrap_or_default()
+                        ));
+                    }
+                }
+                // Paging, jump and volume keys are not Ctrl+Alt media shortcuts.
+                for key in [Key::End, Key::Page_Up, Key::_0, Key::plus] {
+                    media.seek(20_000_000);
+                    settle("the starting position", || {
+                        (media.timestamp() - 20_000_000).abs() <= TICK
+                    });
+                    preferences.set_preview_audio(0.5, false);
+                    let owner =
+                        press_through(&fixture, key, ModifierType::CONTROL_MASK | ModifierType::ALT_MASK);
+                    let observed = (media.timestamp(), preferences.preview_volume());
+                    if (observed.0 - 20_000_000).abs() > TICK || (observed.1 - 0.5).abs() > 0.001 {
+                        mismatches.push(format!(
+                            "10xer={tenxer} Ctrl+Alt+{}: handled by {owner}, (timestamp, volume)={observed:?}",
+                            key.name().unwrap_or_default()
+                        ));
+                    }
+                }
+                for (in_default_map, start, key, mods, volume, muted) in [
+                    (true, 0.5, Key::plus, SHIFT, 0.6, false),
+                    (false, 0.5, Key::equal, NONE, 0.6, false),
+                    (false, 0.5, Key::minus, NONE, 0.4, false),
+                    (false, 0.1, Key::KP_Subtract, NONE, 0.1, true),
+                ] {
+                    if !tenxer && !in_default_map {
+                        continue;
+                    }
+                    preferences.set_preview_audio(start, false);
+                    let owner = press_through(&fixture, key, mods);
+                    let observed = (preferences.preview_volume(), preferences.preview_muted());
+                    if (observed.0 - volume).abs() > 0.001 || observed.1 != muted {
+                        mismatches.push(format!(
+                            "10xer={tenxer} {mods:?}+{}: handled by {owner}, (volume, muted)={observed:?}, \
+                             expected ({volume}, {muted})",
+                            key.name().unwrap_or_default()
+                        ));
+                    }
+                }
+            }
+            crate::ui::media::use_test_streams(false);
+            assert!(mismatches.is_empty(), "{}", mismatches.join("\n"));
+        },
+    );
+}

@@ -226,7 +226,7 @@ struct PreviewState {
     claim_on_resume: Cell<bool>,
 }
 
-pub(in crate::ui) use keyboard::{DocumentScroll, PreviewSurface};
+pub(in crate::ui) use keyboard::{DocumentScroll, PreviewSurface, is_media_key};
 
 #[cfg(test)]
 mod tests;
@@ -696,14 +696,15 @@ impl PreviewDrawer {
         use gtk::gdk::ModifierType as Modifiers;
         // `<` and `>` need Shift on most layouts.
         let shift_allowed = matches!(key, gtk::gdk::Key::less | gtk::gdk::Key::greater);
-        if !modifiers.contains(Modifiers::CONTROL_MASK | Modifiers::ALT_MASK)
+        if !keyboard::has_media_shortcut(key)
+            || !modifiers.contains(Modifiers::CONTROL_MASK | Modifiers::ALT_MASK)
             || modifiers.contains(Modifiers::SUPER_MASK)
             || (modifiers.contains(Modifiers::SHIFT_MASK) && !shift_allowed)
             || !self.has_video()
         {
             return false;
         }
-        self.state.media_command(key)
+        self.state.media_command(key, false)
     }
 
     pub fn show(&self, entry: FileEntry, depth: Option<usize>) {
@@ -764,7 +765,9 @@ impl Drop for PreviewState {
 }
 
 impl PreviewState {
-    fn media_command(self: &Rc<Self>, key: gtk::gdk::Key) -> bool {
+    /// `shifted` selects the Shift variants of [`keyboard::MediaSeek::for_key`] and
+    /// [`keyboard::media_volume_delta`].
+    fn media_command(self: &Rc<Self>, key: gtk::gdk::Key, shifted: bool) -> bool {
         if matches!(key, gtk::gdk::Key::less | gtk::gdk::Key::greater) {
             let step = if key == gtk::gdk::Key::less { -1 } else { 1 };
             return self.step_media(step, true);
@@ -775,49 +778,37 @@ impl PreviewState {
         if let Some(audio) = self.audio.borrow().as_ref() {
             audio.view.end_ease_in();
         }
-        let preferences = super::preferences::PreferenceManager::shared();
         if self.media_volume_slider.borrow().is_some() {
-            match key {
-                gtk::gdk::Key::Up | gtk::gdk::Key::Down => {
-                    let delta = if key == gtk::gdk::Key::Up { 0.1 } else { -0.1 };
-                    let current = if preferences.preview_muted() {
-                        0.0
-                    } else {
-                        preferences.preview_volume()
-                    };
-                    let volume = (current + delta).clamp(0.0, 1.0);
-                    preferences.set_preview_audio(volume, volume == 0.0);
-                    return true;
-                }
-                gtk::gdk::Key::m | gtk::gdk::Key::M => {
-                    if let Some(toggle) = self.media_toggle_mute.borrow().as_ref() {
-                        toggle();
-                        return true;
-                    }
-                }
-                _ => {}
+            let volume = match key {
+                gtk::gdk::Key::Up => Some(MEDIA_VOLUME_STEP),
+                gtk::gdk::Key::Down => Some(-MEDIA_VOLUME_STEP),
+                _ => keyboard::media_volume_delta(key, shifted),
+            };
+            if let Some(delta) = volume {
+                keyboard::step_preview_volume(delta);
+                return true;
+            }
+            if matches!(key, gtk::gdk::Key::m | gtk::gdk::Key::M)
+                && let Some(toggle) = self.media_toggle_mute.borrow().as_ref()
+            {
+                toggle();
+                return true;
             }
         }
         let Some(media) = self.media.borrow().clone() else {
             return false;
         };
-        match key {
-            gtk::gdk::Key::space => {
-                if media.is_playing() {
-                    media.pause();
-                } else {
-                    media.play();
-                }
-                true
+        if key == gtk::gdk::Key::space {
+            if media.is_playing() {
+                media.pause();
+            } else {
+                media.play();
             }
-            gtk::gdk::Key::Left | gtk::gdk::Key::Right if media.is_seekable() => {
-                let delta: i64 = if matches!(key, gtk::gdk::Key::Right) {
-                    5_000_000
-                } else {
-                    -5_000_000
-                };
-                let target = (media.timestamp() + delta).max(0);
-                media.seek(target);
+            return true;
+        }
+        match keyboard::MediaSeek::for_key(key, shifted) {
+            Some(seek) if media.is_seekable() => {
+                media.seek(seek.target(media.timestamp(), media.duration()));
                 true
             }
             _ => false,

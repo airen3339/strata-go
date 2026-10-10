@@ -30,6 +30,97 @@ pub(in crate::ui) enum DocumentScroll {
     End,
 }
 
+/// Where a media key moves the playback position, both on the 10xer Media
+/// surface and on a focused timeline.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum MediaSeek {
+    By(i64),
+    Start,
+    End,
+}
+
+impl MediaSeek {
+    /// `shifted` turns **←** / **→** into page steps. **G** and **0** accept
+    /// Shift, which some layouts need to type them.
+    pub(super) fn for_key(key: gtk::gdk::Key, shifted: bool) -> Option<Self> {
+        use gtk::gdk::Key;
+        let (step, page) = (MEDIA_SEEK_STEP_US, MEDIA_SEEK_PAGE_US);
+        Some(match key {
+            Key::Left | Key::KP_Left => Self::By(if shifted { -page } else { -step }),
+            Key::Right | Key::KP_Right => Self::By(if shifted { page } else { step }),
+            Key::G => Self::End,
+            Key::_0 => Self::Start,
+            _ if shifted => return None,
+            Key::Page_Up | Key::KP_Page_Up => Self::By(page),
+            Key::Page_Down | Key::KP_Page_Down => Self::By(-page),
+            Key::Home | Key::KP_Home => Self::Start,
+            Key::End | Key::KP_End => Self::End,
+            _ => return None,
+        })
+    }
+
+    pub(super) fn target(self, timestamp: i64, duration: i64) -> i64 {
+        let last = media_last_frame(duration);
+        match self {
+            Self::By(delta) => (timestamp + delta).clamp(0, last),
+            Self::Start => 0,
+            Self::End => last,
+        }
+    }
+}
+
+/// The volume change for **+** / **=** / **-** and the keypad's **+** / **-**.
+/// **+** accepts Shift, which most layouts need to type it.
+pub(super) fn media_volume_delta(key: gtk::gdk::Key, shifted: bool) -> Option<f64> {
+    use gtk::gdk::Key;
+    match key {
+        Key::plus => Some(MEDIA_VOLUME_STEP),
+        _ if shifted => None,
+        Key::equal | Key::KP_Add => Some(MEDIA_VOLUME_STEP),
+        Key::minus | Key::KP_Subtract => Some(-MEDIA_VOLUME_STEP),
+        _ => None,
+    }
+}
+
+/// Keys that also work with **Ctrl+Alt** from outside the preview.
+pub(super) fn has_media_shortcut(key: gtk::gdk::Key) -> bool {
+    use gtk::gdk::Key;
+    matches!(
+        key,
+        Key::space
+            | Key::Left
+            | Key::Right
+            | Key::Up
+            | Key::Down
+            | Key::m
+            | Key::M
+            | Key::less
+            | Key::greater
+    )
+}
+
+/// Keys the 10xer Media surface claims even when the stream cannot act on them.
+/// `<` and `>` need Shift on most layouts.
+pub(in crate::ui) fn is_media_key(key: gtk::gdk::Key, shifted: bool) -> bool {
+    use gtk::gdk::Key;
+    (has_media_shortcut(key) && (!shifted || matches!(key, Key::less | Key::greater)))
+        || MediaSeek::for_key(key, shifted).is_some()
+        || media_volume_delta(key, shifted).is_some()
+}
+
+/// Steps the shared preview volume; reaching zero mutes and keeps the volume
+/// to restore.
+pub(super) fn step_preview_volume(delta: f64) {
+    let preferences = crate::ui::preferences::PreferenceManager::shared();
+    let current = if preferences.preview_muted() {
+        0.0
+    } else {
+        preferences.preview_volume()
+    };
+    let volume = snapped_volume(current + delta);
+    preferences.set_preview_audio(volume, volume == 0.0);
+}
+
 impl PreviewDrawer {
     /// The browser whose Miller columns yield their keyboard-destination bar
     /// while the drawer owns the keys.
@@ -65,8 +156,8 @@ impl PreviewDrawer {
 
     /// Plain media keys for a keyboard-owned media preview, plus `<` / `>` from
     /// the 10xer listing while an audio preview is open.
-    pub(in crate::ui) fn media_key(&self, key: gtk::gdk::Key) -> bool {
-        self.has_video() && self.state.media_command(key)
+    pub(in crate::ui) fn media_key(&self, key: gtk::gdk::Key, shifted: bool) -> bool {
+        self.has_video() && self.state.media_command(key, shifted)
     }
 
     pub(in crate::ui) fn archive_at_root(&self) -> bool {
