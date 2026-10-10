@@ -52,6 +52,94 @@ fn shared_origin_gesture(surface: &gtk::Box) -> gtk::GestureDrag {
 }
 
 #[test]
+fn chrome_origin_click_policy_decides_when_a_plain_click_clears() {
+    crate::test_support::gtk_test(
+        "ui::marquee::tests::chrome_origin_click_policy_decides_when_a_plain_click_clears",
+        || {
+            let scroll = gtk::ScrolledWindow::new();
+            let clears = Rc::new(Cell::new(0u32));
+            let counter = clears.clone();
+            let marquee = install(MarqueeSetup {
+                view: gtk::Box::new(gtk::Orientation::Vertical, 0).upcast(),
+                surface: scroll.clone().upcast(),
+                scroll: scroll.clone(),
+                overlay: gtk::Overlay::new(),
+                targets: Rc::new(RefCell::new(Vec::new())),
+                is_item: Rc::new(|_, _, _| false),
+                clear_selection: Rc::new(move || counter.set(counter.get() + 1)),
+                allow_drag: Rc::new(Cell::new(true)),
+            });
+            let state = &marquee.state;
+            // A detached gesture reports no modifiers, so each row sets them after `begin`.
+            let gesture = gtk::GestureDrag::new();
+            for (clear_on_click, modifiers, after_press, after_finish, label) in [
+                (
+                    true,
+                    (false, false),
+                    1,
+                    1,
+                    "clearing origin clears at press and not again on release",
+                ),
+                (
+                    false,
+                    (false, false),
+                    0,
+                    0,
+                    "keeping origin never clears a plain click",
+                ),
+                (
+                    true,
+                    (true, false),
+                    0,
+                    0,
+                    "modified press keeps the selection for a union drag",
+                ),
+            ] {
+                clears.set(0);
+                state.begin((0.0, 0.0), &gesture, clear_on_click);
+                state.modifiers.set(modifiers);
+                state.clear_at_press();
+                assert_eq!(clears.get(), after_press, "{label} (press)");
+                state.finish();
+                assert_eq!(clears.get(), after_finish, "{label}");
+            }
+            clears.set(0);
+            state.begin((0.0, 0.0), &gesture, false);
+            state.dragging.set(true);
+            state.finish();
+            assert_eq!(
+                clears.get(),
+                0,
+                "a drag from a keeping origin never calls clear; apply_selection owns the result"
+            );
+        },
+    );
+}
+
+#[test]
+fn keeping_origins_clear_only_outside_the_content_they_show() {
+    crate::test_support::gtk_test(
+        "ui::marquee::tests::keeping_origins_clear_only_outside_the_content_they_show",
+        || {
+            let slot = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+            let pane = gtk::Box::new(gtk::Orientation::Vertical, 0);
+            let margin = gtk::Box::new(gtk::Orientation::Vertical, 0);
+            pane.append(&margin);
+            slot.append(&pane);
+            let keeps = OriginClick::keeps_selection_within(&pane);
+            for (click, picked, clears, label) in [
+                (&keeps, margin.upcast_ref::<gtk::Widget>(), false, "blank chrome in the pane"),
+                (&keeps, pane.upcast_ref(), false, "the pane itself"),
+                (&keeps, slot.upcast_ref(), true, "the empty slot around a hidden pane"),
+                (&OriginClick::ClearsSelection, margin.upcast_ref(), true, "a clearing origin"),
+            ] {
+                assert_eq!(click.clears_at(picked), clears, "{label}");
+            }
+        },
+    );
+}
+
+#[test]
 fn disabled_controls_are_rejected_like_enabled_ones() {
     crate::test_support::gtk_test(
         "ui::marquee::tests::disabled_controls_are_rejected_like_enabled_ones",
@@ -66,10 +154,14 @@ fn disabled_controls_are_rejected_like_enabled_ones() {
             surface.append(&blank);
             let resolved = Rc::new(Cell::new(0u32));
             let counter = resolved.clone();
-            install_shared_origin_surface(&surface, move |_, _, _, _| {
-                counter.set(counter.get() + 1);
-                None
-            });
+            install_shared_origin_surface(
+                &surface,
+                OriginClick::ClearsSelection,
+                move |_, _, _, _| {
+                    counter.set(counter.get() + 1);
+                    None
+                },
+            );
             let gesture = shared_origin_gesture(&surface);
             let window = gtk::Window::builder()
                 .child(&surface)

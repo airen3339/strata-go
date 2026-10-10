@@ -690,15 +690,19 @@ impl BrowserView {
 
         let weak_state = Rc::downgrade(&state);
         columns::install_horizontal_scroll(&state);
-        super::marquee::install_shared_origin_surface(&state.scroller, move |surface, _, x, _| {
-            let state = weak_state.upgrade()?;
-            let laid_out = state.columns_widget.compute_bounds(surface)?;
-            if x < f64::from(laid_out.x() + laid_out.width()) {
-                return None;
-            }
-            let columns = state.columns.borrow();
-            columns.last().map(|column| column.marquee.clone())
-        });
+        super::marquee::install_shared_origin_surface(
+            &state.scroller,
+            super::marquee::OriginClick::ClearsSelection,
+            move |surface, _, x, _| {
+                let state = weak_state.upgrade()?;
+                let laid_out = state.columns_widget.compute_bounds(surface)?;
+                if x < f64::from(laid_out.x() + laid_out.width()) {
+                    return None;
+                }
+                let columns = state.columns.borrow();
+                columns.last().map(|column| column.marquee.clone())
+            },
+        );
         // Installed last so its capture press runs before the scroller's other gestures.
         columns::install_double_click_guard(&state);
 
@@ -1011,10 +1015,15 @@ impl BrowserView {
     /// Lets a marquee drag begin on blank chrome beside the file panes — the sidebar or
     /// the preview pane — and run into whichever view the current mode shows. The pane
     /// nearest the `edge` the surface sits on is the target, since that is the one such
-    /// a drag runs into.
-    pub(super) fn add_marquee_origin(&self, surface: &impl IsA<gtk::Widget>, edge: gtk::PackType) {
+    /// a drag runs into. `click` decides whether a plain click there clears the selection.
+    pub(super) fn add_marquee_origin(
+        &self,
+        surface: &impl IsA<gtk::Widget>,
+        edge: gtk::PackType,
+        click: super::marquee::OriginClick,
+    ) {
         let weak_state = Rc::downgrade(&self.state);
-        super::marquee::install_shared_origin_surface(surface, move |_, _, _, _| {
+        super::marquee::install_shared_origin_surface(surface, click, move |_, _, _, _| {
             let state = weak_state.upgrade()?;
             // Sidebar-origin events do not reach the browser's pointer controllers.
             state.hovered_column.set(None);

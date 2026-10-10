@@ -242,9 +242,8 @@ pub(super) fn install(setup: MarqueeSetup) -> Marquee {
         let Some(anchor) = translate(&origin, &scroll, (x, y)) else {
             return;
         };
-        state_for_begin.begin(anchor, gesture);
         let clearable = !starts_on_item && super::pointer::is_background(&origin, x, y);
-        state_for_begin.clear_on_click.set(clearable);
+        state_for_begin.begin(anchor, gesture, clearable);
         state_for_begin.clear_at_press();
     });
     connect_drag_progress(&gesture, &state);
@@ -288,7 +287,7 @@ impl Marquee {
                 return;
             };
             gesture.set_state(gtk::EventSequenceState::Claimed);
-            state_for_begin.begin(anchor, gesture);
+            state_for_begin.begin(anchor, gesture, true);
             state_for_begin.clear_at_press();
         });
         connect_drag_progress(&gesture, &self.state);
@@ -361,13 +360,41 @@ fn hosts_drag_source(widget: &gtk::Widget) -> bool {
         .any(|controller| controller.is::<gtk::DragSource>())
 }
 
-/// Lets one long-lived surface — the blank area beside the last open column, or the
-/// sidebar — begin a marquee drag on whichever collection view `resolve` picks for
-/// the press position. Unlike [`Marquee::add_origin_surface`] the surface outlives
-/// the views it feeds, so the target is resolved per drag. Presses landing on a
-/// control the surface hosts are filtered out before `resolve` is consulted.
+/// What a plain click on a shared marquee origin does when it never becomes a drag.
+#[derive(Clone)]
+pub(super) enum OriginClick {
+    /// Blank chrome beside the panes acts like pane background.
+    ClearsSelection,
+    /// Presses inside this widget, chrome that shows the selection such as an open
+    /// preview pane, never clear it; only a drag past the threshold changes it. The
+    /// rest of the surface, such as an empty reserved preview slot, still clears.
+    KeepsSelectionWithin(glib::WeakRef<gtk::Widget>),
+}
+
+impl OriginClick {
+    pub(super) fn keeps_selection_within(content: &impl IsA<gtk::Widget>) -> Self {
+        Self::KeepsSelectionWithin(content.upcast_ref::<gtk::Widget>().downgrade())
+    }
+
+    fn clears_at(&self, picked: &gtk::Widget) -> bool {
+        match self {
+            Self::ClearsSelection => true,
+            Self::KeepsSelectionWithin(content) => !content
+                .upgrade()
+                .is_some_and(|content| *picked == content || picked.is_ancestor(&content)),
+        }
+    }
+}
+
+/// Lets one long-lived surface — the blank area beside the last open column, the
+/// sidebar, or the preview pane — begin a marquee drag on whichever collection view
+/// `resolve` picks for the press position. Unlike [`Marquee::add_origin_surface`] the
+/// surface outlives the views it feeds, so the target is resolved per drag. Presses
+/// landing on a control the surface hosts are filtered out before `resolve` is
+/// consulted, and `click` decides whether a plain click clears the selection.
 pub(super) fn install_shared_origin_surface(
     surface: &impl IsA<gtk::Widget>,
+    click: OriginClick,
     resolve: impl Fn(&gtk::Widget, &gtk::Widget, f64, f64) -> Option<Marquee> + 'static,
 ) {
     let surface = surface.clone().upcast::<gtk::Widget>();
@@ -398,7 +425,7 @@ pub(super) fn install_shared_origin_surface(
             return;
         };
         gesture.set_state(gtk::EventSequenceState::Claimed);
-        state.begin(anchor, gesture);
+        state.begin(anchor, gesture, click.clears_at(&picked));
         state.clear_at_press();
         target_for_begin.replace(Some(state));
     });
@@ -473,7 +500,13 @@ impl MarqueeState {
         self.overlay.upgrade()
     }
 
-    fn begin(self: &Rc<Self>, anchor: (f64, f64), gesture: &gtk::GestureDrag) {
+    /// `clear_on_click` arms the plain-press clear that [`Self::clear_at_press`] applies.
+    fn begin(
+        self: &Rc<Self>,
+        anchor: (f64, f64),
+        gesture: &gtk::GestureDrag,
+        clear_on_click: bool,
+    ) {
         self.end();
         let modifiers = gesture.current_event_state();
         self.press_position
@@ -499,7 +532,7 @@ impl MarqueeState {
         }
         self.active.set(true);
         self.dragging.set(false);
-        self.clear_on_click.set(true);
+        self.clear_on_click.set(clear_on_click);
         self.anchor.set(content_point(&scroll, anchor));
         self.item_bounds.borrow_mut().clear();
         self.pointer.set(anchor);

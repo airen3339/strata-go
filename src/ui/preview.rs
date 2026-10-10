@@ -660,6 +660,12 @@ impl PreviewDrawer {
         self.state.slot.clone().upcast()
     }
 
+    /// The pane inside [`Self::widget`]'s slot. It is drawn only while the preview
+    /// shows something, such as content or its placeholder; otherwise the slot is blank.
+    pub(in crate::ui) fn pane_widget(&self) -> gtk::Widget {
+        self.state.pane.clone().upcast()
+    }
+
     pub fn is_open(&self) -> bool {
         self.state.revealer.reveals_child()
     }
