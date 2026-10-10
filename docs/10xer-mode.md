@@ -134,14 +134,16 @@ every other key is typed or edits the text.
 | Key | Document | Archive tree | Password field | Media |
 | --- | --- | --- | --- | --- |
 | **j** / **k** / **↑** / **↓** | Scroll | Move the member highlight | Typed / text editing | **↑** / **↓** volume; **j** / **k** swallowed |
-| **h** / **←** | Return to the listing | Archive parent; at the archive root, return to the listing | Typed / caret | **h** returns to the listing; **←** seeks −5 s |
-| **l** / **→** | Swallowed | Open the highlighted folder; a member file does nothing | Typed / caret | **→** seeks +5 s; **l** swallowed |
+| **h** / **←** | Return to the listing | Archive parent; at the archive root, return to the listing | Typed / caret | **h** returns to the listing; **←** seeks −5 s, **Shift+←** −30 s |
+| **l** / **→** | Swallowed | Open the highlighted folder; a member file does nothing | Typed / caret | **→** seeks +5 s, **Shift+→** +30 s; **l** swallowed |
 | **Enter** | Open the file from the listing | Same as **l** | Unlock | Open the file from the listing; a video opens in the default player where the preview stopped |
 | **Space** | Swallowed | Swallowed | Typed | Play / pause |
 | **i** | Close the drawer | Close the drawer | Typed | Close the drawer |
-| **Home** / **G** / **End** | Top / bottom | First / last member | Caret (**G** typed) | Swallowed |
-| Paging keys | Scroll half / full page | Swallowed | Text editing | Swallowed |
+| **Home** / **G** / **End** | Top / bottom | First / last member | Caret (**G** typed) | Seek to the start / the last frame |
+| Paging keys | Scroll half / full page | Swallowed | Text editing | **PgUp** / **PgDn** seek +30 / −30 s; **Ctrl+U** / **D** / **B** / **F** swallowed |
 | **/** | Find in the document; see [document previews](document-previews.md#text-selection-and-find) | Listing search prompt | Typed | Listing search prompt |
+| **0** | Swallowed | Swallowed | Typed | Seek to the start |
+| **+** / **=** / **-** | Swallowed | Swallowed | Typed | Volume up / down |
 | **m** | Swallowed | Swallowed | Typed | Mute / unmute |
 | **<** / **>** | Swallowed | Swallowed | Typed | Previous / next file of the same type in the listing; playback continues |
 | **J** / **K** | Scroll | Scroll | Typed | Swallowed |
@@ -151,10 +153,12 @@ every other key is typed or edits the text.
 Returning to the listing keeps the drawer open and lands on the same cursor.
 Closing with **Esc** or **i** also returns the keys to the listing, so the
 Miller column regains its destination bar. **i** therefore toggles the preview
-from either side: open from the listing, closed from the preview. A
-focused preview button or slider (reached with **Tab** or the pointer) keeps
-GTK's own **Space** / **Enter** / arrow handling; **Shift+Tab** and **Esc** still
-return or close. Browsing archive members never extracts them, opens a listing
+from either side: open from the listing, closed from the preview. A focused
+media timeline takes the Media keys above. A focused preview button or slider
+(reached with **Tab** or the pointer) keeps GTK's own **Space** / **Enter** /
+arrow handling; **Shift+Tab** and **Esc** still return or close. The volume
+slider steps 0.1 with the arrows and 0.2 with **PgUp** / **PgDn**; **Home**
+mutes and **End** sets full volume. Browsing archive members never extracts them, opens a listing
 file, or changes the listing's cursor or fill. Unlocking a password-protected
 archive hands the keys to its member tree. **Ctrl+A** / **Ctrl+C** select all
 and copy the document's text, never listing items; with **l** the keys go to the
