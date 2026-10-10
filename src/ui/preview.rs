@@ -57,6 +57,24 @@ const PDF_MIN_ZOOM: f64 = 1.0;
 const PDF_MAX_ZOOM: f64 = 4.0;
 const MEDIA_PLUGIN_INSTALL_COMMAND: &str =
     "sudo pacman -S --needed gst-plugins-base gst-plugins-good";
+// Media keys and the seek and volume slider increments share these steps.
+const MEDIA_SEEK_STEP_US: i64 = 5_000_000;
+const MEDIA_SEEK_PAGE_US: i64 = 30_000_000;
+const MEDIA_VOLUME_STEP: f64 = 0.1;
+const MEDIA_VOLUME_PAGE: f64 = 0.2;
+
+/// Seeking exactly to the duration would end the stream, so media keys and
+/// sliders stop on the last frame.
+fn media_last_frame(duration: i64) -> i64 {
+    let duration = duration.max(0) as u64;
+    crate::media::timestamp(crate::media::seek_tick(duration, duration)) as i64
+}
+
+/// Repeated float steps would stop just short of zero and never mute, so
+/// stepped volumes land on the step grid.
+fn snapped_volume(volume: f64) -> f64 {
+    ((volume / MEDIA_VOLUME_STEP).round() * MEDIA_VOLUME_STEP).clamp(0.0, 1.0)
+}
 
 pub(crate) fn preview_target(entry: Option<FileEntry>) -> Option<FileEntry> {
     entry.filter(entry_supports_quick_preview)
@@ -2603,6 +2621,7 @@ impl PreviewState {
             .build();
         seek.add_css_class("preview-media-seek");
         seek.set_range(0.0, 0.0);
+        seek.set_increments(MEDIA_SEEK_STEP_US as f64, MEDIA_SEEK_PAGE_US as f64);
         seek.set_sensitive(false);
 
         let weak_media = media.downgrade();
@@ -2660,6 +2679,21 @@ impl PreviewState {
             }
         });
         seek.add_controller(drag);
+        // A drag seeks once on release; keys, paging and the wheel seek now,
+        // and the knob follows the stream's position.
+        let media = media.clone();
+        seek.connect_change_value(move |_, scroll, value| {
+            if (scroll == gtk::ScrollType::Jump && seeking.get()) || !media.is_seekable() {
+                return glib::Propagation::Proceed;
+            }
+            let target = (value as i64).clamp(0, media_last_frame(media.duration()));
+            // Touchpad scrolling sends tiny jumps; one within the current frame
+            // would only restart the decoder.
+            if (target - media.timestamp()).abs() >= crate::media::timestamp(1) as i64 {
+                media.seek(target);
+            }
+            glib::Propagation::Stop
+        });
     }
 
     fn adopt_volume_controls(&self, volume: &VolumeControls) {
@@ -3146,6 +3180,7 @@ impl VolumeControls {
             .build();
         slider.add_css_class("preview-media-volume");
         slider.set_range(0.0, 1.0);
+        slider.set_increments(MEDIA_VOLUME_STEP, MEDIA_VOLUME_PAGE);
         slider.set_value(if muted {
             0.0
         } else {
@@ -3193,6 +3228,17 @@ impl VolumeControls {
             toggle_for_click();
         });
 
+        // Keys and trough clicks step on the grid; a drag stays free.
+        slider.connect_change_value(|scale, scroll, value| {
+            if matches!(
+                scroll,
+                gtk::ScrollType::Jump | gtk::ScrollType::Start | gtk::ScrollType::End
+            ) {
+                return glib::Propagation::Proceed;
+            }
+            scale.set_value(snapped_volume(value));
+            glib::Propagation::Stop
+        });
         let preferences = preferences.clone();
         slider.connect_value_changed(move |scale| {
             if !updating_slider.get() {
