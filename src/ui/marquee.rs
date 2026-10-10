@@ -274,9 +274,7 @@ impl Marquee {
             let Some(surface) = gesture.widget() else {
                 return;
             };
-            let accepted = surface
-                .pick(x, y, gtk::PickFlags::DEFAULT)
-                .is_some_and(|picked| is_inert_chrome(&surface, &picked));
+            let accepted = inert_chrome_at(&surface, x, y).is_some();
             let Some(view) = state_for_begin.view() else {
                 return;
             };
@@ -308,6 +306,15 @@ impl Marquee {
     }
 }
 
+/// The widget under a press at (`x`, `y`) on `surface` when it is blank chrome rather
+/// than a control. Insensitive widgets are picked so a disabled button is rejected
+/// like an enabled one instead of exposing the box behind it.
+fn inert_chrome_at(surface: &gtk::Widget, x: f64, y: f64) -> Option<gtk::Widget> {
+    surface
+        .pick(x, y, gtk::PickFlags::INSENSITIVE)
+        .filter(|picked| is_inert_chrome(surface, picked))
+}
+
 /// Chrome such as a pane header can begin a marquee drag, but only where the press
 /// lands on the container itself rather than on a button, entry, or other control.
 /// Item containers count as controls: the preview pane hosts lists of its own whose
@@ -336,12 +343,22 @@ fn is_inert_chrome(surface: &gtk::Widget, picked: &gtk::Widget) -> bool {
                 widget.accessible_role(),
                 gtk::AccessibleRole::Slider | gtk::AccessibleRole::Img
             )
+            // Chrome that drags a file, such as the preview header handle, keeps its press.
+            || hosts_drag_source(&widget)
         {
             return false;
         }
         current = widget.parent();
     }
     false
+}
+
+fn hosts_drag_source(widget: &gtk::Widget) -> bool {
+    widget
+        .observe_controllers()
+        .iter::<glib::Object>()
+        .flatten()
+        .any(|controller| controller.is::<gtk::DragSource>())
 }
 
 /// Lets one long-lived surface — the blank area beside the last open column, or the
@@ -361,12 +378,9 @@ pub(super) fn install_shared_origin_surface(
     let surface_for_begin = surface.clone();
     gesture.connect_drag_begin(move |gesture, x, y| {
         target_for_begin.replace(None);
-        let Some(picked) = surface_for_begin.pick(x, y, gtk::PickFlags::DEFAULT) else {
+        let Some(picked) = inert_chrome_at(&surface_for_begin, x, y) else {
             return;
         };
-        if !is_inert_chrome(&surface_for_begin, &picked) {
-            return;
-        }
         let Some(marquee) = resolve(&surface_for_begin, &picked, x, y) else {
             return;
         };
