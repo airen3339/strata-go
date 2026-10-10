@@ -2730,10 +2730,15 @@ paned > separator {
   background: transparent;
 }
 
+/* The row's spacing lives in `.preview-archive-row`, so clicks anywhere on a row reach its gesture. */
+.preview-archive-list > row {
+  padding: 0;
+}
+
 .preview-archive-row {
   background: transparent;
   border: none;
-  padding: 3px 10px;
+  padding: 5px 12px;
 }
 
 .preview-archive-row:hover {

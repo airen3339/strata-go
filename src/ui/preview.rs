@@ -1742,7 +1742,13 @@ impl PreviewState {
                 state.navigate_archive(depth);
             }
         });
-        let browser = archive::ArchiveBrowser::new(tree, navigate);
+        let weak = Rc::downgrade(self);
+        let open = Rc::new(move |index: usize| {
+            if let Some(state) = weak.upgrade() {
+                state.open_archive_row(index as u32);
+            }
+        });
+        let browser = archive::ArchiveBrowser::new(tree, navigate, open);
         if !focus_tree
             && !self.content.has_focus()
             && self
@@ -1757,8 +1763,17 @@ impl PreviewState {
         let list = browser.list().clone();
         self.content.append(browser.root());
         let weak = Rc::downgrade(self);
+        // GTK activates on a double-click's second press; the first release already opened it.
         list.connect_activate(move |_, position| {
-            if let Some(state) = weak.upgrade() {
+            let Some(state) = weak.upgrade() else {
+                return;
+            };
+            let pointer_pending = state
+                .archive_browser
+                .borrow()
+                .as_ref()
+                .is_some_and(archive::ArchiveBrowser::pointer_activation_pending);
+            if !pointer_pending {
                 state.open_archive_row(position);
             }
         });
