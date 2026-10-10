@@ -83,6 +83,51 @@ fn other_users_home_shorthand_is_rejected() {
 }
 
 #[test]
+fn typed_absolute_and_home_paths_resolve_dot_segments_lexically() {
+    use std::os::unix::ffi::OsStrExt;
+
+    let home = Path::new("/home/fixture");
+    for (input, expected) in [
+        ("/fixture/documents/../pictures", "/fixture/pictures"),
+        ("~/../", "/home"),
+        ("~/./Documents/../Music/", "/home/fixture/Music"),
+        ("/tmp/./../tmp/", "/tmp"),
+        ("/..", "/"),
+        ("/fixture/report.pdf/..", "/fixture"),
+    ] {
+        assert_eq!(
+            location_from_input_with_home(input, home)
+                .map(|location| location.native_path().map(Path::to_path_buf)),
+            Ok(Some(PathBuf::from(expected))),
+            "{input}"
+        );
+    }
+
+    let dotted_home = Path::new("/home/other/../fixture");
+    for input in ["~", "~/"] {
+        assert_eq!(
+            location_from_input_with_home(input, dotted_home)
+                .map(|location| location.native_path().map(Path::to_path_buf)),
+            Ok(Some(PathBuf::from("/home/fixture"))),
+            "{input}"
+        );
+    }
+
+    let home = Path::new(OsStr::from_bytes(b"/home/f\xffx"));
+    for (input, expected) in [
+        ("~/Documents/..", home.to_path_buf()),
+        ("~/Documents/../Music", home.join("Music")),
+    ] {
+        assert_eq!(
+            location_from_input_with_home(input, home)
+                .map(|location| location.native_path().map(Path::to_path_buf)),
+            Ok(Some(expected)),
+            "{input}"
+        );
+    }
+}
+
+#[test]
 fn sidebar_location_navigation_validates_uris_but_navigates_native_paths_directly() {
     let remote_browser = Browser::new(Rc::new(NotMountedFileSource));
     let events = Rc::new(RefCell::new(Vec::new()));
@@ -178,9 +223,14 @@ fn relative_input_resolves_only_against_a_given_native_folder() {
         ("./child/../../sibling", Location::local("/sibling")),
         ("../../..", Location::local("/")),
         ("/absolute", Location::local("/absolute")),
+        ("/absolute/../sibling", Location::local("/sibling")),
         (
             "~/Documents",
             Location::local(glib::home_dir().join("Documents")),
+        ),
+        (
+            "~/Documents/../Music",
+            Location::local(glib::home_dir().join("Music")),
         ),
         (
             "smb://host/share/sub",
@@ -658,6 +708,38 @@ fn location_input_naming_a_file_inside_an_open_directory_selects_it_in_place() {
 }
 
 #[test]
+fn location_input_naming_a_file_through_dot_segments_reveals_it_inside_its_parent() {
+    for (start, parent_already_open) in [("/start", false), ("/fixture", true)] {
+        let file = Location::local("/fixture/report.pdf");
+        let browser = Browser::new(Rc::new(TypedPathSource::containing(
+            file.clone(),
+            vec![
+                listing_file(Location::local("/fixture/notes.txt"), "notes.txt", false),
+                listing_file(file.clone(), "report.pdf", false),
+            ],
+        )));
+        let events = Rc::new(RefCell::new(Vec::new()));
+        let observed = events.clone();
+        browser.observe(move |event| observed.borrow_mut().push(event.clone()));
+        browser.navigate(Location::local(start));
+        events.borrow_mut().clear();
+
+        assert_eq!(browser.navigate_input("/fixture/a/../report.pdf"), Ok(()));
+
+        assert_eq!(
+            browser.active_location(),
+            Some(Location::local("/fixture")),
+            "{start}"
+        );
+        assert_eq!(selected_locations(&browser), vec![file], "{start}");
+        let reopened = events.borrow().iter().any(|event| {
+            matches!(event, BrowserEvent::Reset | BrowserEvent::ColumnAdded { .. })
+        });
+        assert_eq!(reopened, !parent_already_open, "{start}");
+    }
+}
+
+#[test]
 fn location_input_uses_loaded_metadata_to_reveal_hidden_files() {
     let file = Location::local("/fixture/secret");
     let browser = Browser::new(Rc::new(TypedPathSource::containing(
@@ -748,4 +830,25 @@ fn location_input_naming_a_file_reports_a_rejected_parent() {
             error: LocationValidationError::Inaccessible
         }
     )));
+}
+
+#[test]
+fn location_input_with_dot_segments_opens_the_resolved_folder_and_parent_moves_toward_the_root() {
+    let browser = Browser::new(Rc::new(FakeFileSource));
+    browser.navigate(Location::local("/start"));
+
+    assert_eq!(browser.navigate_input("/fixture/documents/../pictures"), Ok(()));
+
+    let active = browser.active_location();
+    assert_eq!(active, Some(Location::local("/fixture/pictures")));
+    let active = active.expect("active location");
+    assert_eq!(active.parent(), Some(Location::local("/fixture")));
+    assert_eq!(
+        active.breadcrumbs(),
+        vec![
+            Location::local("/"),
+            Location::local("/fixture"),
+            Location::local("/fixture/pictures"),
+        ]
+    );
 }

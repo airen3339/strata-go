@@ -4653,10 +4653,12 @@ fn location_from_input_with_home(
     home: &Path,
 ) -> Result<Location, LocationValidationError> {
     if input == "~" {
-        return Ok(Location::local(home));
+        return Ok(Location::local(lexically_normalized(home)));
     }
     if let Some(relative) = input.strip_prefix("~/") {
-        return Ok(Location::local(home.join(relative.trim_matches('/'))));
+        return Ok(Location::local(lexically_normalized(
+            &home.join(relative.trim_matches('/')),
+        )));
     }
     if input.starts_with('~') {
         return Err(LocationValidationError::UnsupportedShorthand(
@@ -4664,10 +4666,7 @@ fn location_from_input_with_home(
         ));
     }
     if !is_uri_like(input) {
-        // stat reports ENOTDIR for a file with a trailing slash, bypassing file reveal.
-        let trimmed = input.trim_end_matches('/');
-        let path = if trimmed.is_empty() { "/" } else { trimmed };
-        return Ok(Location::local(PathBuf::from(path)));
+        return Ok(Location::local(lexically_normalized(Path::new(input))));
     }
     let scheme_end = input.find("://").unwrap_or_default();
     let scheme = &input[..scheme_end];

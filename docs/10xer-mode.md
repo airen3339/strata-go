@@ -462,7 +462,8 @@ Typing never navigates; it lists matching folders through the
 [folder picker](#folder-picker). **Enter**, or a click, opens the chosen folder.
 When nothing is listed, such as for a URI or a path no folder matches, or when
 the typed path names an existing file or folder, **Enter** submits the text through the same navigation as the location bar
-(**Ctrl+L**): a path naming a file opens its folder with the file selected, and
+(**Ctrl+L**). `.` and `..` in a local path resolve as text, without checking the
+filesystem. A path naming a file opens its folder with the file selected, and
 URI input is submitted unchanged, except that a password typed in the URI moves
 into the mount operation instead of the location. A missing or unreachable
 destination shows the location bar's error and leaves the current folder open.
@@ -588,7 +589,7 @@ Other text with a colon, such as `10:30`, is an ordinary query.
 Text that starts as a path (`/`, `~`, `~/`, `./`, `../`, or just `..`) moves the
 search: everything through its last `/` names the folder to search below, and
 the rest is the query, so `/etc/ss` searches below `/etc` for `ss` and
-`~/dev/ str` searches `~/dev`. `.` and `..` resolve like a shell's `cd`. With
+`~/dev/ str` searches `~/dev`. `.` and `..` resolve as text. With
 nothing after the last `/`, as in `/etc/`, the list starts with that folder
 itself (unless a move or copy would refuse it), then every folder below it, the
 most visited first and then the shallowest. Without an open local folder, such
