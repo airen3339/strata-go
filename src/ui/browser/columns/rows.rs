@@ -201,7 +201,10 @@ pub(super) fn column_rows(
                 } else {
                     let source_position = map_for_drag.source_position(position)?;
                     let entry = state.browser.entry_at(depth, source_position)?;
-                    if state.browser.is_position_selected(depth, source_position) {
+                    if state
+                        .browser
+                        .active_selection_contains(depth, source_position)
+                    {
                         state.browser.selected_entries()
                     } else {
                         vec![entry]

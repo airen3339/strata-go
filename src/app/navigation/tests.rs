@@ -1769,6 +1769,20 @@ fn moving_between_parent_and_child_columns_restores_their_selections() {
 }
 
 #[test]
+fn dragging_an_open_parent_folder_does_not_claim_the_child_selection() {
+    let mut state = NavigationState::default();
+    state.navigate(location("/home"), RequestId(1));
+    state.apply_batch(RequestId(1), vec![entry("/home/projects")]);
+    assert!(state.select(0, 0));
+    assert!(state.descend(0, location("/home/projects"), RequestId(2)));
+    state.apply_batch(RequestId(2), vec![entry("/home/projects/strata")]);
+    assert!(state.select(1, 0));
+
+    assert!(!state.active_selection_contains(0, 0));
+    assert!(state.active_selection_contains(1, 0));
+}
+
+#[test]
 fn closing_the_deepest_column_preserves_the_parent_selection() {
     let mut state = NavigationState::default();
     state.navigate(location("/home"), RequestId(1));

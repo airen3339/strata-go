@@ -5,6 +5,8 @@ mod tests;
 
 use gio::prelude::*;
 
+use std::{collections::HashSet, path::Path};
+
 use crate::model::Location;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -179,52 +181,35 @@ pub(crate) fn transferable_drop_sources(dest: &Location, sources: &[Location]) -
         return Vec::new();
     }
 
-    if let Some(dest_path) = dest.native_path() {
-        let mut ancestors = std::collections::HashSet::new();
-        let mut curr = dest_path.parent();
-        while let Some(parent) = curr {
-            ancestors.insert(parent);
-            curr = parent.parent();
-        }
-
-        let all_native = sources.iter().all(|s| s.native_path().is_some());
-        if all_native {
-            if let Some(first_parent) = sources[0].native_path().and_then(|p| p.parent()) {
-                let same_parent = sources
-                    .iter()
-                    .all(|s| s.native_path().and_then(|p| p.parent()) == Some(first_parent));
-                if same_parent {
-                    if dest_path == first_parent {
-                        return Vec::new();
-                    }
-                    if !dest_path.starts_with(first_parent)
-                        && dest_path.parent() != Some(first_parent)
-                    {
-                        return sources.to_vec();
-                    }
-                }
-            }
-
-            return sources
+    if let Some(dest_path) = dest.native_path()
+        && sources.iter().all(|source| source.native_path().is_some())
+    {
+        let first_parent = sources[0].native_path().and_then(Path::parent);
+        if let Some(first_parent) = first_parent
+            && sources
                 .iter()
-                .filter(|location| {
-                    let Some(source_path) = location.native_path() else {
-                        return false;
-                    };
-                    if source_path == dest_path {
-                        return false;
-                    }
-                    if source_path.parent() == Some(dest_path) {
-                        return false;
-                    }
-                    if ancestors.contains(source_path) {
-                        return false;
-                    }
-                    true
-                })
-                .cloned()
-                .collect();
+                .all(|source| source.native_path().and_then(Path::parent) == Some(first_parent))
+        {
+            if dest_path == first_parent {
+                return Vec::new();
+            }
+            if !dest_path.starts_with(first_parent) {
+                return sources.to_vec();
+            }
         }
+
+        let ancestors: HashSet<&Path> = dest_path.ancestors().skip(1).collect();
+        return sources
+            .iter()
+            .filter(|location| {
+                location.native_path().is_some_and(|source_path| {
+                    source_path != dest_path
+                        && source_path.parent() != Some(dest_path)
+                        && !ancestors.contains(source_path)
+                })
+            })
+            .cloned()
+            .collect();
     }
 
     let destination = gio_file(dest);

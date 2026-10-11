@@ -40,31 +40,24 @@ impl DropVolumeQuery {
     fn with_mounts(dest: &Location, sources: &[Location], mounts: &MountTable) -> Self {
         let mut seen = HashSet::new();
         let mut source_parents = Vec::new();
-        let mut last_parent: Option<(&Path, Location, bool)> = None;
-
+        let mut last_plain_parent: Option<&Path> = None;
         for source in sources {
-            if let Some(path) = source.native_path()
-                && let Some(parent_path) = path.parent()
-                && let Some((last_p, _, has_mount)) = &last_parent
-                && *last_p == parent_path
-                && !*has_mount
-            {
+            let parent_path = source.native_path().and_then(Path::parent);
+            // A directory without mount points directly inside is every child's volume directory.
+            if parent_path.is_some() && parent_path == last_plain_parent {
                 continue;
             }
-
             let parent = source_volume_directory(source, mounts);
-            if let Some(path) = source.native_path()
-                && let Some(parent_path) = path.parent()
+            if let Some(parent_path) = parent_path
                 && parent.native_path() == Some(parent_path)
+                && !mounts.has_mount_inside(parent_path)
             {
-                let has_mount = mounts.has_mount_inside(parent_path);
-                last_parent = Some((parent_path, parent.clone(), has_mount));
+                last_plain_parent = Some(parent_path);
             }
             if seen.insert(parent.clone()) {
                 source_parents.push(parent);
             }
         }
-
         Self {
             dest: dest.clone(),
             source_parents,

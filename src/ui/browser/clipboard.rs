@@ -209,22 +209,29 @@ pub(crate) struct PreparedFileDrop {
     pub state: Rc<FileDropState>,
 }
 
+struct ActiveDrag {
+    content: glib::WeakRef<gtk::gdk::ContentProvider>,
+    locations: Rc<[Location]>,
+}
+
 thread_local! {
-    static ACTIVE_DRAG_LOCATIONS: RefCell<Option<Rc<[Location]>>> = const { RefCell::new(None) };
+    static ACTIVE_DRAG: RefCell<Option<ActiveDrag>> = const { RefCell::new(None) };
 }
 
-pub(crate) fn active_drag_locations() -> Option<Rc<[Location]>> {
-    ACTIVE_DRAG_LOCATIONS.with(|cell| cell.borrow().clone())
-}
-
-pub(crate) fn set_active_drag_locations(locations: Option<Rc<[Location]>>) {
-    ACTIVE_DRAG_LOCATIONS.with(|cell| {
-        *cell.borrow_mut() = locations;
-    });
+/// Only trusted when the drop carries the provider this process created; foreign
+/// drops and stale entries fall back to the dropped value.
+fn active_drag_locations(target: &gtk::DropTarget) -> Option<Rc<[Location]>> {
+    let content = target.current_drop()?.drag()?.content();
+    ACTIVE_DRAG.with(|cell| {
+        cell.borrow()
+            .as_ref()
+            .filter(|active| active.content.upgrade().as_ref() == Some(&content))
+            .map(|active| active.locations.clone())
+    })
 }
 
 pub(crate) fn clear_active_drag() {
-    ACTIVE_DRAG_LOCATIONS.with(|cell| {
+    ACTIVE_DRAG.with(|cell| {
         cell.borrow_mut().take();
     });
 }
@@ -342,7 +349,7 @@ impl FileDropState {
         if let Some(sources) = self.sources.borrow().clone() {
             return sources;
         }
-        if let Some(active) = active_drag_locations() {
+        if let Some(active) = active_drag_locations(target) {
             *self.sources.borrow_mut() = Some(active.clone());
             return active;
         }
@@ -727,9 +734,6 @@ fn drop_commit_action(commit: DropCommit) -> gtk::gdk::DragAction {
 }
 
 pub(crate) fn locations_from_file_list_value(value: &glib::Value) -> Option<Vec<Location>> {
-    if let Some(active) = active_drag_locations() {
-        return Some(active.to_vec());
-    }
     let files = value.get::<gtk::gdk::FileList>().ok()?;
     let locations = files
         .files()
@@ -743,13 +747,6 @@ pub(in crate::ui) fn file_drag_content(entries: &[FileEntry]) -> Option<gtk::gdk
     if entries.is_empty() {
         return None;
     }
-    let locations: Rc<[Location]> = entries
-        .iter()
-        .map(|entry| entry.location.clone())
-        .collect::<Vec<_>>()
-        .into();
-    set_active_drag_locations(Some(locations));
-
     let files = entries
         .iter()
         .map(|entry| gio_file_for_location(&entry.location))
@@ -765,7 +762,15 @@ pub(in crate::ui) fn file_drag_content(entries: &[FileEntry]) -> Option<gtk::gdk
         "text/uri-list",
         &glib::Bytes::from_owned(uri_list.into_bytes()),
     );
-    Some(gtk::gdk::ContentProvider::new_union(&[file_list, uri_list]))
+    let content = gtk::gdk::ContentProvider::new_union(&[file_list, uri_list]);
+    let locations = entries.iter().map(|entry| entry.location.clone()).collect();
+    ACTIVE_DRAG.with(|cell| {
+        *cell.borrow_mut() = Some(ActiveDrag {
+            content: content.downgrade(),
+            locations,
+        });
+    });
+    Some(content)
 }
 
 pub(super) fn copy_locations(entries: &[FileEntry]) {

@@ -4060,7 +4060,7 @@ fn install_list_drag_drop(
                 source_position_for_view(source, Some(filtered), position)
             })?;
         let entry = browser.entry_at(depth, position)?;
-        let entries = if browser.is_position_selected(depth, position) {
+        let entries = if browser.active_selection_contains(depth, position) {
             browser.selected_entries()
         } else {
             vec![entry]
