@@ -2,10 +2,7 @@
 # Imported Tinted Base16 palettes use this semantic mapping:
 # 00 background, 01 surface, 05 text, 0D accent, 08 danger,
 # 02 muted/highlight, 03 border, and 04 dim text.
-# A few foreground values are curated overrides of that mapping so body text
-# stays readable (text >= 4.5:1 on background and >= 3:1 on surface). Where
-# the upstream dim text is also unreadable it is adjusted to stay legible while
-# remaining dimmer than text. Each override is commented in place.
+# Foreground overrides for readability are commented in place; see docs/themes.md.
 
 # Syntax: 0E keywords, 0B strings, 09 constants, 0A types, 0C preprocessor.
 # Catppuccin uses catppuccin-mocha; Tokyo Night uses tokyo-night-dark.

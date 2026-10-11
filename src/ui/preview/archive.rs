@@ -67,8 +67,7 @@ pub(super) struct ArchiveBrowser {
 
 impl ArchiveBrowser {
     /// `navigate` receives an absolute depth, with zero denoting the archive root. `open`
-    /// receives a child index in the current directory; it is the pointer counterpart of
-    /// `open_cursor`.
+    /// receives a child index in the current directory.
     pub(super) fn new(
         tree: ArchivePreviewTree,
         navigate: Rc<dyn Fn(usize)>,
@@ -134,8 +133,7 @@ impl ArchiveBrowser {
             click.connect_pressed(move |_, _, _, _| {
                 pointer_for_press.press(gtk::gdk::ModifierType::empty());
             });
-            // GTK's single-click-activate mode also selects whatever the pointer enters, and that
-            // hover selection becomes the keyboard cursor; plain clicks select and open on release.
+            // Rows select and open on release, never on hover.
             let weak_item = item.downgrade();
             let selection = selection_for_setup.clone();
             let pointer_for_release = pointer_for_setup.clone();

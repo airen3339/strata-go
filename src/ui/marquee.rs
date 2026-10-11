@@ -365,9 +365,8 @@ fn hosts_drag_source(widget: &gtk::Widget) -> bool {
 pub(super) enum OriginClick {
     /// Blank chrome beside the panes acts like pane background.
     ClearsSelection,
-    /// Presses inside this widget, chrome that shows the selection such as an open
-    /// preview pane, never clear it; only a drag past the threshold changes it. The
-    /// rest of the surface, such as an empty reserved preview slot, still clears.
+    /// Clicks inside this widget (a preview showing something) never clear; the rest
+    /// of the surface does.
     KeepsSelectionWithin(glib::WeakRef<gtk::Widget>),
 }
 
@@ -391,7 +390,7 @@ impl OriginClick {
 /// `resolve` picks for the press position. Unlike [`Marquee::add_origin_surface`] the
 /// surface outlives the views it feeds, so the target is resolved per drag. Presses
 /// landing on a control the surface hosts are filtered out before `resolve` is
-/// consulted, and `click` decides whether a plain click clears the selection.
+/// consulted.
 pub(super) fn install_shared_origin_surface(
     surface: &impl IsA<gtk::Widget>,
     click: OriginClick,
@@ -500,7 +499,6 @@ impl MarqueeState {
         self.overlay.upgrade()
     }
 
-    /// `clear_on_click` arms the plain-press clear that [`Self::clear_at_press`] applies.
     fn begin(
         self: &Rc<Self>,
         anchor: (f64, f64),

@@ -319,8 +319,7 @@ impl PreviewState {
 
     // Columns may use the whole browser area; the slot yields down to zero
     // (docs/preview-panel-layout.md, "focused column, then preview, then peek").
-    // A railed sidebar counts at full width so columns still fit once it
-    // expands; startup can rail it for a frame before the window settles.
+    // A railed sidebar counts at full width so columns still fit once it expands.
     fn publish_column_width_limit(&self, split: &gtk::Paned) {
         let available = split.width();
         if available <= 0 {

@@ -180,7 +180,6 @@ pub struct ParsedDocument {
     pub warnings: Vec<String>,
 }
 
-/// Caller-specific Markdown behaviour shared by file previews and release notes.
 #[derive(Clone, Copy)]
 struct MarkdownProfile {
     /// Tables, math, block quotes and image loading; only file previews.

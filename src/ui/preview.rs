@@ -57,7 +57,6 @@ const PDF_MIN_ZOOM: f64 = 1.0;
 const PDF_MAX_ZOOM: f64 = 4.0;
 const MEDIA_PLUGIN_INSTALL_COMMAND: &str =
     "sudo pacman -S --needed gst-plugins-base gst-plugins-good";
-// Media keys and the seek and volume slider increments share these steps.
 const MEDIA_SEEK_STEP_US: i64 = 5_000_000;
 const MEDIA_SEEK_PAGE_US: i64 = 30_000_000;
 const MEDIA_VOLUME_STEP: f64 = 0.1;
@@ -678,8 +677,7 @@ impl PreviewDrawer {
         self.state.slot.clone().upcast()
     }
 
-    /// The pane inside [`Self::widget`]'s slot. It is drawn only while the preview
-    /// shows something, such as content or its placeholder; otherwise the slot is blank.
+    /// Drawn only while the preview shows content or a placeholder.
     pub(in crate::ui) fn pane_widget(&self) -> gtk::Widget {
         self.state.pane.clone().upcast()
     }
@@ -765,8 +763,6 @@ impl Drop for PreviewState {
 }
 
 impl PreviewState {
-    /// `shifted` selects the Shift variants of [`keyboard::MediaSeek::for_key`] and
-    /// [`keyboard::media_volume_delta`].
     fn media_command(self: &Rc<Self>, key: gtk::gdk::Key, shifted: bool) -> bool {
         if matches!(key, gtk::gdk::Key::less | gtk::gdk::Key::greater) {
             let step = if key == gtk::gdk::Key::less { -1 } else { 1 };

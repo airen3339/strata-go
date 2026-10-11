@@ -30,8 +30,6 @@ pub(in crate::ui) enum DocumentScroll {
     End,
 }
 
-/// Where a media key moves the playback position, both on the 10xer Media
-/// surface and on a focused timeline.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum MediaSeek {
     By(i64),
@@ -69,7 +67,6 @@ impl MediaSeek {
     }
 }
 
-/// The volume change for **+** / **=** / **-** and the keypad's **+** / **-**.
 /// **+** accepts Shift, which most layouts need to type it.
 pub(super) fn media_volume_delta(key: gtk::gdk::Key, shifted: bool) -> Option<f64> {
     use gtk::gdk::Key;

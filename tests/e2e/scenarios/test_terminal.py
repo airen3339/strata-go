@@ -96,8 +96,7 @@ def test_terminal_launchers_are_reaped_after_they_exit(strata, test_environment)
             f"terminal launch {count} to run the stub launcher",
         )
 
-    # Which folder is chosen is out of scope here; every launch must run the launcher in,
-    # and pass --dir for, the same folder inside the fixture.
+    # Every launch targets one folder in the fixture.
     launches = [line.split("\t", 1) for line in log.read_text().splitlines()]
     assert len(launches) == 3, launches
     assert all(launch == launches[0] for launch in launches), launches

@@ -128,11 +128,8 @@ fn uri_scheme_eq(uri: &str, scheme: &str) -> bool {
     gio::glib::Uri::parse_scheme(uri).is_some_and(|parsed| parsed.eq_ignore_ascii_case(scheme))
 }
 
-/// Resolves `.` and `..` as text, as GIO canonicalizes command-line paths:
-/// the filesystem is not consulted, so `..` after a symlink, a file or a missing
-/// folder still drops that component. `..` never climbs above the root, and
-/// every other component keeps its exact bytes. Callers pass absolute paths: in
-/// a relative path, a leading `..` has nothing to pop and is dropped.
+/// Resolves `.` and `..` as text like GIO, without consulting the filesystem;
+/// `..` stops at the root. Callers pass absolute paths.
 pub(crate) fn lexically_normalized(path: &Path) -> PathBuf {
     let mut normalized = PathBuf::new();
     for component in path.components() {

@@ -95,8 +95,6 @@ fn settle() {
     }
 }
 
-/// The visible browser area in unscaled pixels: the preview split minus its
-/// divider and the sidebar.
 fn visible_browser_area_unscaled(window: &gtk::Window) -> i32 {
     let shell = column_shell(window);
     let content = shell
@@ -419,7 +417,6 @@ fn miller_drag_cannot_exceed_the_visible_browser_area() {
                     "a drag stops at the visible browser area: saved {saved}, area {area} (chooser: {chooser})"
                 );
 
-                // A larger text size caps the column; returning restores the dragged width.
                 let preferences = PreferenceManager::shared();
                 preferences.set_text_size(crate::ui::preferences::TextSize::new(26));
                 settle();
@@ -432,7 +429,6 @@ fn miller_drag_cannot_exceed_the_visible_browser_area() {
                     "a text-size round trip keeps the width: saved {saved}, then {restored} (chooser: {chooser})"
                 );
 
-                // The sidebar grows with the text, so the narrower area applies at once.
                 preferences.set_text_size(crate::ui::preferences::TextSize::new(20));
                 settle();
                 resize_column(&window, -1.0);

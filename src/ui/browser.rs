@@ -1022,7 +1022,7 @@ impl BrowserView {
     /// Lets a marquee drag begin on blank chrome beside the file panes — the sidebar or
     /// the preview pane — and run into whichever view the current mode shows. The pane
     /// nearest the `edge` the surface sits on is the target, since that is the one such
-    /// a drag runs into. `click` decides whether a plain click there clears the selection.
+    /// a drag runs into.
     pub(super) fn add_marquee_origin(
         &self,
         surface: &impl IsA<gtk::Widget>,

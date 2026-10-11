@@ -79,11 +79,8 @@ impl BrowserView {
         self.state.column_resizing.get()
     }
 
-    /// The widest a Miller column may be: the browser area the split lends to
-    /// columns before the preview slot. The preview layout publishes it each frame.
-    /// The first value, and the first after a text-size change, also narrow wider
-    /// columns, which recovers an oversized saved width; otherwise a smaller limit
-    /// (a shrinking window) leaves open columns alone.
+    /// Bounds Miller column widths. The first limit, and the first after a text-size
+    /// change, also narrow wider open columns; a shrinking window does not.
     pub(in crate::ui) fn set_column_width_limit(&self, limit: i32) {
         self.state.column_width_limit.set(Some(limit));
         if !self.state.clamp_to_next_column_limit.replace(false) {

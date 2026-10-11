@@ -221,8 +221,7 @@ pub(super) fn no_terminal_message() -> String {
     rust_i18n::t!("No terminal emulator was found. Install “%{PREFERRED_LAUNCHER}” with a configured ~/.config/xdg-terminals.list, set $TERMINAL, or install one of: %{fallbacks}", PREFERRED_LAUNCHER = PREFERRED_LAUNCHER, fallbacks = fallbacks).into_owned()
 }
 
-/// Spawns `command` and reaps the child from a detached thread so a launcher that exits
-/// (or a terminal whose window closes) never lingers as a defunct child of Strata.
+/// Reaps the child off-thread so exited launchers never linger as defunct.
 pub(super) fn spawn_reaped(mut command: Command) -> std::io::Result<()> {
     let program = command.get_program().to_owned();
     let child = command.spawn()?;
@@ -230,8 +229,6 @@ pub(super) fn spawn_reaped(mut command: Command) -> std::io::Result<()> {
     Ok(())
 }
 
-/// Waits on `child` off the UI thread. A wait failure is only logged; a thread-creation
-/// failure leaves the child unreaped rather than blocking or panicking the caller.
 fn reap_in_background(mut child: Child, program: OsString) {
     let label = program.to_string_lossy().into_owned();
     let spawned = std::thread::Builder::new()
