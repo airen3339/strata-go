@@ -2800,9 +2800,8 @@ fn launch_aur_update() -> Result<String, String> {
         let Some(terminal) = terminal::Terminal::resolve() else {
             return Err(terminal::no_terminal_message());
         };
-        return aur_update_command(&terminal, helper, package)
-            .spawn()
-            .map(|_child| crate::i18n::tr("AUR update opened in your terminal."))
+        return terminal::spawn_reaped(aur_update_command(&terminal, helper, package))
+            .map(|()| crate::i18n::tr("AUR update opened in your terminal."))
             .map_err(|error| terminal.launch_failure(&error));
     }
     let package = managed
@@ -2822,9 +2821,7 @@ fn launch_omarchy_update() -> Result<(), String> {
     let Some(terminal) = terminal::Terminal::resolve() else {
         return Err(terminal::no_terminal_message());
     };
-    omarchy_update_command(&terminal)
-        .spawn()
-        .map(|_child| ())
+    terminal::spawn_reaped(omarchy_update_command(&terminal))
         .map_err(|error| terminal.launch_failure(&error))
 }
 

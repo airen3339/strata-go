@@ -326,7 +326,7 @@ pub(in crate::ui) fn launch_terminal(location: &Location, parent: &impl IsA<gtk:
         return;
     };
     let program = terminal.program().to_string_lossy().into_owned();
-    if let Err(error) = terminal.directory_command(&path).spawn() {
+    if let Err(error) = terminal::spawn_reaped(terminal.directory_command(&path)) {
         tracing::warn!(%error, %program, "unable to launch terminal");
         show_error_dialog(
             parent,
