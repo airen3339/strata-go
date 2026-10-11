@@ -205,6 +205,11 @@ pub(super) struct ViewState {
     swap_slot: Cell<Option<usize>>,
     tab_location: RefCell<tab_location::TabLocation>,
     column_resizing: Cell<bool>,
+    /// Visible browser area published by the preview layout; bounds Miller column widths.
+    column_width_limit: Cell<Option<i32>>,
+    /// Set until the first limit, and after a text-size change, so the next
+    /// published limit narrows wider columns once.
+    clamp_to_next_column_limit: Cell<bool>,
     horizontal_scroll_generation: Rc<Cell<u64>>,
     suppress_focus_scroll: Cell<bool>,
     /// Set while a footer prompt moves the cursor; the prompt keeps the keys.
@@ -598,6 +603,8 @@ impl BrowserView {
             swap_slot: Cell::new(None),
             tab_location: RefCell::new(tab_location::TabLocation::default()),
             column_resizing: Cell::new(false),
+            column_width_limit: Cell::new(None),
+            clamp_to_next_column_limit: Cell::new(true),
             horizontal_scroll_generation: Rc::new(Cell::new(0)),
             suppress_focus_scroll: Cell::new(false),
             cursor_keeps_focus: Cell::new(false),

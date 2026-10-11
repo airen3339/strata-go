@@ -79,6 +79,28 @@ impl BrowserView {
         self.state.column_resizing.get()
     }
 
+    /// The widest a Miller column may be: the browser area the split lends to
+    /// columns before the preview slot. The preview layout publishes it each frame.
+    /// The first value, and the first after a text-size change, also narrow wider
+    /// columns, which recovers an oversized saved width; otherwise a smaller limit
+    /// (a shrinking window) leaves open columns alone.
+    pub(in crate::ui) fn set_column_width_limit(&self, limit: i32) {
+        self.state.column_width_limit.set(Some(limit));
+        if !self.state.clamp_to_next_column_limit.replace(false) {
+            return;
+        }
+        let limit = limit.max(super::columns::column_floor());
+        for column in self.state.columns.borrow().iter() {
+            if column.shell.width_request() > limit {
+                // Stops a running width animation from restoring the oversized width.
+                column
+                    .animation_generation
+                    .set(column.animation_generation.get().saturating_add(1));
+                column.shell.set_size_request(limit, -1);
+            }
+        }
+    }
+
     pub(in crate::ui) fn preview_occupied_width(&self, available: i32) -> i32 {
         if self.view_mode() != BrowserMode::Columns {
             return single_pane_preview_reservation(available);

@@ -238,6 +238,7 @@ impl PreviewDrawer {
             let Some(state) = weak.upgrade() else {
                 return glib::ControlFlow::Break;
             };
+            state.publish_column_width_limit(split);
             if state.is_enabled() || state.reserves_column_space() {
                 state.sync_split(split);
             }
@@ -316,6 +317,27 @@ impl PreviewState {
         self.reserve_columns.get() && self.browsing_columns()
     }
 
+    // Columns may use the whole browser area; the slot yields down to zero
+    // (docs/preview-panel-layout.md, "focused column, then preview, then peek").
+    // A railed sidebar counts at full width so columns still fit once it
+    // expands; startup can rail it for a frame before the window settles.
+    fn publish_column_width_limit(&self, split: &gtk::Paned) {
+        let available = split.width();
+        if available <= 0 {
+            return;
+        }
+        let binding = self.sizing.binding.borrow();
+        let Some(binding) = binding.as_ref() else {
+            return;
+        };
+        let (Some(content), Some(browser)) = (binding.content.upgrade(), binding.browser.upgrade())
+        else {
+            return;
+        };
+        let sidebar = self.full_sidebar_width(binding, &content);
+        browser.set_column_width_limit(available - separator_width(split) - sidebar);
+    }
+
     fn geometry(&self, split: &gtk::Paned) -> Geometry {
         let available = split.width();
         let mut geometry = Geometry {
@@ -350,14 +372,21 @@ impl PreviewState {
 
     // Budget the intended sidebar width so a clamped divider can recover.
     fn intended_sidebar_width(&self, binding: &BrowserBinding, content: &gtk::Paned) -> i32 {
-        let current = sidebar_width(content);
-        if current == 0
-            || binding
-                .sidebar
-                .as_ref()
-                .and_then(Weak::upgrade)
-                .is_some_and(|sidebar| sidebar.rail.get())
+        if binding
+            .sidebar
+            .as_ref()
+            .and_then(Weak::upgrade)
+            .is_some_and(|sidebar| sidebar.rail.get())
         {
+            return sidebar_width(content);
+        }
+        self.full_sidebar_width(binding, content)
+    }
+
+    /// The shown sidebar at its saved width, whether or not it is railed.
+    fn full_sidebar_width(&self, binding: &BrowserBinding, content: &gtk::Paned) -> i32 {
+        let current = sidebar_width(content);
+        if current == 0 {
             return current;
         }
         current.max(self.saved_sidebar_width(binding) + separator_width(content))
