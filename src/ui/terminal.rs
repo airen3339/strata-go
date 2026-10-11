@@ -5,6 +5,9 @@ use std::io::ErrorKind;
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
 
+#[cfg(test)]
+mod tests;
+
 pub(super) const PREFERRED_LAUNCHER: &str = "xdg-terminal-exec";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
