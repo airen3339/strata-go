@@ -911,7 +911,8 @@ headerbar.browser-header menubutton.header-action > button {
   font-size: 0.82em;
 }
 
-.action-dialog-close {
+.action-dialog-close,
+colorchooser button.circular {
   background: transparent;
   border: none;
   border-radius: 5px;
@@ -923,18 +924,21 @@ headerbar.browser-header menubutton.header-action > button {
   transition: transform 160ms ease-out, background 160ms ease-out, color 160ms ease-out;
 }
 
-.action-dialog-close:hover {
+.action-dialog-close:hover,
+colorchooser button.circular:hover {
   background: alpha(@strata_accent, 0.15);
   color: @strata_text;
 }
 
-.action-dialog-close:active {
+.action-dialog-close:active,
+colorchooser button.circular:active {
   background: alpha(@strata_accent, 0.22);
   color: @strata_accent;
   transform: scale(0.97);
 }
 
-.action-dialog-close:focus-visible {
+.action-dialog-close:focus-visible,
+colorchooser button.circular:focus-visible {
   outline: 2px solid alpha(@strata_accent, 0.52);
   outline-offset: 1px;
 }
@@ -1163,7 +1167,8 @@ window.dialog.colorchooser button.text-button.suggested-action:focus-visible {
 .action-dialog-confirm:disabled,
 .action-dialog-close:disabled,
 window.dialog.colorchooser button.text-button:not(.suggested-action):disabled,
-window.dialog.colorchooser button.text-button.suggested-action:disabled {
+window.dialog.colorchooser button.text-button.suggested-action:disabled,
+colorchooser button.circular:disabled {
   background: alpha(@strata_muted, 0.3);
   border-color: alpha(@strata_border, 0.38);
   color: @strata_dim_text;
@@ -1355,14 +1360,16 @@ window.dialog.colorchooser button.text-button.suggested-action:disabled {
   padding: 0;
 }
 
-spinbutton.form-control {
+spinbutton.form-control,
+colorchooser spinbutton {
   background: @strata_bg;
   color: @strata_text;
   border: 1px solid @strata_border;
   border-radius: 5px;
 }
 
-spinbutton.form-control text {
+spinbutton.form-control text,
+colorchooser spinbutton text {
   background: transparent;
   color: @strata_text;
   caret-color: @strata_accent;
@@ -1379,12 +1386,14 @@ spinbutton.text-size-control button.down {
   border-radius: 4px 0 0 4px;
 }
 
-spinbutton.form-control text selection {
+spinbutton.form-control text selection,
+colorchooser spinbutton text selection {
   background: @strata_accent;
   color: @strata_bg;
 }
 
-spinbutton.form-control button {
+spinbutton.form-control button,
+colorchooser spinbutton button {
   background: @strata_surface;
   background-image: none;
   color: @strata_accent;
@@ -1392,33 +1401,42 @@ spinbutton.form-control button {
   box-shadow: none;
 }
 
-spinbutton.form-control button image {
+spinbutton.form-control button image,
+colorchooser spinbutton button image {
   color: @strata_accent;
 }
 
 spinbutton.form-control:hover,
-spinbutton.form-control:focus-within {
+spinbutton.form-control:focus-within,
+colorchooser spinbutton:hover,
+colorchooser spinbutton:focus-within {
   border-color: @strata_accent;
 }
 
-spinbutton.form-control:focus-within {
+spinbutton.form-control:focus-within,
+colorchooser spinbutton:focus-within {
   outline: 2px solid @strata_accent;
   outline-offset: -2px;
 }
 
 spinbutton.form-control button:hover,
-spinbutton.form-control button:active {
+spinbutton.form-control button:active,
+colorchooser spinbutton button:hover,
+colorchooser spinbutton button:active {
   background: @strata_highlight;
   color: @strata_text;
 }
 
 spinbutton.form-control:disabled,
-spinbutton.form-control button:disabled {
+spinbutton.form-control button:disabled,
+colorchooser spinbutton:disabled,
+colorchooser spinbutton button:disabled {
   color: @strata_dim_text;
   opacity: 0.55;
 }
 
-entry.form-control {
+entry.form-control,
+colorchooser entry {
   background: alpha(@strata_bg, 0.72);
   border: 1px solid alpha(@strata_border, 0.54);
   border-radius: 5px;
@@ -1429,25 +1447,31 @@ entry.form-control {
   padding: 3px 9px;
 }
 
-entry.form-control:hover {
+entry.form-control:hover,
+colorchooser entry:hover {
   border-color: alpha(@strata_accent, 0.68);
 }
 
 entry.form-control:focus,
 entry.form-control:focus-visible,
-entry.form-control:focus-within {
+entry.form-control:focus-within,
+colorchooser entry:focus,
+colorchooser entry:focus-visible,
+colorchooser entry:focus-within {
   border-color: @strata_accent;
   box-shadow: 0 0 0 1px alpha(@strata_accent, 0.42);
   outline: 2px solid @strata_accent;
   outline-offset: -2px;
 }
 
-entry.form-control placeholder {
+entry.form-control placeholder,
+colorchooser entry placeholder {
   color: @strata_dim_text;
   opacity: 1;
 }
 
-entry.form-control selection {
+entry.form-control selection,
+colorchooser entry selection {
   background: @strata_accent;
   color: @strata_bg;
 }
@@ -1455,13 +1479,18 @@ entry.form-control selection {
 entry.form-control.error,
 entry.form-control.error:focus,
 entry.form-control.error:focus-visible,
-entry.form-control.error:focus-within {
+entry.form-control.error:focus-within,
+colorchooser entry.error,
+colorchooser entry.error:focus,
+colorchooser entry.error:focus-visible,
+colorchooser entry.error:focus-within {
   border-color: @strata_danger;
   box-shadow: 0 0 0 1px alpha(@strata_danger, 0.4);
   outline-color: @strata_danger;
 }
 
-entry.form-control:disabled {
+entry.form-control:disabled,
+colorchooser entry:disabled {
   background: alpha(@strata_muted, 0.3);
   border-color: alpha(@strata_border, 0.38);
   color: @strata_dim_text;
@@ -4486,6 +4515,47 @@ colorchooser colorswatch overlay {
   border-radius: 9999px;
 }
 
+colorchooser colorswatch#add-color-button > overlay {
+  background: alpha(@strata_accent, 0.1);
+  border: 1px solid alpha(@strata_border, 0.54);
+  box-shadow: none;
+  color: @strata_text;
+}
+
+colorchooser colorswatch#add-color-button.activatable:hover > overlay {
+  background: alpha(@strata_accent, 0.18);
+  border-color: @strata_accent;
+  box-shadow: none;
+}
+
+colorchooser colorswatch:focus-visible {
+  outline-color: alpha(@strata_accent, 0.6);
+}
+
+colorchooser plane:focus-visible,
+colorchooser scale.color:focus-visible > trough {
+  outline-color: @strata_accent;
+}
+
+colorchooser button.circular {
+  border-radius: 9999px;
+}
+
+colorchooser box.osd.popover {
+  background: @strata_surface;
+  border: 1px solid alpha(@strata_border, 0.6);
+  border-radius: 5px;
+  box-shadow: 0 2px 7px alpha(@strata_bg, 0.7);
+  color: @strata_text;
+}
+
+/* GTK's default theme gives `.osd` icons a fixed black shadow. */
+colorchooser box.osd.popover,
+colorchooser box.osd.popover spinbutton,
+colorchooser box.osd.popover spinbutton > button {
+  -gtk-icon-shadow: none;
+}
+
 .actions-context-popover > contents {
   padding-bottom: 8px;
 }
@@ -5476,7 +5546,8 @@ entry.theme-search {
   border-radius: 999px;
 }
 
-.icons-thumbnail-scale slider {
+.icons-thumbnail-scale slider,
+colorchooser scale.color slider {
   background: @strata_surface;
   border: 2px solid @strata_accent;
   border-radius: 999px;
@@ -5486,7 +5557,9 @@ entry.theme-search {
 }
 
 .icons-thumbnail-scale:hover slider,
-.icons-thumbnail-scale:active slider {
+.icons-thumbnail-scale:active slider,
+colorchooser scale.color:hover slider,
+colorchooser scale.color:active slider {
   background: @strata_highlight;
   border-color: @strata_accent;
 }
