@@ -4,7 +4,8 @@ use std::{
     cell::{Cell, RefCell},
     fs, io,
     path::{Path, PathBuf},
-    time::Duration,
+    thread,
+    time::{Duration, Instant},
 };
 
 use gtk::{gio, glib, prelude::*};
@@ -31,6 +32,8 @@ const FILE_NAME: &str = "folder-views.toml";
 const SAVE_DELAY: Duration = Duration::from_millis(500);
 /// Opening folders only refreshes use times, which can wait for other changes.
 const USE_SAVE_DELAY: Duration = Duration::from_secs(60);
+/// Another process saves in milliseconds; one stopped mid-save must not hold up exit.
+const EXIT_LOCK_WAIT: Duration = Duration::from_secs(1);
 
 /// Whether a change can reach saved sorts, which re-sort open columns.
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -131,18 +134,22 @@ pub(in crate::ui) fn folder_views_path() -> PathBuf {
 /// Keeps other Strata processes from saving between this one's merge and its
 /// rename, which would drop their changes. Locks the directory, because every
 /// save replaces the file.
-fn lock_saves(path: &Path, wait: bool) -> io::Result<fs::File> {
+fn lock_saves(path: &Path, wait: Duration) -> io::Result<fs::File> {
     let directory = path
         .parent()
         .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput))?;
     fs::create_dir_all(directory)?;
     let lock = fs::File::open(directory)?;
-    if wait {
-        lock.lock()?;
-    } else {
-        lock.try_lock()?;
+    let deadline = Instant::now() + wait;
+    loop {
+        match lock.try_lock() {
+            Ok(()) => return Ok(lock),
+            Err(fs::TryLockError::WouldBlock) if Instant::now() < deadline => {
+                thread::sleep(Duration::from_millis(10));
+            }
+            Err(error) => return Err(error.into()),
+        }
     }
-    Ok(lock)
 }
 
 /// Writes pending folder settings, such as use times, before the process exits.
@@ -490,8 +497,9 @@ impl PreferenceManager {
         *timer = Some((source, delay));
     }
 
-    /// Without `wait`, a save that finds another process saving is retried later.
-    fn write_folder_views(&self, store: &FolderViewStore, wait: bool) {
+    /// A save that finds another process saving is retried later, or at `exit`
+    /// waits briefly and then goes ahead unlocked.
+    fn write_folder_views(&self, store: &FolderViewStore, exit: bool) {
         if let Some((timer, _)) = store.save_timer.borrow_mut().take() {
             timer.remove();
         }
@@ -500,9 +508,9 @@ impl PreferenceManager {
             self.folder_save_notices.unreadable_at_startup(&path, error);
             return;
         }
-        let lock = lock_saves(&path, wait);
+        let lock = lock_saves(&path, if exit { EXIT_LOCK_WAIT } else { Duration::ZERO });
         if let Err(error) = &lock {
-            if error.kind() == io::ErrorKind::WouldBlock {
+            if error.kind() == io::ErrorKind::WouldBlock && !exit {
                 self.schedule_folder_views_write(store, SAVE_DELAY);
                 return;
             }

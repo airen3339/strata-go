@@ -1018,6 +1018,28 @@ fn folder_settings_saved_by_another_process_are_merged_instead_of_overwritten() 
             drop(saving_elsewhere);
             wait_until(|| folder_views_file().contains("sort = \"type\""));
 
+            let stuck_elsewhere =
+                std::fs::File::open(crate::storage::state_directory()).expect("state directory");
+            stuck_elsewhere
+                .lock()
+                .expect("another process stopped mid-save");
+            let (release, released) = std::sync::mpsc::channel::<()>();
+            // Released anyway after a while, so a save that waits forever fails instead of hanging.
+            let holder = std::thread::spawn(move || {
+                let _held = stuck_elsewhere;
+                let _ = released.recv_timeout(std::time::Duration::from_secs(5));
+            });
+            manager.set_folder_sort(&here, SortKey::Modified, SortDirection::Ascending);
+            let started = std::time::Instant::now();
+            manager.flush_folder_views();
+            assert!(
+                started.elapsed() < std::time::Duration::from_secs(4),
+                "the exit save stops waiting for a stuck process"
+            );
+            assert!(folder_views_file().contains("sort = \"modified\""));
+            let _ = release.send(());
+            holder.join().expect("lock holder");
+
             let mut settings: toml::Table = std::fs::read_to_string(settings_file())
                 .ok()
                 .and_then(|contents| toml::from_str(&contents).ok())
