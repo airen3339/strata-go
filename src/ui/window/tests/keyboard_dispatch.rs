@@ -186,6 +186,20 @@ impl Drop for KeyboardFixture {
     }
 }
 
+/// A real Tab press reaches the dispatcher first and GTK's `move-focus` binding only when
+/// the dispatcher lets it through; `KeyboardFixture::press` emits just the former.
+fn tab(fixture: &KeyboardFixture, direction: gtk::DirectionType) {
+    let (key, modifiers) = if direction == gtk::DirectionType::TabBackward {
+        (Key::ISO_Left_Tab, ModifierType::SHIFT_MASK)
+    } else {
+        (Key::Tab, ModifierType::empty())
+    };
+    if !fixture.press(key, modifiers) {
+        fixture.window.emit_move_focus(direction);
+    }
+    pump(50);
+}
+
 fn focused_widget_shows(window: &gtk::ApplicationWindow, name: &str) -> bool {
     let Some(focused) = gtk::prelude::RootExt::focus(window) else {
         return false;

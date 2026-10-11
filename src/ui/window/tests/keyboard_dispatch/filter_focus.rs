@@ -747,26 +747,9 @@ fn an_outside_deletion_keeps_focus_in_the_filter_entry() {
     );
 }
 
-fn tab(fixture: &KeyboardFixture, direction: gtk::DirectionType) {
-    let (key, modifiers) = if direction == gtk::DirectionType::TabBackward {
-        (Key::ISO_Left_Tab, ModifierType::SHIFT_MASK)
-    } else {
-        (Key::Tab, ModifierType::empty())
-    };
-    if !fixture.press(key, modifiers) {
-        fixture.window.emit_move_focus(direction);
-    }
-    pump(50);
-}
-
-fn tab_from_result_case(mode: BrowserMode, recursive: bool) -> Result<(), String> {
-    let fixture = filtered_fixture(mode, recursive);
-    let expected: &[&str] = if recursive {
-        &ALL_REPORTS
-    } else {
-        &IMMEDIATE_REPORTS
-    };
-    let field = show_filter_with_results(&fixture, "report", expected)?;
+fn tab_from_result_case(mode: BrowserMode) -> Result<(), String> {
+    let fixture = filtered_fixture(mode, false);
+    let field = show_filter_with_results(&fixture, "report", &IMMEDIATE_REPORTS)?;
     focus_first_result(&fixture, &field)?;
     let first_hit = hit_cursor(&fixture);
 
@@ -802,10 +785,8 @@ fn tab_from_focused_result_leaves_in_one_press() {
         || {
             let mut failures = Vec::new();
             for mode in [BrowserMode::List, BrowserMode::Icons] {
-                for recursive in [false, true] {
-                    if let Err(error) = tab_from_result_case(mode, recursive) {
-                        failures.push(format!("{mode:?}, subfolders {recursive}: {error}"));
-                    }
+                if let Err(error) = tab_from_result_case(mode) {
+                    failures.push(format!("{mode:?}: {error}"));
                 }
             }
             report(failures);

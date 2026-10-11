@@ -4,20 +4,6 @@ use super::*;
 
 const MODES: [BrowserMode; 3] = [BrowserMode::Columns, BrowserMode::List, BrowserMode::Icons];
 
-/// A real Tab press reaches the dispatcher first and GTK's `move-focus` binding only when
-/// the dispatcher lets it through; `KeyboardFixture::press` emits just the former.
-fn tab(fixture: &KeyboardFixture, direction: gtk::DirectionType) {
-    let (key, modifiers) = if direction == gtk::DirectionType::TabBackward {
-        (Key::ISO_Left_Tab, ModifierType::SHIFT_MASK)
-    } else {
-        (Key::Tab, ModifierType::empty())
-    };
-    if !fixture.press(key, modifiers) {
-        fixture.window.emit_move_focus(direction);
-    }
-    pump(50);
-}
-
 fn settles(condition: impl Fn() -> bool) -> bool {
     let deadline = Instant::now() + Duration::from_secs(2);
     while !condition() {
