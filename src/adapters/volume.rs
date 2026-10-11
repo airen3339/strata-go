@@ -39,11 +39,32 @@ impl DropVolumeQuery {
 
     fn with_mounts(dest: &Location, sources: &[Location], mounts: &MountTable) -> Self {
         let mut seen = HashSet::new();
-        let source_parents = sources
-            .iter()
-            .map(|source| source_volume_directory(source, mounts))
-            .filter(|parent| seen.insert(parent.clone()))
-            .collect();
+        let mut source_parents = Vec::new();
+        let mut last_parent: Option<(&Path, Location, bool)> = None;
+
+        for source in sources {
+            if let Some(path) = source.native_path()
+                && let Some(parent_path) = path.parent()
+                && let Some((last_p, _, has_mount)) = &last_parent
+                && *last_p == parent_path
+                && !*has_mount
+            {
+                continue;
+            }
+
+            let parent = source_volume_directory(source, mounts);
+            if let Some(path) = source.native_path()
+                && let Some(parent_path) = path.parent()
+                && parent.native_path() == Some(parent_path)
+            {
+                let has_mount = mounts.has_mount_inside(parent_path);
+                last_parent = Some((parent_path, parent.clone(), has_mount));
+            }
+            if seen.insert(parent.clone()) {
+                source_parents.push(parent);
+            }
+        }
+
         Self {
             dest: dest.clone(),
             source_parents,

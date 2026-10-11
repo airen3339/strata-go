@@ -9,9 +9,10 @@ use crate::ui::{
     browser::{
         ViewState,
         clipboard::{
-            ClipboardMark, PreparedFileDrop, clipboard_mark, drag_actions_for_modifiers,
-            drag_preview_icon, file_drag_content, file_drag_hover_target, file_drop_action,
-            file_drop_commit, locations_from_file_list_value, prepare_file_drop_target,
+            ClipboardMark, PreparedFileDrop, clear_active_drag, clipboard_mark,
+            drag_actions_for_modifiers, drag_preview_icon, file_drag_content,
+            file_drag_hover_target, file_drop_action, file_drop_commit,
+            locations_from_file_list_value, prepare_file_drop_target,
         },
         collection::{ViewMap, activate_recursive_search_result},
         entry::{
@@ -178,32 +179,33 @@ pub(super) fn column_rows(
                 let state = weak_state_for_drag.upgrade()?;
                 let dragged_item = dragged_item.upgrade()?;
                 let position = dragged_item.position();
-                let (entry, selected) = if search_active_for_drag.get() {
+                let entries = if search_active_for_drag.get() {
                     let results = search_results_for_drag.borrow();
                     let entry =
                         crate::ui::browser::search_result_entry(results.get(position as usize)?);
-                    let selected = crate::ui::browser::collection::bitset_positions(
+                    let selected: Vec<_> = crate::ui::browser::collection::bitset_positions(
                         &selection_for_drag.selection(),
                     )
                     .into_iter()
                     .filter_map(|position| results.get(position as usize))
                     .map(crate::ui::browser::search_result_entry)
                     .collect();
-                    (entry, selected)
+                    if selected
+                        .iter()
+                        .any(|selected| selected.location == entry.location)
+                    {
+                        selected
+                    } else {
+                        vec![entry]
+                    }
                 } else {
                     let source_position = map_for_drag.source_position(position)?;
-                    (
-                        state.browser.entry_at(depth, source_position)?,
-                        state.browser.selected_entries(),
-                    )
-                };
-                let entries = if selected
-                    .iter()
-                    .any(|selected| selected.location == entry.location)
-                {
-                    selected
-                } else {
-                    vec![entry]
+                    let entry = state.browser.entry_at(depth, source_position)?;
+                    if state.browser.is_position_selected(depth, source_position) {
+                        state.browser.selected_entries()
+                    } else {
+                        vec![entry]
+                    }
                 };
                 if let Some((texture, hot_x, hot_y)) = drag_preview_icon(&prepare_row, &entries) {
                     source.set_icon(Some(&texture), hot_x, hot_y);
@@ -226,6 +228,7 @@ pub(super) fn column_rows(
             let dragged_row = row.downgrade();
             let weak_state_for_end = weak_state.clone();
             drag.connect_drag_end(move |_, _, _| {
+                clear_active_drag();
                 if let Some(row) = dragged_row.upgrade() {
                     row.remove_css_class("dragging");
                 }

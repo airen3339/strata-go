@@ -4060,12 +4060,8 @@ fn install_list_drag_drop(
                 source_position_for_view(source, Some(filtered), position)
             })?;
         let entry = browser.entry_at(depth, position)?;
-        let selected = browser.selected_entries();
-        let entries = if selected
-            .iter()
-            .any(|selected| selected.location == entry.location)
-        {
-            selected
+        let entries = if browser.is_position_selected(depth, position) {
+            browser.selected_entries()
         } else {
             vec![entry]
         };
@@ -4089,6 +4085,7 @@ fn install_list_drag_drop(
     let dragged_row = row.downgrade();
     let weak_state_for_end = state;
     drag.connect_drag_end(move |source, _, _| {
+        super::browser::clear_active_drag();
         source.set_actions(gtk::gdk::DragAction::COPY | gtk::gdk::DragAction::MOVE);
         if let Some(row) = dragged_row.upgrade() {
             row.remove_css_class("dragging");

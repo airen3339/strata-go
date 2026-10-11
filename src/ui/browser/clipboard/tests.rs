@@ -987,3 +987,53 @@ fn recycling_the_hovered_row_does_not_open_its_previous_folder() {
         },
     );
 }
+
+#[test]
+fn active_drag_locations_tracks_drag_lifetime() {
+    clear_active_drag();
+    assert_eq!(active_drag_locations(), None);
+
+    let loc1 = Location::local("/fixture/file1.txt");
+    let loc2 = Location::local("/fixture/file2.txt");
+    let entries = [
+        FileEntry {
+            location: loc1.clone(),
+            thumbnail_path: None,
+            native_name: "file1.txt".into(),
+            display_name: "file1.txt".into(),
+            kind: crate::model::EntryKind::File,
+            size: crate::model::MetadataValue::Known(10),
+            modified_unix_seconds: crate::model::MetadataValue::Known(0),
+            recent_unix_seconds: crate::model::MetadataValue::Unknown,
+            recent_uri: None,
+            mode: crate::model::MetadataValue::Unknown,
+            image_dimensions: crate::model::MetadataValue::Unknown,
+            child_count: crate::model::MetadataValue::Unknown,
+            duration_seconds: crate::model::MetadataValue::Unknown,
+            is_hidden: false,
+        },
+        FileEntry {
+            location: loc2.clone(),
+            thumbnail_path: None,
+            native_name: "file2.txt".into(),
+            display_name: "file2.txt".into(),
+            kind: crate::model::EntryKind::File,
+            size: crate::model::MetadataValue::Known(20),
+            modified_unix_seconds: crate::model::MetadataValue::Known(0),
+            recent_unix_seconds: crate::model::MetadataValue::Unknown,
+            recent_uri: None,
+            mode: crate::model::MetadataValue::Unknown,
+            image_dimensions: crate::model::MetadataValue::Unknown,
+            child_count: crate::model::MetadataValue::Unknown,
+            duration_seconds: crate::model::MetadataValue::Unknown,
+            is_hidden: false,
+        },
+    ];
+
+    let _provider = file_drag_content(&entries);
+    let active = active_drag_locations().expect("active drag set");
+    assert_eq!(*active, [loc1, loc2]);
+
+    clear_active_drag();
+    assert_eq!(active_drag_locations(), None);
+}

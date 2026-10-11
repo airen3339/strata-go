@@ -1865,6 +1865,13 @@ impl NavigationState {
         };
         column.selected_positions().to_vec()
     }
+
+    pub fn is_position_selected(&self, depth: usize, position: usize) -> bool {
+        let Some(column) = self.columns.get(depth) else {
+            return false;
+        };
+        column.selected_positions().contains(&position)
+    }
     /// Clone-free length for hot selection paths.
     pub fn selected_count(&self) -> usize {
         let Some(depth) = self.active_column else {

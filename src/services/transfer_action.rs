@@ -175,6 +175,58 @@ fn cross_volume_commit(input: DropActionInput) -> DropCommit {
 }
 
 pub(crate) fn transferable_drop_sources(dest: &Location, sources: &[Location]) -> Vec<Location> {
+    if sources.is_empty() {
+        return Vec::new();
+    }
+
+    if let Some(dest_path) = dest.native_path() {
+        let mut ancestors = std::collections::HashSet::new();
+        let mut curr = dest_path.parent();
+        while let Some(parent) = curr {
+            ancestors.insert(parent);
+            curr = parent.parent();
+        }
+
+        let all_native = sources.iter().all(|s| s.native_path().is_some());
+        if all_native {
+            if let Some(first_parent) = sources[0].native_path().and_then(|p| p.parent()) {
+                let same_parent = sources
+                    .iter()
+                    .all(|s| s.native_path().and_then(|p| p.parent()) == Some(first_parent));
+                if same_parent {
+                    if dest_path == first_parent {
+                        return Vec::new();
+                    }
+                    if !dest_path.starts_with(first_parent)
+                        && dest_path.parent() != Some(first_parent)
+                    {
+                        return sources.to_vec();
+                    }
+                }
+            }
+
+            return sources
+                .iter()
+                .filter(|location| {
+                    let Some(source_path) = location.native_path() else {
+                        return false;
+                    };
+                    if source_path == dest_path {
+                        return false;
+                    }
+                    if source_path.parent() == Some(dest_path) {
+                        return false;
+                    }
+                    if ancestors.contains(source_path) {
+                        return false;
+                    }
+                    true
+                })
+                .cloned()
+                .collect();
+        }
+    }
+
     let destination = gio_file(dest);
     sources
         .iter()

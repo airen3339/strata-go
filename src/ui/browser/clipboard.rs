@@ -209,6 +209,26 @@ pub(crate) struct PreparedFileDrop {
     pub state: Rc<FileDropState>,
 }
 
+thread_local! {
+    static ACTIVE_DRAG_LOCATIONS: RefCell<Option<Rc<[Location]>>> = const { RefCell::new(None) };
+}
+
+pub(crate) fn active_drag_locations() -> Option<Rc<[Location]>> {
+    ACTIVE_DRAG_LOCATIONS.with(|cell| cell.borrow().clone())
+}
+
+pub(crate) fn set_active_drag_locations(locations: Option<Rc<[Location]>>) {
+    ACTIVE_DRAG_LOCATIONS.with(|cell| {
+        *cell.borrow_mut() = locations;
+    });
+}
+
+pub(crate) fn clear_active_drag() {
+    ACTIVE_DRAG_LOCATIONS.with(|cell| {
+        cell.borrow_mut().take();
+    });
+}
+
 pub(crate) const SPRING_LOAD_NAVIGATE_DELAY: Duration = Duration::from_millis(750);
 
 /// Reuses one classification for cursor feedback and the eventual transfer.
@@ -321,6 +341,10 @@ impl FileDropState {
     fn sources(&self, target: &gtk::DropTarget) -> Rc<[Location]> {
         if let Some(sources) = self.sources.borrow().clone() {
             return sources;
+        }
+        if let Some(active) = active_drag_locations() {
+            *self.sources.borrow_mut() = Some(active.clone());
+            return active;
         }
         let sources: Rc<[Location]> = drop_source_locations(target).into();
         if !sources.is_empty() {
@@ -509,8 +533,14 @@ fn transfer_dropped_files(
     destination: Location,
     drop_state: &Rc<FileDropState>,
 ) -> bool {
-    let Some(sources) = locations_from_file_list_value(value) else {
-        return false;
+    let sources = drop_state.sources(target);
+    let sources = if sources.is_empty() {
+        let Some(sources) = locations_from_file_list_value(value) else {
+            return false;
+        };
+        sources
+    } else {
+        sources.to_vec()
     };
     if sources.is_empty() {
         return false;
@@ -697,6 +727,9 @@ fn drop_commit_action(commit: DropCommit) -> gtk::gdk::DragAction {
 }
 
 pub(crate) fn locations_from_file_list_value(value: &glib::Value) -> Option<Vec<Location>> {
+    if let Some(active) = active_drag_locations() {
+        return Some(active.to_vec());
+    }
     let files = value.get::<gtk::gdk::FileList>().ok()?;
     let locations = files
         .files()
@@ -707,21 +740,27 @@ pub(crate) fn locations_from_file_list_value(value: &glib::Value) -> Option<Vec<
 }
 
 pub(in crate::ui) fn file_drag_content(entries: &[FileEntry]) -> Option<gtk::gdk::ContentProvider> {
+    if entries.is_empty() {
+        return None;
+    }
+    let locations: Rc<[Location]> = entries
+        .iter()
+        .map(|entry| entry.location.clone())
+        .collect::<Vec<_>>()
+        .into();
+    set_active_drag_locations(Some(locations));
+
     let files = entries
         .iter()
         .map(|entry| gio_file_for_location(&entry.location))
         .collect::<Vec<_>>();
-    if files.is_empty() {
-        return None;
-    }
     let file_list =
         gtk::gdk::ContentProvider::for_value(&gtk::gdk::FileList::from_array(&files).to_value());
-    let uri_list = files
-        .iter()
-        .map(|file| file.uri())
-        .collect::<Vec<_>>()
-        .join("\r\n")
-        + "\r\n";
+    let mut uri_list = String::with_capacity(files.len() * 48);
+    for file in &files {
+        uri_list.push_str(&file.uri());
+        uri_list.push_str("\r\n");
+    }
     let uri_list = gtk::gdk::ContentProvider::for_bytes(
         "text/uri-list",
         &glib::Bytes::from_owned(uri_list.into_bytes()),
