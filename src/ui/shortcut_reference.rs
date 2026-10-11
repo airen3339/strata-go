@@ -418,6 +418,17 @@ const TENXER_PREVIEW_OWNED: &[Shortcut] = &[
         "Play, seek, volume, mute, previous / next file of the same type",
     ),
     within(
+        "%{keys} in media",
+        "Shift+← → / PgDn / PgUp",
+        "Seek −30 / +30 seconds",
+    ),
+    within(
+        "%{keys} in media",
+        "0 / Home / G / End",
+        "Seek to the start / end",
+    ),
+    within("%{keys} in media", "+ / -", "Volume up / down"),
+    within(
         "%{keys} in a document, h in media",
         "h / ←",
         "Return to the listing; the preview stays open",

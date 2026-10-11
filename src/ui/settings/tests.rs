@@ -7,7 +7,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use gtk::glib;
+use gtk::{glib, prelude::*};
 
 use super::{InstallCancel, InstallLauncher, InstallRequest, UpdateInstall};
 
@@ -90,4 +90,17 @@ fn wait_until(what: &str, condition: impl Fn() -> bool) {
         glib::MainContext::default().iteration(false);
         std::thread::sleep(Duration::from_millis(1));
     }
+}
+
+pub(super) fn page_text(root: &gtk::Widget) -> String {
+    let mut text = Vec::new();
+    if let Ok(label) = root.clone().downcast::<gtk::Label>() {
+        text.push(label.text().to_string());
+    }
+    let mut child = root.first_child();
+    while let Some(widget) = child {
+        child = widget.next_sibling();
+        text.push(page_text(&widget));
+    }
+    text.join("\n")
 }

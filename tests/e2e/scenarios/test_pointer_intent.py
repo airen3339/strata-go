@@ -1,9 +1,12 @@
 # SPDX-License-Identifier: MIT
 """Content drags, inert-space marquees, and release-only previews in every mode."""
 
+import time
+
 import pytest
 
 from harness.artifacts import ArtifactCollector
+from harness.interaction import SEPARATE_CLICK_GAP
 from harness.modes import ALL_MODES
 
 
@@ -40,11 +43,23 @@ def test_file_drag_does_not_open_preview(strata, mode, origin):
 
 @pytest.mark.preferences(single_click_previews=True)
 @pytest.mark.parametrize("mode", ALL_MODES)
-@pytest.mark.parametrize("origin", ["content", "inert"])
-def test_simple_click_still_opens_preview(strata, mode, origin):
+@pytest.mark.parametrize(
+    "origin,initial",
+    [("content", "none"), ("inert", "none"), ("content", "group")],
+    ids=["content", "inert", "content-group"],
+)
+def test_simple_click_still_opens_preview(strata, mode, origin, initial):
+    root = strata.fixture.root.name
+    if initial == "group":
+        strata.wait_for_selection(["archive"], root)
+        strata.click_entry_with("todo.txt", ["ctrl"], root)
+        strata.wait_for_selection(["archive", "todo.txt"], root)
+        time.sleep(SEPARATE_CLICK_GAP)
     at = _inert_point(strata, "todo.txt", mode) if origin == "inert" else None
-    strata.pointer.click(strata.entry("todo.txt"), at=at)
+    strata.pointer.click(strata.entry("todo.txt", root), at=at)
     strata.wait(lambda: strata.preview_shows("todo"), "preview after a simple click")
+    if initial == "group":
+        strata.wait_for_selection(["todo.txt"], root)
 
 
 def _full_directory(strata):

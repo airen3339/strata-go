@@ -25,6 +25,28 @@ def test_typing_a_path_navigates_there(strata):
     strata.entry("notes.txt", directory="documents")
 
 
+@pytest.mark.parametrize("mode", COLUMNS_AND_ONE)
+def test_typed_dot_segments_open_the_resolved_folder(strata, mode):
+    pictures = strata.fixture.path("pictures")
+    typed = strata.fixture.path("documents") / ".." / "pictures"
+
+    strata.keyboard.press("ctrl+l")
+    field = strata.editable_field()
+    strata.keyboard.press("ctrl+a")
+    strata.keyboard.type_text(str(typed))
+    strata.wait(lambda: field.text == str(typed), "the typed dotted path")
+    strata.keyboard.press("Return")
+
+    strata.wait_for_directory("pictures")
+    strata.wait(
+        lambda: strata.window.find(role="label", name="pictures", description=str(pictures)),
+        "the current crumb to carry the resolved path",
+    )
+    assert strata.window.find(role="button", name="documents") is None
+    strata.keyboard.press("alt+Up")
+    strata.wait_for_directory(strata.fixture.root.name)
+
+
 def test_named_location_controls_navigate_and_cancel(strata):
     strata.keyboard.press("ctrl+l")
     field = strata.window.find(role="text", name="Location (Ctrl+L)")

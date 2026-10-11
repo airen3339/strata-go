@@ -1504,7 +1504,7 @@ fn show_release_notes(card: &ReleaseNotesCard, release: &ReleaseMetadata) {
         card.badge.set_text(&release.kind.localized_label());
         card.badge.set_visible(true);
     }
-    if release.notes.trim().is_empty() {
+    if release.note_blocks.is_empty() {
         set_release_notes_message(
             &card.notes,
             &crate::i18n::tr("No release notes were provided for this release."),
@@ -2421,7 +2421,7 @@ fn build_update_dialog(
     notes_heading.add_css_class("release-notes-title");
     notes_heading.set_xalign(0.0);
     let notes = gtk::Box::new(gtk::Orientation::Vertical, 6);
-    if release.notes.trim().is_empty() {
+    if release.note_blocks.is_empty() {
         set_release_notes_message(
             &notes,
             &crate::i18n::tr(
@@ -2800,9 +2800,8 @@ fn launch_aur_update() -> Result<String, String> {
         let Some(terminal) = terminal::Terminal::resolve() else {
             return Err(terminal::no_terminal_message());
         };
-        return aur_update_command(&terminal, helper, package)
-            .spawn()
-            .map(|_child| crate::i18n::tr("AUR update opened in your terminal."))
+        return terminal::spawn_reaped(aur_update_command(&terminal, helper, package))
+            .map(|()| crate::i18n::tr("AUR update opened in your terminal."))
             .map_err(|error| terminal.launch_failure(&error));
     }
     let package = managed
@@ -2822,9 +2821,7 @@ fn launch_omarchy_update() -> Result<(), String> {
     let Some(terminal) = terminal::Terminal::resolve() else {
         return Err(terminal::no_terminal_message());
     };
-    omarchy_update_command(&terminal)
-        .spawn()
-        .map(|_child| ())
+    terminal::spawn_reaped(omarchy_update_command(&terminal))
         .map_err(|error| terminal.launch_failure(&error))
 }
 

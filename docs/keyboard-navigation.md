@@ -65,7 +65,7 @@ Keyboard navigation suppresses stale row-hover effects and pending folder peeks 
 
 ## Focus without selection changes
 
-Pressing blank column content focuses that directory, including empty directories, without closing descendants. Releasing a plain click on empty space clears file selections across columns. When returning to an inactive column, it also selects that column's first visible entry as the range anchor. Holding or dragging does not clear selections before marquee intent is resolved. Row clicks, controls, scrollbars, context menus, and marquee selection keep their own interactions. Returning to a column by keyboard preserves a multi-selection; Ctrl+A selects the focused column, not the deepest open column.
+Pressing blank column content focuses that directory, including empty directories, without closing descendants. A plain press on empty space clears file selections across columns immediately; releasing it does not clear them again. When returning to an inactive column, it also selects that column's first visible entry as the range anchor. Ctrl/Shift presses keep the selection until marquee intent is resolved, so a drag can extend it. A plain click on blank space or a disabled control in a preview that is showing something leaves the selection alone; the empty reserved preview slot clears like other empty space. Row clicks, controls, scrollbars, context menus, and marquee selection keep their own interactions. Returning to a column by keyboard preserves a multi-selection; Ctrl+A selects the focused column, not the deepest open column.
 
 **Shift+Up/Down** extends the selection from the range anchor by one item, **Shift+Page Up/Page Down** by one page. After Escape clears the selection, the range starts at the cursor.
 
@@ -206,15 +206,33 @@ instead of the Miller column. Returning to the listing restores its cursor
 and column header indicator without changing the listing's selection.
 
 Inside the preview, **Up/Down** (or **k/j**) move the highlight, **Right/l/Enter**
-opens the highlighted folder, and **Left/h** returns to the parent. **Left** at the
-archive root returns focus to the listing without closing the preview. Up/Down
-then move through listing items; Right enters the preview again. In Columns
-mode, another Left from the listing moves to the parent column. Right/Enter on a
-member file does nothing. Navigating never extracts anything or touches the
-filesystem; **Space** and **Escape** still
-close the preview. In [10xer mode](10xer-mode.md#preview-keyboard-ownership),
+opens the highlighted folder, and **Left/h** returns to the parent. A single
+click highlights a member and opens a folder; hovering never changes the
+highlight or the keyboard cursor. **Left** at the archive root returns focus to
+the listing without closing the preview. Up/Down then move through listing
+items; Right enters the preview again. In Columns mode, another Left from the
+listing moves to the parent column. Right/Enter on a member file does nothing.
+Navigating never extracts anything or touches the filesystem; **Space** and
+**Escape** still close the preview. In [10xer mode](10xer-mode.md#preview-keyboard-ownership),
 **h** at the archive root returns to the listing, **Space** is swallowed, and
 **Shift+Tab** / **Esc** return or close.
+
+## Media preview keys
+
+Audio and video previews show a timeline; **Tab** or a click focuses it. While
+it has focus, **Left/Right** seek 5 s, and **Shift+Left/Right** or **Page
+Down/Page Up** seek 30 s. **Home** or **0** returns to the start; **End** or
+**G** jumps to the last frame, since seeking to the very end would stop
+playback. **+** / **=** and **-**, including the keypad's, change the volume by
+0.1; reaching zero mutes and keeps the volume to restore. Unlike **Left/Right**,
+the paging, jump and volume keys have no **Ctrl+Alt** form. The volume slider
+steps 0.1 with the arrow keys and 0.2 with Page Up/Down; **Home** mutes and
+**End** sets full volume. Other playable files show a seek slider instead of a
+timeline: the arrow keys step 5 s, Page Up/Down 30 s, and Home/End jump to the
+start and the last frame. Keys and the mouse wheel seek at once; a drag seeks
+when released. In
+[10xer mode](10xer-mode.md#preview-keyboard-ownership), the same keys, plus
+**Up/Down** for volume, work whenever the media preview owns the keys.
 
 ## Shortcut footer
 
@@ -296,7 +314,7 @@ An empty, unreadable or still-loading directory has no rows to focus, so the pan
 
 Columns reserves preview space from startup, even before a file is previewed. **Space**, **i**, and the preview's close button dismiss the content without reclaiming that space, so opening or closing a preview does not move the columns under the pointer. Switch **Appearance → Preview panel** off to explicitly reclaim it. This reservation is window-local and does not enable automatic previews on its own. In narrow windows the preview content hides, but the reserved slot keeps the remaining width beside the focused column, down to zero. The complete sizing, reservation, and dismissal rules are in [Preview panel and column layout](preview-panel-layout.md).
 
-In Columns, the pane to the right mirrors keyboard selection like Finder: moving with **Up/Down**, **Page Up/Page Down**, **Home/End** or **Ctrl+Up/Ctrl+Down** onto a folder shows its contents in a child column that takes the reserved preview space, onto a previewable file closes that child column and opens Quick Preview in the same space, and onto any other file closes the child pane. The focused column stays where it is throughout. Shift-extended ranges do not mirror. A preview closed with **Space**, **i**, **Esc**, the close button, or **Appearance → Preview panel** stays closed while mirroring until it is opened explicitly again. Pointer selection keeps the configured click behavior. Clicking a folder whose column is already open focuses that column rather than closing it, and a double-click ends exactly where a single-click open does; a slow click on a selected folder's name still renames it. **Settings → General → Browsing → Mirror columns selection** (on by default) toggles the mirroring. 10xer mode follows the same preference for its cursor in Columns; see [10xer mode](10xer-mode.md). **l** / **→** enters a directory or a file preview, and **i** toggles a file's preview or opens the next column / toggles folder peek for a directory.
+In Columns, the pane to the right mirrors keyboard selection like Finder: moving with **Up/Down**, **Page Up/Page Down**, **Home/End** or **Ctrl+Up/Ctrl+Down** onto a folder shows its contents in a child column that takes the reserved preview space, onto a previewable file closes that child column and opens Quick Preview in the same space, and onto any other file closes the child pane. The focused column stays where it is throughout. Shift-extended ranges do not mirror. A preview closed with **Space**, **i**, **Esc**, the close button, or **Appearance → Preview panel** stays closed while mirroring until it is opened explicitly again. Pointer selection keeps the configured click behavior. Clicking a folder whose column is already open focuses that column rather than closing it, and a double-click ends exactly where a single-click open does; a slow click on a selected folder's name still renames it. In every view, a plain click on an item that is part of a multi-selection collapses the selection to that item and then applies its single-click behavior: a folder set to open on one click opens (in Columns, as its child column), and a previewable file is previewed when **Single-click previews** is on. Pressing a member and dragging still drags the whole selection. **Settings → General → Browsing → Mirror columns selection** (on by default) toggles the mirroring. 10xer mode follows the same preference for its cursor in Columns; see [10xer mode](10xer-mode.md). **l** / **→** enters a directory or a file preview, and **i** toggles a file's preview or opens the next column / toggles folder peek for a directory.
 
 ## Closing dialogs and overlays
 

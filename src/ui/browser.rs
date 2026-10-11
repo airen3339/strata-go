@@ -205,6 +205,11 @@ pub(super) struct ViewState {
     swap_slot: Cell<Option<usize>>,
     tab_location: RefCell<tab_location::TabLocation>,
     column_resizing: Cell<bool>,
+    /// Visible browser area published by the preview layout; bounds Miller column widths.
+    column_width_limit: Cell<Option<i32>>,
+    /// Set until the first limit, and after a text-size change, so the next
+    /// published limit narrows wider columns once.
+    clamp_to_next_column_limit: Cell<bool>,
     horizontal_scroll_generation: Rc<Cell<u64>>,
     suppress_focus_scroll: Cell<bool>,
     /// Set while a footer prompt moves the cursor; the prompt keeps the keys.
@@ -598,6 +603,8 @@ impl BrowserView {
             swap_slot: Cell::new(None),
             tab_location: RefCell::new(tab_location::TabLocation::default()),
             column_resizing: Cell::new(false),
+            column_width_limit: Cell::new(None),
+            clamp_to_next_column_limit: Cell::new(true),
             horizontal_scroll_generation: Rc::new(Cell::new(0)),
             suppress_focus_scroll: Cell::new(false),
             cursor_keeps_focus: Cell::new(false),
@@ -690,15 +697,19 @@ impl BrowserView {
 
         let weak_state = Rc::downgrade(&state);
         columns::install_horizontal_scroll(&state);
-        super::marquee::install_shared_origin_surface(&state.scroller, move |surface, _, x, _| {
-            let state = weak_state.upgrade()?;
-            let laid_out = state.columns_widget.compute_bounds(surface)?;
-            if x < f64::from(laid_out.x() + laid_out.width()) {
-                return None;
-            }
-            let columns = state.columns.borrow();
-            columns.last().map(|column| column.marquee.clone())
-        });
+        super::marquee::install_shared_origin_surface(
+            &state.scroller,
+            super::marquee::OriginClick::ClearsSelection,
+            move |surface, _, x, _| {
+                let state = weak_state.upgrade()?;
+                let laid_out = state.columns_widget.compute_bounds(surface)?;
+                if x < f64::from(laid_out.x() + laid_out.width()) {
+                    return None;
+                }
+                let columns = state.columns.borrow();
+                columns.last().map(|column| column.marquee.clone())
+            },
+        );
         // Installed last so its capture press runs before the scroller's other gestures.
         columns::install_double_click_guard(&state);
 
@@ -1012,9 +1023,14 @@ impl BrowserView {
     /// the preview pane — and run into whichever view the current mode shows. The pane
     /// nearest the `edge` the surface sits on is the target, since that is the one such
     /// a drag runs into.
-    pub(super) fn add_marquee_origin(&self, surface: &impl IsA<gtk::Widget>, edge: gtk::PackType) {
+    pub(super) fn add_marquee_origin(
+        &self,
+        surface: &impl IsA<gtk::Widget>,
+        edge: gtk::PackType,
+        click: super::marquee::OriginClick,
+    ) {
         let weak_state = Rc::downgrade(&self.state);
-        super::marquee::install_shared_origin_surface(surface, move |_, _, _, _| {
+        super::marquee::install_shared_origin_surface(surface, click, move |_, _, _, _| {
             let state = weak_state.upgrade()?;
             // Sidebar-origin events do not reach the browser's pointer controllers.
             state.hovered_column.set(None);

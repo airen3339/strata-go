@@ -474,7 +474,6 @@ pub(super) fn column_rows(
                         state.columns_click_activation.get(),
                         control,
                         shift,
-                        preserve_group,
                     );
                 let location_hold = (!search_active_for_click.get()
                     && entry.is_directory()
@@ -605,12 +604,7 @@ pub(super) fn column_rows(
                     });
                     let preview = !activate
                         && !slow_click_rename
-                        && should_preview_pointer_press(
-                            press_count,
-                            control,
-                            shift,
-                            preserve_group,
-                        )
+                        && should_preview_pointer_press(press_count, control, shift)
                         && entry_responds_to_preview_click(
                             entry,
                             state.single_click_previews.get(),
