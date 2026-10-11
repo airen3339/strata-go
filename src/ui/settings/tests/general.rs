@@ -1,20 +1,8 @@
 // SPDX-License-Identifier: MIT
 
 use super::super::*;
+use super::page_text;
 use crate::test_support::gtk_test;
-
-fn page_text(root: &gtk::Widget) -> String {
-    let mut text = Vec::new();
-    if let Ok(label) = root.clone().downcast::<gtk::Label>() {
-        text.push(label.text().to_string());
-    }
-    let mut child = root.first_child();
-    while let Some(widget) = child {
-        child = widget.next_sibling();
-        text.push(page_text(&widget));
-    }
-    text.join("\n")
-}
 
 fn named_widget(root: &gtk::Widget, name: &str) -> Option<gtk::Widget> {
     if root.widget_name() == name {

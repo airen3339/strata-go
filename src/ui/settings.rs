@@ -1504,7 +1504,7 @@ fn show_release_notes(card: &ReleaseNotesCard, release: &ReleaseMetadata) {
         card.badge.set_text(&release.kind.localized_label());
         card.badge.set_visible(true);
     }
-    if release.notes.trim().is_empty() {
+    if release.note_blocks.is_empty() {
         set_release_notes_message(
             &card.notes,
             &crate::i18n::tr("No release notes were provided for this release."),
@@ -2421,7 +2421,7 @@ fn build_update_dialog(
     notes_heading.add_css_class("release-notes-title");
     notes_heading.set_xalign(0.0);
     let notes = gtk::Box::new(gtk::Orientation::Vertical, 6);
-    if release.notes.trim().is_empty() {
+    if release.note_blocks.is_empty() {
         set_release_notes_message(
             &notes,
             &crate::i18n::tr(
