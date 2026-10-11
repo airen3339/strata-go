@@ -235,13 +235,7 @@ fn launch_program(location: &Location) -> std::io::Result<()> {
             "program is not a local file",
         )
     })?;
-    let mut child = program_command(path, terminal::Terminal::resolve)?.spawn()?;
-    std::thread::spawn(move || {
-        if let Err(error) = child.wait() {
-            tracing::warn!(%error, "unable to reap program");
-        }
-    });
-    Ok(())
+    terminal::spawn_reaped(program_command(path, terminal::Terminal::resolve)?)
 }
 
 fn program_command(
@@ -332,7 +326,7 @@ pub(in crate::ui) fn launch_terminal(location: &Location, parent: &impl IsA<gtk:
         return;
     };
     let program = terminal.program().to_string_lossy().into_owned();
-    if let Err(error) = terminal.directory_command(&path).spawn() {
+    if let Err(error) = terminal::spawn_reaped(terminal.directory_command(&path)) {
         tracing::warn!(%error, %program, "unable to launch terminal");
         show_error_dialog(
             parent,

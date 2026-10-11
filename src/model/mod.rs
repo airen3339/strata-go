@@ -4,7 +4,7 @@ use std::{
     cmp::Ordering,
     ffi::{OsStr, OsString},
     os::unix::ffi::OsStrExt,
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf},
     sync::Arc,
 };
 
@@ -126,6 +126,22 @@ pub(crate) fn rebase_path(path: &Path, from: &Path, to: &Path) -> Option<PathBuf
 
 fn uri_scheme_eq(uri: &str, scheme: &str) -> bool {
     gio::glib::Uri::parse_scheme(uri).is_some_and(|parsed| parsed.eq_ignore_ascii_case(scheme))
+}
+
+/// Resolves `.` and `..` as text like GIO, without consulting the filesystem;
+/// `..` stops at the root. Callers pass absolute paths.
+pub(crate) fn lexically_normalized(path: &Path) -> PathBuf {
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                normalized.pop();
+            }
+            other => normalized.push(other),
+        }
+    }
+    normalized
 }
 
 impl Location {

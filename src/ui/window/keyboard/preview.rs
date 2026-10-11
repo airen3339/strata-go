@@ -13,7 +13,7 @@ use super::{Dispatcher, KeyResult, command_modifiers};
 use crate::{
     app::Browser,
     ui::{
-        preview::{DocumentScroll, PreviewSurface, preview_target},
+        preview::{DocumentScroll, PreviewSurface, is_media_key, preview_target},
         tenxer_mode::Chord,
     },
 };
@@ -246,9 +246,8 @@ impl Dispatcher {
     }
 
     fn preview_media_key(&self, browser: &Browser, key: Key, mods: Modifiers) -> bool {
-        // `<` and `>` need Shift on most layouts.
-        let track_key = matches!(key, Key::less | Key::greater);
-        if !(mods.is_empty() || track_key && mods == Modifiers::SHIFT_MASK) {
+        let shifted = mods == Modifiers::SHIFT_MASK;
+        if !(mods.is_empty() || shifted) {
             return false;
         }
         let media_key = match key {
@@ -256,24 +255,15 @@ impl Dispatcher {
                 self.return_from_preview(browser);
                 return true;
             }
-            Key::KP_Left => Key::Left,
-            Key::KP_Right => Key::Right,
             Key::KP_Up => Key::Up,
             Key::KP_Down => Key::Down,
             other => other,
         };
-        self.preview.media_key(media_key);
-        matches!(
-            media_key,
-            Key::space
-                | Key::Left
-                | Key::Right
-                | Key::Up
-                | Key::Down
-                | Key::m
-                | Key::less
-                | Key::greater
-        )
+        if !is_media_key(media_key, shifted) {
+            return false;
+        }
+        self.preview.media_key(media_key, shifted);
+        true
     }
 
     /// **g g** in an owning document or archive preview.

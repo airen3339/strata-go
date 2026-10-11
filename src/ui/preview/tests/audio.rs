@@ -44,9 +44,9 @@ fn audio_steps_keep_playback_and_volume_but_never_reuse_an_ended_request() {
                 &state.audio.borrow().as_ref().expect("retained view").view
             ));
             preferences.set_preview_audio(0.4, false);
-            assert!(state.media_command(gtk::gdk::Key::Up));
+            assert!(state.media_command(gtk::gdk::Key::Up, false));
             assert!((preferences.preview_volume() - 0.5).abs() < 0.001);
-            assert!(state.media_command(gtk::gdk::Key::m));
+            assert!(state.media_command(gtk::gdk::Key::m, false));
             assert!(preferences.preview_muted());
 
             assert!(state.step_media(1, true));
@@ -176,7 +176,7 @@ fn autoplayed_audio_fades_in_quickly_unless_the_listener_acts() {
             let media = decoded();
             media.use_test_audio_stream();
             assert_eq!(media.fade(), 0.0);
-            assert!(state.media_command(gtk::gdk::Key::space));
+            assert!(state.media_command(gtk::gdk::Key::space, false));
             assert_eq!(media.fade(), 1.0, "pausing brings the sound in at once");
             assert!(!view().is_easing_in());
 

@@ -11,8 +11,8 @@ use crate::{
     adapters::LocalPreviewProvider,
     assets::{self, icons},
     ui::{
-        browser::BrowserView, preferences::PreferenceManager, preview::PreviewDrawer,
-        shortcut_footer::ShortcutFooter,
+        browser::BrowserView, marquee::OriginClick, preferences::PreferenceManager,
+        preview::PreviewDrawer, shortcut_footer::ShortcutFooter,
     },
 };
 
@@ -224,7 +224,11 @@ pub(super) fn browser_layout(
     preview_split.set_position(i32::MAX);
     preview_split.set_vexpand(true);
     preview.attach_split(&preview_split, &content, browser, Some(sidebar));
-    browser.add_marquee_origin(&preview.widget(), gtk::PackType::End);
+    browser.add_marquee_origin(
+        &preview.widget(),
+        gtk::PackType::End,
+        OriginClick::keeps_selection_within(&preview.pane_widget()),
+    );
     root.append(&preview_split);
     root
 }
@@ -263,7 +267,11 @@ fn browser_split(
     content.set_position(SIDEBAR_WIDTH);
     content.set_vexpand(true);
     sidebar.widget.set_size_request(MIN_SIDEBAR_WIDTH, -1);
-    browser.add_marquee_origin(&sidebar.widget, gtk::PackType::Start);
+    browser.add_marquee_origin(
+        &sidebar.widget,
+        gtk::PackType::Start,
+        OriginClick::ClearsSelection,
+    );
     content.set_start_child(Some(&sidebar.widget));
     content.set_end_child(Some(&browser.widget()));
     bind_sidebar_toggle(&content, sidebar, toggle, preview);

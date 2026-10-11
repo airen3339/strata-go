@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 use super::super::*;
-use super::{FakeInstaller, GUARD_REJECTION, offered_request, wait_until};
+use super::{FakeInstaller, GUARD_REJECTION, offered_request, page_text, wait_until};
 use crate::test_support::gtk_test;
 
 #[derive(Clone, Copy, Debug)]
@@ -91,6 +91,13 @@ fn release() -> ReleaseMetadata {
 }
 
 fn open_dialog(installer: &FakeInstaller) -> (gtk::Window, UpdateDialog) {
+    open_dialog_for(installer, &release())
+}
+
+fn open_dialog_for(
+    installer: &FakeInstaller,
+    release: &ReleaseMetadata,
+) -> (gtk::Window, UpdateDialog) {
     PreferenceManager::shared().set_release_channel(Channel::Stable);
     let overlay = gtk::Overlay::new();
     overlay.set_child(Some(&BlurBin::new(&gtk::Box::new(
@@ -105,7 +112,7 @@ fn open_dialog(installer: &FakeInstaller) -> (gtk::Window, UpdateDialog) {
     window.present();
     let dialog = build_update_dialog(
         &window,
-        &release(),
+        release,
         offered_request(),
         install_guard(),
         UpdateMethod::InPlace,
@@ -368,6 +375,42 @@ fn installed_update_leaves_every_dismisser_working() {
                 );
                 dismiss_with(&dialog, dismisser);
                 wait_until_dismissed(&dialog);
+                window.destroy();
+            }
+        },
+    );
+}
+
+#[test]
+fn update_dialog_notes_hide_html_comments() {
+    gtk_test(
+        "ui::settings::tests::update_dialog::update_dialog_notes_hide_html_comments",
+        || {
+            let comment = "<!-- Release notes generated using configuration in .github/release.yml at v99.0.0 -->\n";
+            for (notes, expected) in [
+                (
+                    comment.to_owned(),
+                    "No release notes were provided. Review this release on GitHub before continuing.",
+                ),
+                (
+                    format!("{comment}\n## What's Changed\n* one\n"),
+                    "What's Changed",
+                ),
+            ] {
+                let release = ReleaseMetadata {
+                    note_blocks: crate::services::parse_markdown(&notes).blocks,
+                    notes,
+                    ..release()
+                };
+                let installer = FakeInstaller::default();
+                let (window, dialog) = open_dialog_for(&installer, &release);
+
+                let text = page_text(dialog.layer.upcast_ref());
+                assert!(
+                    text.contains(expected),
+                    "{expected:?} missing from {text:?}"
+                );
+                assert!(!text.contains("<!--"), "comment shown in {text:?}");
                 window.destroy();
             }
         },

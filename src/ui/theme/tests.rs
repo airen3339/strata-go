@@ -7,9 +7,9 @@ use std::collections::HashSet;
 
 use super::{
     Theme, ThemeManager, ThemeTokens, azure_tokens, blend, builtins, canonical_color, color_to_hex,
-    is_omarchy_theme_event, merge_builtin_and_custom_themes, slugify, source_palette_from_quattro,
-    source_style_scheme_xml, themes_directory, title_case_slug, tokens_from_quattro,
-    validate_tokens,
+    custom_theme_id, is_omarchy_theme_event, merge_builtin_and_custom_themes, omarchy::contrast,
+    slugify, source_palette_from_quattro, source_style_scheme_xml, themes_directory,
+    title_case_slug, tokens_from_quattro, validate_tokens,
 };
 use crate::test_support::{gtk_test, texture_has_visible_pixels};
 
@@ -50,6 +50,31 @@ fn bundled_catalog_is_valid_unique_and_alphabetical() {
     ] {
         assert!(!ids.contains(removed), "{removed} should not be bundled");
     }
+}
+
+type ContrastFloor = (&'static str, fn(&ThemeTokens) -> &str, f64);
+
+#[test]
+fn bundled_themes_keep_body_text_readable() {
+    let floors: [ContrastFloor; 2] = [
+        ("background", |tokens| &tokens.background, 4.5),
+        ("surface", |tokens| &tokens.surface, 3.0),
+    ];
+    let themes = builtins();
+    assert!(!themes.is_empty());
+    let mut failures = Vec::new();
+    for theme in &themes {
+        for (role, color, floor) in floors {
+            let ratio = contrast(&theme.tokens.text, color(&theme.tokens));
+            if ratio < floor {
+                failures.push(format!(
+                    "{} text on {role} is {ratio:.2}:1, below the {floor}:1 floor",
+                    theme.id
+                ));
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
 #[test]
@@ -140,6 +165,28 @@ fn saving_a_custom_theme_never_overwrites_an_existing_theme_file() {
 fn names_become_safe_config_file_slugs() {
     assert_eq!(slugify("  Rosé / Pine!  "), "ros-pine");
     assert_eq!(slugify("Ocean  Blue"), "ocean-blue");
+}
+
+#[test]
+fn custom_theme_ids_fall_back_and_skip_taken_ids() {
+    let cases: [(&str, &[&str], &str); 5] = [
+        ("Ocean Blue", &["ocean-blue"], "ocean-blue-2"),
+        ("日本語", &[], "custom-theme"),
+        ("!!!", &[], "custom-theme"),
+        ("日本語", &["custom-theme"], "custom-theme-2"),
+        (
+            "日本語",
+            &["custom-theme", "custom-theme-2"],
+            "custom-theme-3",
+        ),
+    ];
+    for (name, taken, expected) in cases {
+        assert_eq!(
+            custom_theme_id(name, |id| taken.contains(&id)),
+            expected,
+            "{name:?}"
+        );
+    }
 }
 
 #[test]
@@ -529,6 +576,55 @@ fn appearance_changes_keep_an_active_preview_until_it_is_cancelled() {
             assert_eq!(manager.active_model_palette(), saved);
             preferences.set_text_size(original);
             assert_eq!(manager.active_model_palette(), saved);
+        },
+    );
+}
+
+#[test]
+fn non_ascii_theme_names_save_under_a_fallback_id() {
+    gtk_test(
+        "ui::theme::tests::non_ascii_theme_names_save_under_a_fallback_id",
+        || {
+            let directory = themes_directory();
+            let manager = ThemeManager::shared();
+            manager.set_follow_omarchy(false);
+            manager.select_theme("azure-glow");
+
+            let mut tokens = azure_tokens();
+            tokens.name = "日本語".to_owned();
+            let id = manager
+                .save_custom_theme(tokens)
+                .expect("a non-ASCII name saves");
+            assert_eq!(id, "custom-theme");
+            let saved = std::fs::read_to_string(directory.join("custom-theme.toml"))
+                .expect("saved theme file");
+            assert_eq!(
+                toml::from_str::<ThemeTokens>(&saved)
+                    .expect("saved theme parses")
+                    .name,
+                "日本語"
+            );
+            assert!(
+                manager
+                    .themes()
+                    .iter()
+                    .any(|theme| theme.id == "custom-theme"
+                        && theme.custom
+                        && theme.tokens.name == "日本語")
+            );
+            assert_eq!(manager.selected_id(), "custom-theme");
+
+            let files_before = std::fs::read_dir(&directory).expect("themes").count();
+            let mut blank = azure_tokens();
+            blank.name = "   ".to_owned();
+            let error = manager
+                .save_custom_theme(blank)
+                .expect_err("a blank name is rejected");
+            assert_eq!(error.to_string(), "Enter a theme name");
+            assert_eq!(
+                std::fs::read_dir(&directory).expect("themes").count(),
+                files_before
+            );
         },
     );
 }

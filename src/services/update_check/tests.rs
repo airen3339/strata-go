@@ -6,11 +6,12 @@ use std::{
 };
 
 use super::{
-    BuildKind, CHECK_INTERVAL, Channel, NetworkError, ReleaseResponse, ReleaseSummary, UpdateCheck,
-    UpdateCheckCache, Version, archive_name, cache_is_fresh, cached_releases, check_from_cache,
-    fetch_package_update, from_cached_release, package_update_from_response, release_metadata,
-    release_page_url, request_error_message, request_json_conditional, select_cached_update,
-    select_update, to_cached_release, to_release_summary,
+    BuildKind, CHECK_INTERVAL, Channel, DocumentBlock, NetworkError, ReleaseResponse,
+    ReleaseSummary, UpdateCheck, UpdateCheckCache, Version, archive_name, cache_is_fresh,
+    cached_releases, check_from_cache, fetch_package_update, from_cached_release,
+    package_update_from_response, release_metadata, release_page_url, request_error_message,
+    request_json_conditional, select_cached_update, select_update, to_cached_release,
+    to_release_summary,
 };
 
 fn version(tag: &str) -> Version {
@@ -167,13 +168,24 @@ fn release_metadata_carries_channel_identity_fields() {
 fn release_body_is_retained() {
     let asset = matching_asset_json("1.2.3");
     let response = release_response(&format!(
-        r###"{{"tag_name":"v1.2.3","draft":false,"prerelease":false,"assets":[{asset}],"body":"## Changes\n\n- Fast"}}"###
+        r###"{{"tag_name":"v1.2.3","draft":false,"prerelease":false,"assets":[{asset}],"body":"<!-- Release notes generated using configuration in .github/release.yml at v1.2.3 -->\n\n## Changes\n\n- Fast"}}"###
     ));
     let summary = to_release_summary(&response).expect("tag should parse");
     let release = release_metadata(&summary);
     assert_eq!(release.version, "1.2.3");
-    assert_eq!(release.notes, "## Changes\n\n- Fast");
-    assert!(!release.note_blocks.is_empty());
+    assert_eq!(
+        release.notes,
+        "<!-- Release notes generated using configuration in .github/release.yml at v1.2.3 -->\n\n## Changes\n\n- Fast"
+    );
+    assert!(
+        matches!(
+            release.note_blocks.first(),
+            Some(DocumentBlock::Heading { .. })
+        ),
+        "{:?}",
+        release.note_blocks
+    );
+    assert!(!format!("{:?}", release.note_blocks).contains("&lt;!--"));
 }
 
 #[test]
