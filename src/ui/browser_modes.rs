@@ -29,6 +29,8 @@ use crate::{
 mod events;
 mod list_factory;
 mod navigation;
+#[cfg(test)]
+mod tests;
 
 use list_factory::{ListFactory, refresh_list_section};
 
@@ -177,10 +179,16 @@ struct SlowClickRename {
     selected_count_before: Cell<u64>,
 }
 
+/// A view's source positions by view position, built for the two maps' generations.
+type ViewSources = ((u64, u64), Vec<u32>);
+
 /// Filter, sort, and flatten models preserve item identity across position changes.
 #[derive(Clone, Default)]
 struct SourceIndexMap {
     by_item: Rc<RefCell<HashMap<glib::Object, usize>>>,
+    generation: Rc<Cell<u64>>,
+    // Reading a filter model's item walks its match set, so selections map through this.
+    sources: Rc<RefCell<Option<ViewSources>>>,
 }
 
 impl SourceIndexMap {
@@ -197,6 +205,7 @@ impl SourceIndexMap {
     }
 
     fn apply(&self, source: &gio::ListModel, position: u32, removed: u32, added: u32) {
+        self.generation.set(self.generation.get().wrapping_add(1));
         let can_append = {
             let by_item = self.by_item.borrow();
             removed == 0
@@ -242,6 +251,7 @@ impl SourceIndexMap {
     }
 
     fn rebuild(&self, source: &gio::ListModel) {
+        self.generation.set(self.generation.get().wrapping_add(1));
         let n_items = source.n_items() as usize;
         let mut by_item = HashMap::with_capacity(n_items);
         for position in 0..source.n_items() {
@@ -258,6 +268,41 @@ impl SourceIndexMap {
 
     fn of_view_position(&self, view: &impl IsA<gio::ListModel>, position: u32) -> Option<usize> {
         view.item(position).and_then(|item| self.of_item(&item))
+    }
+
+    /// Positions in `source` of this map's `view` items at `positions`.
+    fn sources_of(
+        &self,
+        source: &SourceIndexMap,
+        view: &gio::ListModel,
+        positions: impl Iterator<Item = u32>,
+    ) -> Vec<Option<usize>> {
+        const UNMAPPED: u32 = u32::MAX;
+        let key = (self.generation.get(), source.generation.get());
+        let mut cache = self.sources.borrow_mut();
+        let forward = match &mut *cache {
+            Some((built, forward)) if *built == key => forward,
+            slot => {
+                let mut forward = vec![UNMAPPED; view.n_items() as usize];
+                let by_source_item = source.by_item.borrow();
+                for (item, position) in self.by_item.borrow().iter() {
+                    if let Some(slot) = forward.get_mut(*position)
+                        && let Some(source) = by_source_item
+                            .get(item)
+                            .and_then(|source| u32::try_from(*source).ok())
+                    {
+                        *slot = source;
+                    }
+                }
+                &mut slot.insert((key, forward)).1
+            }
+        };
+        positions
+            .map(|position| match forward.get(position as usize) {
+                Some(&source) if source != UNMAPPED => Some(source as usize),
+                _ => source.of_view_position(view, position),
+            })
+            .collect()
     }
 }
 
@@ -658,13 +703,7 @@ impl ModeViews {
         let mut positions: Vec<usize> = pane
             .item_sections()
             .iter()
-            .flat_map(|section| {
-                selected_source_positions(
-                    &pane.source_index,
-                    &section.view_model,
-                    &section.selection,
-                )
-            })
+            .flat_map(|section| selected_source_positions(&pane.source_index, section))
             .collect();
         positions.sort_unstable();
         positions.dedup();
@@ -4574,6 +4613,7 @@ fn connect_selection(
     let weak_view = section.view.downgrade();
     let weak_bound_items = Rc::downgrade(&section.bound_items);
     let view_model = section.view_model.clone();
+    let view_index = section.view_index.clone();
     let browser = Rc::downgrade(browser);
     section
         .selection
@@ -4605,16 +4645,18 @@ fn connect_selection(
                     }
                 }
             }
-            let selected_positions =
-                selected_source_positions(&source_index, &view_model, selection);
-            let changed_end = position.saturating_add(count) as usize;
-            let toggled = bitset_positions(&selection.selection())
-                .into_iter()
-                .rev()
-                .find(|candidate| *candidate >= position as usize && *candidate < changed_end)
-                .and_then(|position| {
-                    source_position_for_view(&source_index, Some(&view_model), position as u32)
-                });
+            let selected = selection.selection();
+            let source_of = |position: u32| {
+                view_index
+                    .sources_of(&source_index, &view_model, std::iter::once(position))
+                    .pop()
+                    .flatten()
+            };
+            let changed = gtk::Bitset::new_range(position, count);
+            changed.intersect(&selected);
+            let toggled = (!changed.is_empty())
+                .then(|| changed.maximum())
+                .and_then(source_of);
             let native_focus = weak_view
                 .upgrade()
                 .and_then(|view| view.root())
@@ -4631,13 +4673,14 @@ fn connect_selection(
                             .flatten()
                     })
                 })
-                .and_then(|position| {
-                    source_position_for_view(&source_index, Some(&view_model), position)
-                })
-                .filter(|position| selected_positions.contains(position));
-            let focused = toggled
-                .or(native_focus)
-                .or_else(|| selected_positions.last().copied());
+                .filter(|position| selected.contains(*position))
+                .and_then(source_of);
+            let focused = toggled.or(native_focus).or_else(|| {
+                let (mut lower, last) = gtk::BitsetIter::init_last(&selected)?;
+                std::iter::once(last)
+                    .chain(std::iter::from_fn(|| lower.previous()))
+                    .find_map(source_of)
+            });
             sync_browser_selection(&sections, &browser, depth, &source_index, focused);
         });
 }
@@ -5351,16 +5394,16 @@ fn bound_item_visitor(bound_items: Rc<RefCell<Vec<BoundModeItem>>>) -> super::ma
     })
 }
 
-fn selected_source_positions(
-    source_index: &SourceIndexMap,
-    view_model: &gio::ListModel,
-    selection: &gtk::MultiSelection,
-) -> Vec<usize> {
-    bitset_positions(&selection.selection())
+fn selected_source_positions(source_index: &SourceIndexMap, section: &PaneSection) -> Vec<usize> {
+    let selected = section.selection.selection();
+    let positions = gtk::BitsetIter::init_first(&selected)
         .into_iter()
-        .filter_map(|position| {
-            source_position_for_view(source_index, Some(view_model), position as u32)
-        })
+        .flat_map(|(rest, first)| std::iter::once(first).chain(rest));
+    section
+        .view_index
+        .sources_of(source_index, &section.view_model, positions)
+        .into_iter()
+        .flatten()
         .collect()
 }
 
@@ -5377,9 +5420,7 @@ fn sync_browser_selection(
         let sections = sections.borrow();
         sections
             .iter()
-            .flat_map(|section| {
-                selected_source_positions(source_index, &section.view_model, &section.selection)
-            })
+            .flat_map(|section| selected_source_positions(source_index, section))
             .collect()
     };
     positions.sort_unstable();
@@ -5394,11 +5435,12 @@ fn sync_browser_selection(
         for section in sections.borrow().iter() {
             let selected = gtk::Bitset::new_empty();
             let count = section.view_model.n_items();
-            for view_position in 0..count {
-                if source_index
-                    .of_view_position(&section.view_model, view_position)
-                    .is_some_and(|source| model.contains(&source))
-                {
+            let sources =
+                section
+                    .view_index
+                    .sources_of(source_index, &section.view_model, 0..count);
+            for (view_position, source) in (0..count).zip(sources) {
+                if source.is_some_and(|source| model.binary_search(&source).is_ok()) {
                     selected.add(view_position);
                 }
             }

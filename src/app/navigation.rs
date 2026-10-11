@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 use std::{
-    cell::Cell,
+    cell::{Cell, OnceCell},
     cmp::Ordering,
     collections::{HashMap, HashSet},
     rc::Rc,
@@ -14,6 +14,10 @@ use crate::{
     },
     services::{DirectoryChange, MetadataUpdate, RequestId},
 };
+
+mod selection;
+
+use selection::SelectedLocations;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum LoadState {
@@ -46,7 +50,7 @@ pub struct ColumnEntryCounts {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-enum SelectedLocations {
+enum LocationSet {
     Explicit(HashSet<Location>),
     All {
         excluded: HashSet<Location>,
@@ -54,13 +58,13 @@ enum SelectedLocations {
     },
 }
 
-impl Default for SelectedLocations {
+impl Default for LocationSet {
     fn default() -> Self {
         Self::Explicit(HashSet::new())
     }
 }
 
-impl SelectedLocations {
+impl LocationSet {
     fn all_visible(entries: &[FileEntry], show_hidden: bool) -> Self {
         let excluded = if show_hidden {
             HashSet::new()
@@ -75,10 +79,6 @@ impl SelectedLocations {
             count: entries.len().saturating_sub(excluded.len()),
             excluded,
         }
-    }
-
-    fn clear(&mut self) {
-        *self = Self::default();
     }
 
     fn is_empty(&self) -> bool {
@@ -195,17 +195,13 @@ impl SelectedLocations {
     }
 }
 
-impl From<HashSet<Location>> for SelectedLocations {
-    fn from(locations: HashSet<Location>) -> Self {
-        Self::Explicit(locations)
-    }
-}
-
 #[derive(Clone, Debug)]
 pub struct ColumnState {
     pub location: Location,
     pub entries: Vec<FileEntry>,
     entry_counts: Cell<Option<(bool, ColumnEntryCounts)>>,
+    // Providers may list a location twice.
+    each_location_once: OnceCell<bool>,
     metadata_positions: Option<HashMap<Location, usize>>,
     pub selected: Option<usize>,
     selected_locations: SelectedLocations,
@@ -385,6 +381,7 @@ impl NavigationState {
                 location,
                 entries: Vec::new(),
                 entry_counts: Cell::new(None),
+                each_location_once: OnceCell::new(),
                 metadata_positions: None,
                 selected: None,
                 selected_locations: SelectedLocations::default(),
@@ -463,6 +460,7 @@ impl NavigationState {
             location,
             entries: Vec::new(),
             entry_counts: Cell::new(None),
+            each_location_once: OnceCell::new(),
             metadata_positions: None,
             selected: None,
             selected_locations: SelectedLocations::default(),
@@ -597,7 +595,12 @@ impl NavigationState {
             .selected
             .and_then(|position| column.entries.get(position))
             .map(|entry| entry.location.clone());
-        if matches!(column.selected_locations, SelectedLocations::All { .. }) {
+        // Spares a scan in the selection read that follows each batch.
+        let lone_cursor = column.selected_locations.lone_position() == column.selected
+            && selected_location
+                .as_ref()
+                .is_some_and(|location| entries.iter().all(|entry| &entry.location != location));
+        if column.selected_locations.is_all() {
             let existing: HashSet<_> = column.entries.iter().map(|entry| &entry.location).collect();
             for entry in &entries {
                 if !existing.contains(&entry.location) {
@@ -621,6 +624,9 @@ impl NavigationState {
             if column.selected.is_some() {
                 column.selection_target = None;
             }
+        }
+        if lone_cursor && let Some(cursor) = column.selected {
+            column.selected_locations.move_lone_position(cursor);
         }
         column.resolve_pending_reveal();
         column.restore_pending_selection();
@@ -810,7 +816,7 @@ impl NavigationState {
                 .iter()
                 .position(|entry| entry.location == location)
         });
-        column.invalidate_entry_indexes();
+        column.invalidate_spliced_entry_indexes();
         column.load_state = LoadState::Ready;
         Ok(Some((
             insertions
@@ -909,7 +915,7 @@ impl NavigationState {
                     .position(|entry| entry.location == location)
             })
         };
-        column.invalidate_entry_indexes();
+        column.invalidate_spliced_entry_indexes();
         column.load_state = if column.entries.is_empty() {
             LoadState::Empty
         } else {
@@ -1035,7 +1041,7 @@ impl NavigationState {
                 .iter()
                 .position(|entry| entry.location == location)
         });
-        column.invalidate_entry_indexes();
+        column.invalidate_spliced_entry_indexes();
         column.retain_selected_locations(false);
         column.load_state = if column.entries.is_empty() {
             LoadState::Empty
@@ -1252,6 +1258,7 @@ impl NavigationState {
         column.metadata_positions = None;
         if preferences.sort_key != SortKey::DeviceOrder {
             column.entries = sort_entries(std::mem::take(&mut column.entries), preferences);
+            column.selected_locations.forget_positions();
         }
         column.selected = selected_location.and_then(|location| {
             column
@@ -1259,18 +1266,7 @@ impl NavigationState {
                 .iter()
                 .position(|entry| entry.location == location)
         });
-        let selected_positions = column
-            .entries
-            .iter()
-            .enumerate()
-            .filter_map(|(position, entry)| {
-                column
-                    .selected_locations
-                    .contains(&entry.location)
-                    .then_some(position)
-            })
-            .collect();
-        Some((column.selected, selected_positions))
+        Some((column.selected, column.selected_positions().to_vec()))
     }
 
     pub fn active_focus(&self) -> Option<(usize, Option<usize>)> {
@@ -1466,18 +1462,20 @@ impl NavigationState {
             .filter(|position| visible.contains(position))
             .unwrap_or(visible[0]);
         let committed = column.load_cursor.is_none();
-        let locations = visible
-            .iter()
-            .filter_map(|position| {
-                let location = &column.entries[*position].location;
-                let selected = committed && column.selected_locations.contains(location);
-                (select_all || !selected).then(|| location.clone())
+        let positions = visible
+            .into_iter()
+            .filter(|position| {
+                select_all
+                    || !(committed
+                        && column
+                            .selected_locations
+                            .contains(&column.entries[*position].location))
             })
             .collect();
-        adopt_selected_locations(column, locations, true);
+        adopt_selected_positions(column, positions, true);
         column.selected = Some(focused);
         self.active_column = Some(depth);
-        let positions = selected_position_list(column);
+        let positions = column.selected_positions().to_vec();
         Some((focused, positions))
     }
 
@@ -1492,11 +1490,7 @@ impl NavigationState {
         {
             return false;
         }
-        let locations = positions
-            .iter()
-            .map(|position| column.entries[*position].location.clone())
-            .collect();
-        adopt_selected_locations(column, locations, true);
+        adopt_selected_positions(column, positions.to_vec(), true);
         column.selected = Some(cursor);
         self.active_column = Some(depth);
         true
@@ -1591,7 +1585,7 @@ impl NavigationState {
         }
         adopt_selected_locations(column, fill, true);
         let focused = order[cursor];
-        Some((depth, focused, selected_position_list(column)))
+        Some((depth, focused, column.selected_positions().to_vec()))
     }
 
     pub fn toggle_visual_cursor(
@@ -1664,35 +1658,60 @@ impl NavigationState {
         {
             return false;
         }
-        let locations: HashSet<_> = positions
-            .iter()
-            .map(|position| column.entries[*position].location.clone())
-            .collect();
+        let mut positions = positions.to_vec();
+        positions.sort_unstable();
+        positions.dedup();
+        let mut located = None;
         // Repeating the fill is a widget echo, as is a report of only the cursor
         // while a different fill remains. After a clear, that cursor report is the
         // click on the still-focused file, so it becomes the selection.
-        let cursor_only_outside_fill = !column.selected_locations.is_empty()
-            && column.selected.is_some_and(|cursor| {
-                column.entries.get(cursor).is_some_and(|entry| {
-                    !column.selected_locations.contains(&entry.location)
-                        && locations.len() == 1
-                        && locations.contains(&entry.location)
-                })
-            });
         if !self.selection_commit
-            && (column
-                .selected_locations
-                .equals_explicit(&locations, &column.entries)
-                || cursor_only_outside_fill)
-            && column
+            && let Some(cursor) = column
                 .selected
-                .is_some_and(|cursor| cursor < column.entries.len())
+                .and_then(|cursor| column.entries.get(cursor))
         {
-            self.active_column = Some(depth);
-            return true;
+            let unchanged = match column.selected_locations.exact_positions(|| {
+                lists_each_location_once(&column.entries, &column.each_location_once)
+            }) {
+                Some(previous) => previous == positions,
+                None => {
+                    let locations: HashSet<_> = positions
+                        .iter()
+                        .map(|position| column.entries[*position].location.clone())
+                        .collect();
+                    let unchanged = column
+                        .selected_locations
+                        .equals_explicit(&locations, &column.entries);
+                    located = Some(locations);
+                    unchanged
+                }
+            };
+            let cursor_only_outside_fill = !column.selected_locations.is_empty()
+                && !column.selected_locations.contains(&cursor.location)
+                && !positions.is_empty()
+                && positions
+                    .iter()
+                    .all(|position| column.entries[*position].location == cursor.location);
+            if unchanged || cursor_only_outside_fill {
+                if unchanged && located.is_some() {
+                    column.selected_locations.remember(positions, || {
+                        lists_each_location_once(&column.entries, &column.each_location_once)
+                    });
+                }
+                self.active_column = Some(depth);
+                return true;
+            }
         }
         let commit = std::mem::take(&mut self.selection_commit);
-        adopt_selected_locations(column, locations, commit);
+        match located {
+            Some(locations) => {
+                adopt_selected_locations(column, locations, commit);
+                column.selected_locations.remember(positions, || {
+                    lists_each_location_once(&column.entries, &column.each_location_once)
+                });
+            }
+            None => adopt_selected_positions(column, positions, commit),
+        }
         column.selected = focused.or(column.selected);
         self.visual = None;
         if column.selection_anchor.is_none() {
@@ -1779,11 +1798,7 @@ impl NavigationState {
         let selected_positions: Vec<usize> = (start..=end)
             .filter(|&index| is_visible(&column.entries[index]))
             .collect();
-        let locations = selected_positions
-            .iter()
-            .map(|&index| column.entries[index].location.clone())
-            .collect();
-        adopt_selected_locations(column, locations, true);
+        adopt_selected_positions(column, selected_positions.clone(), true);
         column.selected = Some(focused);
         self.active_column = Some(depth);
         Some((depth, focused, selected_positions))
@@ -1818,11 +1833,7 @@ impl NavigationState {
             return None;
         }
         column.selection_anchor = Some(column.entries[order[start]].location.clone());
-        let locations = positions
-            .iter()
-            .map(|position| column.entries[*position].location.clone())
-            .collect();
-        adopt_selected_locations(column, locations, true);
+        adopt_selected_positions(column, positions.clone(), true);
         column.selected = Some(focused);
         self.active_column = Some(depth);
         Some(positions)
@@ -1852,23 +1863,7 @@ impl NavigationState {
         let Some(column) = self.columns.get(depth) else {
             return Vec::new();
         };
-        if column.selected_locations.is_empty() {
-            return Vec::new();
-        }
-        if let Some(position) = column.single_selected_position() {
-            return vec![position];
-        }
-        column
-            .entries
-            .iter()
-            .enumerate()
-            .filter_map(|(position, entry)| {
-                column
-                    .selected_locations
-                    .contains(&entry.location)
-                    .then_some(position)
-            })
-            .collect()
+        column.selected_positions().to_vec()
     }
     /// Clone-free length for hot selection paths.
     pub fn selected_count(&self) -> usize {
@@ -1888,17 +1883,10 @@ impl NavigationState {
         let Some(column) = self.columns.get(depth) else {
             return Vec::new();
         };
-        if column.selected_locations.is_empty() {
-            return Vec::new();
-        }
-        if let Some(position) = column.single_selected_position() {
-            return vec![column.entries[position].clone()];
-        }
         column
-            .entries
+            .selected_positions()
             .iter()
-            .filter(|entry| column.selected_locations.contains(&entry.location))
-            .cloned()
+            .map(|position| column.entries[*position].clone())
             .collect()
     }
 
@@ -1912,11 +1900,10 @@ impl NavigationState {
         let visible = |entry: &FileEntry| column.preferences.show_hidden || !entry.is_hidden;
         if column.load_cursor.is_none() && !column.selected_locations.is_empty() {
             let filled: Vec<FileEntry> = column
-                .entries
+                .selected_positions()
                 .iter()
-                .filter(|entry| {
-                    visible(entry) && column.selected_locations.contains(&entry.location)
-                })
+                .map(|position| &column.entries[*position])
+                .filter(|entry| visible(entry))
                 .cloned()
                 .collect();
             if !filled.is_empty() {
@@ -2342,23 +2329,6 @@ fn visible_positions(column: &ColumnState) -> Vec<usize> {
         .collect()
 }
 
-fn selected_position_list(column: &ColumnState) -> Vec<usize> {
-    if column.selected_locations.is_empty() {
-        return Vec::new();
-    }
-    column
-        .entries
-        .iter()
-        .enumerate()
-        .filter_map(|(position, entry)| {
-            column
-                .selected_locations
-                .contains(&entry.location)
-                .then_some(position)
-        })
-        .collect()
-}
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CursorToggle {
     Empty,
@@ -2376,8 +2346,15 @@ impl ColumnState {
     }
 
     fn invalidate_entry_indexes(&mut self) {
+        self.each_location_once.take();
+        self.invalidate_spliced_entry_indexes();
+    }
+
+    /// Splices add, replace and remove rows by location, so they never add a repeat.
+    fn invalidate_spliced_entry_indexes(&mut self) {
         self.entry_counts.set(None);
         self.metadata_positions = None;
+        self.selected_locations.forget_positions();
     }
 
     fn retain_selected_locations(&mut self, hide_hidden: bool) {
@@ -2387,13 +2364,11 @@ impl ColumnState {
         self.selected_locations.retain(&self.entries, hide_hidden);
     }
 
-    fn single_selected_position(&self) -> Option<usize> {
-        let position = self.selected?;
-        (self.selected_locations.len() == 1
-            && self
-                .selected_locations
-                .contains(&self.entries.get(position)?.location))
-        .then_some(position)
+    fn selected_positions(&self) -> &[usize] {
+        self.selected_locations
+            .positions(&self.entries, self.selected, || {
+                lists_each_location_once(&self.entries, &self.each_location_once)
+            })
     }
 
     /// A user selection or a failed load supersedes whatever the load meant to select.
@@ -2518,7 +2493,12 @@ impl ColumnState {
         if restored.is_empty() {
             return;
         }
-        self.selected_locations = restored.into();
+        if !self
+            .selected_locations
+            .equals_explicit(&restored, &self.entries)
+        {
+            self.selected_locations = restored.into();
+        }
         if self.selected.is_none() {
             self.selected = self
                 .entries
@@ -2534,6 +2514,27 @@ fn adopt_selected_locations(column: &mut ColumnState, locations: HashSet<Locatio
         column.drop_load_intents();
     }
     column.selected_locations = locations.into();
+}
+
+fn adopt_selected_positions(column: &mut ColumnState, mut positions: Vec<usize>, commit: bool) {
+    if commit {
+        column.load_cursor = None;
+        column.drop_load_intents();
+    }
+    positions.sort_unstable();
+    positions.dedup();
+    column
+        .selected_locations
+        .select_positions(&column.entries, positions, || {
+            lists_each_location_once(&column.entries, &column.each_location_once)
+        });
+}
+
+fn lists_each_location_once(entries: &[FileEntry], each_location_once: &OnceCell<bool>) -> bool {
+    *each_location_once.get_or_init(|| {
+        let mut listed = HashSet::with_capacity(entries.len());
+        entries.iter().all(|entry| listed.insert(&entry.location))
+    })
 }
 
 fn apply_metadata_update(entry: &mut FileEntry, update: &MetadataUpdate) -> bool {
