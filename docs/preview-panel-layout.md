@@ -51,6 +51,7 @@ Constants live in `src/ui/preview/layout.rs` and `src/ui/preview.rs`.
 | Rule | Value |
 | --- | --- |
 | Standard column width | 300 px (`COLUMN_WIDTH`, user-resizable per column) |
+| Column maximum | the visible browser area: the preview split minus its divider and the sidebar at full width (even while railed), never below the standard width; bounds drags, autofit, new columns, text-size changes, and widths restored from settings, but a window resize does not narrow open columns |
 | Columns preview minimum | one standard column, 300 px (`COLUMN_WIDTH`) |
 | Icons and List preview minimum | 240 px (`MIN_WIDTH`) |
 | Narrow-window hide threshold | 240 px (`MIN_SPLIT_PREVIEW_WIDTH`) |
@@ -74,8 +75,10 @@ Constants live in `src/ui/preview/layout.rs` and `src/ui/preview.rs`.
 - **Column width** follows the pointer while a column edge is dragged. When
   the drag ends, the window's other open columns ease to the same width.
   Double-clicking an edge fits that column alone to its widest entry, never
-  narrower than the standard width. Either way the width is saved for new
-  columns; see [Preferences](preferences.md).
+  narrower than the standard width. Neither makes a column wider than the
+  visible browser area, so its edge and header actions stay on screen and the
+  preview yields instead. Either way the width is saved for new columns; see
+  [Preferences](preferences.md).
 - **The column–preview boundary** splits by side. The last 6 px inside the
   column that meets the preview resize that column, except its last pixel,
   where the divider's 1 px line is drawn. That line and the first 6 px inside
@@ -177,7 +180,7 @@ below is immediate.
 | A column closes with nothing replacing it | It narrows and fades out together, slowly at first, so the columns beside it reflow instead of snapping. While it leaves it takes no clicks, hovers, or drops. |
 | Another location opens, or the strip is rebuilt | The columns are replaced at once, with no exit animation. |
 | A column edge is dragged | That column follows the pointer every frame. The other open columns ease to its width when the drag ends. |
-| A column edge is double-clicked | The column eases to its autofit width. |
+| A column edge is double-clicked | The column eases to its autofit width, up to the visible browser area. |
 | The unreserved drawer opens or closes | The divider slides. Closing takes effect at once, so input returns to the files and only the slide waits. Reopening during the slide turns the drawer back from where it is. A Columns reservation never slides. |
 
 ## Dismissal
@@ -228,6 +231,7 @@ instead.
 | A column boundary resizes the left column from either side, even when it is clipped | `test_quick_preview.py::test_a_clipped_parent_column_resizes_from_either_side_of_its_edge` |
 | The column–preview boundary resizes the side it is grabbed from | `test_quick_preview.py::test_the_column_preview_boundary_resizes_the_side_it_is_grabbed_from` |
 | Dragged widths spread to the open columns when the drag ends; autofit is saved | `src/ui/browser/columns/tests.rs::a_finished_edge_drag_resizes_every_open_column`, `double_clicking_an_edge_autofits_the_column_and_saves_its_width` |
+| Drags, autofit, and restored widths stay within the visible browser area | `src/ui/chooser/tests/column_widths.rs::miller_autofit_saves_a_width_within_the_visible_browser_area`, `::miller_drag_cannot_exceed_the_visible_browser_area`, `tests/e2e/scenarios/test_view_switching.py::test_column_autofit_and_drag_stay_inside_the_browser_area`, `::test_an_oversized_saved_column_width_opens_inside_the_window` |
 | Columns open, swap, and close as described in Column motion | `src/ui/browser/columns/tests.rs::a_resize_during_a_column_entry_does_not_strand_its_animation`, `switching_to_a_sibling_closes_the_old_child_without_an_exit_animation`, `a_closing_column_leaves_after_its_animation_and_takes_no_input`, `close_column_skips_exit_animation_when_animations_disabled` |
 | Reopening during the drawer's slide out turns it back | `src/ui/preview/tests.rs::reopening_during_the_slide_out_turns_the_drawer_back` |
 | Only a shown preview offers its grip and divider | `src/ui/preview/tests.rs::only_a_docked_preview_offers_its_divider_for_resizing` |
