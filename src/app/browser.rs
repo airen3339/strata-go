@@ -4098,7 +4098,7 @@ impl Browser {
             }
             self.sort_resync.note_attempt(origin, depth, preferences);
             let outcome = state.apply_sort_preferences(depth, preferences);
-            self.pending_sort.set(None);
+            self.pending_sort_applied.set(true);
             let take_focus = state.take_selection_from_reveal(depth);
             outcome.and_then(|(focused, positions)| {
                 Some(PublicationPlan {
@@ -4114,9 +4114,11 @@ impl Browser {
         if origin == SortOrigin::Chosen {
             self.record_sort(depth);
         }
-        match outcome {
-            Some(plan) => self.publish_staged(depth, plan),
-            _ => self.finish_sorting(depth),
+        if let Some(plan) = outcome {
+            self.publish_staged(depth, plan);
+        } else {
+            self.pending_sort.set(None);
+            self.finish_sorting(depth);
         }
     }
     /// Only `Complete` sorts: a partial pass is never published as correct, and

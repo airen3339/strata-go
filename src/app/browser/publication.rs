@@ -171,7 +171,7 @@ impl Browser {
 
     /// An applied sort finishes when its rows publish, so dropping them
     /// before the last ends the sort.
-    fn drop_staged_publish(&self, depth: usize) {
+    pub(super) fn drop_staged_publish(&self, depth: usize) {
         let staged = self.staged_publishes.borrow_mut().remove(&depth);
         if staged.as_ref().is_some_and(StagedPublish::finishes_sorting)
             && self.pending_sort_applied.get()
