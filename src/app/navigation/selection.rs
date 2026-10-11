@@ -5,9 +5,8 @@ use std::{cell::OnceCell, cmp::Ordering, collections::HashSet};
 use super::LocationSet;
 use crate::model::{FileEntry, Location};
 
-/// A column's selected locations and, once known, the listing positions they occupy.
-/// Changing the selection drops the positions; the column drops them whenever its
-/// listing changes.
+/// Selected locations and their cached rows, which the column forgets on every listing
+/// change.
 #[derive(Clone, Debug, Default)]
 pub(super) struct SelectedLocations {
     set: LocationSet,
@@ -99,8 +98,6 @@ impl SelectedLocations {
         self.positions.take();
     }
 
-    /// Positions in `entries` that hold the selection, in listing order. A lone
-    /// selected `cursor` avoids scanning a listing that holds each location once.
     pub(super) fn positions(
         &self,
         entries: &[FileEntry],
@@ -144,8 +141,8 @@ impl SelectedLocations {
             .collect()
     }
 
-    /// The selection's positions when each holds a different selected location and
-    /// every selected location is listed. A lone location's cached row is its only one.
+    /// The cached rows when they map one to one onto the selected locations. A lone
+    /// location's cached row is its only one.
     pub(super) fn exact_positions(
         &self,
         each_location_once: impl FnOnce() -> bool,
@@ -158,7 +155,6 @@ impl SelectedLocations {
             .map(Vec::as_slice)
     }
 
-    /// The only row of a lone selected location.
     pub(super) fn lone_position(&self) -> Option<usize> {
         match (&self.set, self.positions.get()?.as_slice()) {
             (LocationSet::Explicit(locations), &[position]) if locations.len() == 1 => {
@@ -168,16 +164,14 @@ impl SelectedLocations {
         }
     }
 
-    /// Records where a listing change that added no row for a lone selected location
-    /// moved its only row.
+    /// Only after a listing change that added no row for the lone selected location.
     pub(super) fn move_lone_position(&mut self, position: usize) {
         self.positions = OnceCell::from(vec![position]);
     }
 
-    /// Selects exactly the items at `positions`, which must be ascending, distinct and
-    /// within `entries`. An explicit selection with known positions changes by
-    /// difference, so a drag over a large selection rehashes only the items that
-    /// changed. A select-all becomes explicit on its first change.
+    /// `positions` must be ascending, distinct and within `entries`. An explicit
+    /// selection changes by difference, so a drag rehashes only the rows that changed;
+    /// a select-all becomes explicit on its first change.
     pub(super) fn select_positions(
         &mut self,
         entries: &[FileEntry],
@@ -212,9 +206,8 @@ impl SelectedLocations {
         self.remember(positions, each_location_once);
     }
 
-    /// Keeps the ascending rows the selection was just built from or matched. Another
-    /// row can hold a selected location only in a listing that repeats one, which
-    /// is left to a scan.
+    /// `positions` are the rows the selection was built from or matched. Another row
+    /// can hold a selected location only in a listing that repeats one.
     pub(super) fn remember(
         &mut self,
         positions: Vec<usize>,

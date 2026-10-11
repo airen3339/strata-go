@@ -595,8 +595,7 @@ impl NavigationState {
             .selected
             .and_then(|position| column.entries.get(position))
             .map(|entry| entry.location.clone());
-        // A batch with no other row for a lone selected cursor only moves that row,
-        // so the selection read after each batch needs no scan.
+        // Spares a scan in the selection read that follows each batch.
         let lone_cursor = column.selected_locations.lone_position() == column.selected
             && selected_location
                 .as_ref()
