@@ -328,25 +328,17 @@ impl ThemeManager {
     pub fn save_custom_theme(&self, tokens: ThemeTokens) -> io::Result<String> {
         validate_tokens(&tokens)
             .map_err(|message| io::Error::new(io::ErrorKind::InvalidInput, message))?;
-        let base = slugify(&tokens.name);
-        if base.is_empty() {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "Enter a theme name",
-            ));
-        }
         let directory = themes_directory();
         fs::create_dir_all(&directory)?;
         // Never replace a file already there, even one that did not load: it may be
         // a broken or newly linked dotfile the user still wants.
-        let mut id = base.clone();
-        let mut suffix = 2;
-        while self.themes.borrow().iter().any(|theme| theme.id == id)
-            || fs::symlink_metadata(directory.join(format!("{id}.toml"))).is_ok()
-        {
-            id = format!("{base}-{suffix}");
-            suffix += 1;
-        }
+        let id = custom_theme_id(&tokens.name, |candidate| {
+            self.themes
+                .borrow()
+                .iter()
+                .any(|theme| theme.id == candidate)
+                || fs::symlink_metadata(directory.join(format!("{candidate}.toml"))).is_ok()
+        });
         let path = directory.join(format!("{id}.toml"));
         let value = toml::to_string_pretty(&tokens).map_err(io::Error::other)?;
         crate::storage::atomic_write_config(&path, value.as_bytes())?;
@@ -1146,6 +1138,26 @@ fn slugify(name: &str) -> String {
         })
         .trim_end_matches('-')
         .to_owned()
+}
+
+const FALLBACK_CUSTOM_THEME_ID: &str = "custom-theme";
+
+/// File id for a new custom theme: the ASCII slug of `name`, or a generic id when the
+/// name has no ASCII letters or digits, suffixed until `taken` no longer matches.
+fn custom_theme_id(name: &str, taken: impl Fn(&str) -> bool) -> String {
+    let slug = slugify(name);
+    let base = if slug.is_empty() {
+        FALLBACK_CUSTOM_THEME_ID
+    } else {
+        slug.as_str()
+    };
+    let mut id = base.to_owned();
+    let mut suffix = 2;
+    while taken(&id) {
+        id = format!("{base}-{suffix}");
+        suffix += 1;
+    }
+    id
 }
 
 fn title_case_slug(slug: &str) -> String {

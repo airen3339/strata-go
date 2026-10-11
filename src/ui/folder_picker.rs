@@ -2,7 +2,7 @@
 
 use std::{
     cell::{Cell, RefCell},
-    path::{Component, Path, PathBuf},
+    path::{Path, PathBuf},
     rc::Rc,
     time::Duration,
 };
@@ -10,6 +10,7 @@ use std::{
 use gtk::glib;
 
 use super::search_session::{SearchBatch, SearchInput, SearchScope, SearchSession};
+use crate::model::lexically_normalized;
 pub(crate) use crate::services::RefusedFolders as Refused;
 
 pub(crate) const NO_MATCHES: &str = "No matching folders";
@@ -55,7 +56,7 @@ pub(crate) fn scope(
         current.ok_or("Type a full path here")?.join(stem)
     };
     Ok(Some(PickerScope {
-        base: normalize(&base),
+        base: lexically_normalized(&base),
         query: query.trim().to_owned(),
     }))
 }
@@ -63,7 +64,7 @@ pub(crate) fn scope(
 pub(crate) fn typed_target(text: &str, current: Option<&Path>, home: &Path) -> Option<PathBuf> {
     split_typed_path(text.trim())?;
     let scope = scope(text, current, home).ok()??;
-    Some(normalize(&scope.base.join(scope.query)))
+    Some(lexically_normalized(&scope.base.join(scope.query)))
 }
 
 /// The trailing slash makes the selected folder the next search root.
@@ -138,21 +139,6 @@ fn split_typed_path(text: &str) -> Option<(&str, &str)> {
         "." | ".." => Some((text, "")),
         query => Some((&text[..=slash], query)),
     }
-}
-
-// Preserve logical paths rather than following symlinks.
-fn normalize(path: &Path) -> PathBuf {
-    let mut normal = PathBuf::new();
-    for component in path.components() {
-        match component {
-            Component::CurDir => {}
-            Component::ParentDir => {
-                normal.pop();
-            }
-            other => normal.push(other),
-        }
-    }
-    normal
 }
 
 fn wants_hidden(query: &str) -> bool {

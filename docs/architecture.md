@@ -54,7 +54,10 @@ header alignment, icon bezels, body and action spacing, focus treatment, and sem
 danger states; dialog-specific code supplies only content and behavior. The search palette remains a
 specialized command interface because its query field and results are one continuous keyboard
 surface. Settings remains a specialized navigable workspace rather than an action dialog. Native
-platform choosers, such as GTK's color dialog, are also kept native.
+platform choosers, such as GTK's color dialog, are also kept native. `style.css` themes the color
+chooser's buttons and editor controls with selectors on GTK's `window.dialog.colorchooser` and
+`colorchooser` nodes that reuse the action-dialog and form-control rules, instead of wrapping the
+chooser in the modal shell.
 
 ### Browser presentation modes
 
@@ -120,9 +123,15 @@ marquees claim the sequence only after that threshold, leaving simple clicks and
 modifier-clicks intact. Chrome-origin drags transfer focus to a visible item in the target
 collection after crossing the threshold, giving active selection feedback without scrolling
 to an old cursor. Sidebar origins also switch browser input ownership to the pointer, so
-keyboard actions use the selected pane rather than stale hover state. A completed plain
-click on background clears selections; returning to an inactive column then
-selects its first visible entry. Presses and marquee releases do not clear selections. Click
+keyboard actions use the selected pane rather than stale hover state. A plain press on pane
+background or on blank chrome beside the panes (sidebar, pane headers, the strip beside the
+last column) clears the selection immediately; Ctrl/Shift presses keep it so the marquee can
+union or range from it, and marquee releases never clear. Returning to an inactive column then
+selects its first visible entry. A preview that is showing something (content or its
+placeholder) is a drag-only origin: a plain click there leaves the selection alone and only a
+drag past the threshold changes it, while the empty reserved preview slot clears like the strip
+beside the columns. Presses on controls, including disabled ones and drag handles such as the
+preview header, never start a marquee. Click
 activation and automatic preview wait for release and reject cancelled gestures, drag motion,
 and recycled items. Marquees anchor and cache mapped item geometry in scroll-content
 coordinates, independent of native GtkScrollable or GtkViewport layout. Edge and wheel scrolling

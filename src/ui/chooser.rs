@@ -49,6 +49,7 @@ use super::{
         ModalTone, focus_button, form_check_button, form_entry, form_label, menu_option,
         message_dialog_layout,
     },
+    marquee::OriginClick,
     preferences::PreferenceManager,
     preview::{PreviewDrawer, preview_target},
     shortcut_footer::ShortcutFooter,
@@ -1600,8 +1601,16 @@ fn build_chooser_hosted(
     preview_split.set_position(i32::MAX);
     preview_split.set_vexpand(true);
     preview.attach_split(&preview_split, &content, &view, Some(&sidebar));
-    view.add_marquee_origin(&sidebar.widget, gtk::PackType::Start);
-    view.add_marquee_origin(&preview.widget(), gtk::PackType::End);
+    view.add_marquee_origin(
+        &sidebar.widget,
+        gtk::PackType::Start,
+        OriginClick::ClearsSelection,
+    );
+    view.add_marquee_origin(
+        &preview.widget(),
+        gtk::PackType::End,
+        OriginClick::keeps_selection_within(&preview.pane_widget()),
+    );
     let (footer, footer_holder) = chooser_footer(&view, &theme);
     footer.set_chooser(chooser_reference(&request.kind));
 

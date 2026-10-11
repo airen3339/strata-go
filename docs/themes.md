@@ -2,7 +2,7 @@
 
 Strata styles the interface with nine semantic color tokens. Bundled themes are the fallback on any Linux desktop; Azure Glow is the default. Settings presents all 95 bundled themes in one searchable, light/dark-filterable scrolling catalog.
 
-Tinted Base16 entries map colors to Strata tokens as follows: `base00` to background, `base01` to surface, `base05` to text, `base0D` to accent, `base08` to danger, `base02` to muted and highlight, `base03` to border, and `base04` to dim text. Source revision and licensing details are recorded in [`THIRD_PARTY_LICENSES.md`](../THIRD_PARTY_LICENSES.md).
+Tinted Base16 entries map colors to Strata tokens as follows: `base00` to background, `base01` to surface, `base05` to text, `base0D` to accent, `base08` to danger, `base02` to muted and highlight, `base03` to border, and `base04` to dim text. A few bundled entries override the mapped foreground values so body text stays readable: text is at least 4.5:1 on background and 3:1 on surface. Where the upstream dim text is also unreadable, it is adjusted to stay legible while remaining dimmer than text. The catalog comments each override next to the value. Source revision and licensing details are recorded in [`THIRD_PARTY_LICENSES.md`](../THIRD_PARTY_LICENSES.md).
 
 ## GTK CSS precedence
 
@@ -41,13 +41,17 @@ dim_text = "#6f8da3"
 
 Strata discovers valid `.toml` files in this directory on startup and displays them under **Your themes**. If a custom filename matches a bundled theme ID, the custom theme replaces that bundled entry so saved preferences and selection always use the user’s palette. Colors load as `#rrggbb`, or `#rrggbbaa` when translucent, so GTK-only forms such as 9-digit hex still apply; the file is not rewritten. Interface icons ignore the alpha.
 
-Theme files may be symlinks into a dotfiles repository. The configurator never overwrites an existing theme file: when `<theme-id>.toml` already exists, whether it loaded or not (for example an invalid file or a link to a missing or broken dotfile), the new theme is saved as the next free `<theme-id>-2.toml`, `<theme-id>-3.toml`, and so on.
+The configurator derives a new file's ID from the theme name, lowercased, keeping ASCII letters and digits and joining the rest with `-` (for example `Ocean Blue` becomes `ocean-blue.toml`). Names without ASCII letters or digits are saved as `custom-theme.toml`. The `name` field keeps the name exactly as typed, so names such as `日本語` are still shown as written.
+
+Theme files may be symlinks into a dotfiles repository. The configurator never replaces an existing theme: when the ID matches a bundled theme or a loaded custom theme, or `<theme-id>.toml` already exists, whether it loaded or not (for example an invalid file or a link to a missing or broken dotfile), the new theme is saved as the next free `<theme-id>-2.toml`, `<theme-id>-3.toml`, and so on. Saving a theme named `Dracula` therefore creates `dracula-2.toml` and leaves the bundled Dracula theme in place.
 
 ## Syntax colors
 
 All 95 bundled themes include explicit code-preview palettes. Tinted Base16 palettes map `base0E` to keywords, `base0B` to strings, `base09` to constants, `base0A` to types, and `base0C` to preprocessor directives. Catppuccin and Tokyo Night use the pinned `catppuccin-mocha` and `tokyo-night-dark` syntax palettes; Azure Glow and Omarchy Light have original curated palettes.
 
 Under **Settings → Theme & appearance → Add a theme**, the syntax color pickers start with the selected theme's colors. Each picker previews changes immediately in open code previews; Cancel restores the selected theme, and Add theme saves all five syntax colors with the interface palette. Closing Settings by any route (Escape, Close settings, a click outside it, or closing the window) discards an unsaved preview the same way. Opening the editor again starts from the selected theme's colors. Changing text size or glow while previewing keeps the preview until it is cancelled or saved. **Dim text / comments** controls comments as well as dim interface text. Markdown headings continue to use the accent color.
+
+Each color swatch in the editor opens GTK's color chooser. Its Cancel and Select buttons and its custom color editor (hex entry, hue slider, and the value popups) follow the active theme and update live, as does the same chooser in the custom folder color dialog.
 
 Custom TOML files can override any syntax role independently:
 

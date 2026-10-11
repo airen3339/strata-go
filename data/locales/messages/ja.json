@@ -686,6 +686,8 @@
   "Search themes": "テーマを検索",
   "Search this folder and its subfolders": "このフォルダーとサブフォルダーを検索",
   "Searching…": "検索中…",
+  "Seek to the start / end": "先頭 / 末尾へシーク",
+  "Seek −30 / +30 seconds": "−30 / +30 秒シーク",
   "Seek −5 / +5 seconds": "−5 / +5 秒シーク",
   "Select a tab (hold Ctrl+Shift for numbers)": "タブを選択（番号では Ctrl+Shift を押したまま）",
   "Select all items in the focused pane": "フォーカス中のペインの全項目を選択",

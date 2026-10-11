@@ -115,6 +115,16 @@ fn resize_edge(state: &ViewState, x: f64, y: f64) -> Option<gtk::Box> {
     })
 }
 
+struct ColumnResize {
+    shell: gtk::Box,
+    /// Restored if the drag is cancelled.
+    requested: i32,
+    initial: i32,
+    start: f64,
+    /// Captured once so the bound cannot creep as the preview slot yields mid-drag.
+    cap: Option<i32>,
+}
+
 pub(super) fn install_resize_edges(state: &Rc<ViewState>) {
     let hint = Rc::new(crate::ui::resize_feedback::EdgeHint::default());
     let motion = gtk::EventControllerMotion::new();
@@ -175,7 +185,7 @@ pub(super) fn install_resize_edges(state: &Rc<ViewState>) {
     resize.set_name(Some("column-resize"));
     resize.set_button(1);
     resize.set_propagation_phase(gtk::PropagationPhase::Capture);
-    let active = Rc::new(RefCell::new(None::<(gtk::Box, i32, f64)>));
+    let active = Rc::new(RefCell::new(None::<ColumnResize>));
     let last_press = Rc::new(RefCell::new(None::<(gtk::Box, u64)>));
     let hint_for_begin = hint.clone();
     let weak = Rc::downgrade(state);
@@ -222,7 +232,8 @@ pub(super) fn install_resize_edges(state: &Rc<ViewState>) {
                 .and_then(|overlay| overlay.child())
                 .map(|column| max_child_natural_width(&column))
                 .unwrap_or(COLUMN_WIDTH);
-            let target_width = max_natural.max(COLUMN_WIDTH);
+            let target_width = bound_column_width(max_natural, column_width_cap(&state));
+            column.remember_width(target_width);
             animate_column_resize(
                 &shell,
                 &column.animation_generation,
@@ -238,8 +249,13 @@ pub(super) fn install_resize_edges(state: &Rc<ViewState>) {
             .current_event()
             .and_then(|event| event.position())
             .map_or(x, |(pointer_x, _)| pointer_x);
-        *active_for_begin.borrow_mut() =
-            Some((shell.clone(), shell.width().max(COLUMN_WIDTH), pointer_x));
+        *active_for_begin.borrow_mut() = Some(ColumnResize {
+            shell: shell.clone(),
+            requested: shell.width_request(),
+            initial: shell.width().max(COLUMN_WIDTH),
+            start: pointer_x,
+            cap: column_width_cap(&state),
+        });
         hint_for_begin.show(&shell, "Column width", column_edge(&shell));
         gesture.set_state(gtk::EventSequenceState::Claimed);
     });
@@ -252,14 +268,15 @@ pub(super) fn install_resize_edges(state: &Rc<ViewState>) {
     let hint_for_cancel = hint;
     resize.connect_drag_update(move |gesture, fallback_offset_x, _| {
         let active = active_for_update.borrow();
-        let Some((shell, initial, start)) = active.as_ref() else {
+        let Some(drag) = active.as_ref() else {
             return;
         };
         let offset_x = gesture
             .current_event()
             .and_then(|event| event.position())
-            .map_or(fallback_offset_x, |(current, _)| current - start);
-        shell.set_size_request(resized_column_width(*initial, offset_x), -1);
+            .map_or(fallback_offset_x, |(current, _)| current - drag.start);
+        drag.shell
+            .set_size_request(resized_column_width(drag.initial, offset_x, drag.cap), -1);
         hint_for_update.follow();
     });
     resize.connect_drag_end(move |_, _, _| {
@@ -267,15 +284,20 @@ pub(super) fn install_resize_edges(state: &Rc<ViewState>) {
         let resized = active_for_end.borrow_mut().take();
         if let Some(state) = weak_for_end.upgrade() {
             state.column_resizing.set(false);
-            if let Some((shell, _, _)) = resized {
-                remember_column_width(&state, shell.width_request());
+            if let Some(ColumnResize { shell, cap, .. }) = resized {
+                // A press without movement sends no update, so bound the width here too.
+                let width = cap_column_width(shell.width_request(), cap);
+                shell.set_size_request(width, -1);
+                remember_column_width(&state, width);
                 state.match_column_widths(&shell);
             }
         }
     });
     let weak_for_cancel = Rc::downgrade(state);
     resize.connect_cancel(move |_, _| {
-        active_for_cancel.borrow_mut().take();
+        if let Some(drag) = active_for_cancel.borrow_mut().take() {
+            drag.shell.set_size_request(drag.requested, -1);
+        }
         hint_for_cancel.hide();
         if let Some(state) = weak_for_cancel.upgrade() {
             state.column_resizing.set(false);
@@ -409,6 +431,9 @@ pub(super) struct ColumnView {
     pub(super) resize_handle: gtk::Box,
     pub(super) reveal_button: gtk::Button,
     pub(super) animation_generation: Rc<Cell<u64>>,
+    /// The intended width in unscaled pixels: the saved default, then the last
+    /// drag or autofit. A text-size change scales this, not the capped width.
+    pub(super) unscaled_width: Rc<Cell<f64>>,
     pub(super) presentation: LoadPresentation,
     pub(super) model: EntryListModel,
     pub(super) filtered_model: gtk::FilterListModel,
@@ -451,6 +476,11 @@ pub(super) struct ColumnHits {
 }
 
 impl ColumnView {
+    fn remember_width(&self, width: i32) {
+        let scale = crate::ui::preferences::PreferenceManager::shared().interface_scale();
+        self.unscaled_width.set(f64::from(width) / scale);
+    }
+
     /// Focuses the list, or the column surface while it shows an empty, error or
     /// loading page.
     pub(super) fn focus_surface(&self) -> bool {
@@ -714,23 +744,17 @@ fn should_activate_single_click(
     activation: ClickActivation,
     control: bool,
     shift: bool,
-    preserve_group: bool,
 ) -> bool {
     let configured = if is_directory {
         activation.folders
     } else {
         activation.files
     };
-    press_count == 1 && configured == ClickCount::One && !control && !shift && !preserve_group
+    press_count == 1 && configured == ClickCount::One && !control && !shift
 }
 
-fn should_preview_pointer_press(
-    press_count: i32,
-    control: bool,
-    shift: bool,
-    preserve_group: bool,
-) -> bool {
-    press_count == 1 && !control && !shift && !preserve_group
+fn should_preview_pointer_press(press_count: i32, control: bool, shift: bool) -> bool {
+    press_count == 1 && !control && !shift
 }
 
 pub(super) fn is_column_background(surface: &gtk::Widget, picked: &gtk::Widget) -> bool {
@@ -886,10 +910,36 @@ fn initial_column_width(state: &ViewState) -> i32 {
     saved.map_or(COLUMN_WIDTH, |width| width.max(COLUMN_WIDTH))
 }
 
-fn resized_column_width(initial_width: i32, horizontal_offset: f64) -> i32 {
-    (f64::from(initial_width) + horizontal_offset)
-        .round()
-        .max(f64::from(COLUMN_WIDTH)) as i32
+/// The standard column width at the current text size, the narrowest the
+/// cap may make a column.
+pub(super) fn column_floor() -> i32 {
+    let scale = crate::ui::preferences::PreferenceManager::shared().interface_scale();
+    (f64::from(COLUMN_WIDTH) * scale).round() as i32
+}
+
+/// The visible browser area the preview layout publishes, or the columns
+/// viewport while no layout is attached; none before the first allocation.
+fn column_width_cap(state: &ViewState) -> Option<i32> {
+    state.column_width_limit.get().or_else(|| {
+        let page = state.scroller.hadjustment().page_size();
+        (page > 0.0).then(|| page.round() as i32)
+    })
+}
+
+fn cap_column_width(width: i32, cap: Option<i32>) -> i32 {
+    cap.map_or(width, |cap| width.min(cap.max(column_floor())))
+}
+
+/// Pointer-chosen widths (drag, autofit) keep the 300 px minimum.
+fn bound_column_width(width: i32, cap: Option<i32>) -> i32 {
+    cap_column_width(width.max(COLUMN_WIDTH), cap)
+}
+
+fn resized_column_width(initial_width: i32, horizontal_offset: f64, cap: Option<i32>) -> i32 {
+    bound_column_width(
+        (f64::from(initial_width) + horizontal_offset).round() as i32,
+        cap,
+    )
 }
 
 pub(in crate::ui) fn max_child_natural_width(widget: &gtk::Widget) -> i32 {
@@ -980,6 +1030,7 @@ impl ViewState {
     fn match_column_widths(&self, resized: &gtk::Box) {
         let width = resized.width_request().max(COLUMN_WIDTH);
         for column in self.columns.borrow().iter() {
+            column.remember_width(width);
             if column.shell == *resized {
                 continue;
             }
@@ -1978,15 +2029,44 @@ impl ViewState {
         });
         shell.add_controller(filter_focus);
 
-        shell.set_size_request(initial_column_width(self), -1);
-        let previous_scale = Cell::new(1.0);
-        crate::ui::preferences::PreferenceManager::shared().bind_interface_scale(
-            &shell,
-            move |shell, scale| {
-                let ratio = scale / previous_scale.replace(scale);
-                shell.set_width_request((f64::from(shell.width_request()) * ratio).round() as i32);
-            },
+        let preferences = crate::ui::preferences::PreferenceManager::shared();
+        let unscaled_width = Rc::new(Cell::new(f64::from(initial_column_width(self))));
+        let animation_generation = Rc::new(Cell::new(0u64));
+        let scale = preferences.interface_scale();
+        shell.set_size_request(
+            cap_column_width(
+                (unscaled_width.get() * scale).round() as i32,
+                column_width_cap(self),
+            ),
+            -1,
         );
+        let previous_scale = Cell::new(scale);
+        let weak_state = Rc::downgrade(self);
+        let unscaled_for_scale = unscaled_width.clone();
+        let generation_for_scale = animation_generation.clone();
+        preferences.bind_interface_scale(&shell, move |shell, scale| {
+            // Also called for unrelated changes; those must not narrow a column
+            // after the window shrank.
+            if previous_scale.replace(scale) == scale {
+                return;
+            }
+            let Some(state) = weak_state.upgrade() else {
+                return;
+            };
+            if !state.columns.borrow().iter().any(|c| c.shell == *shell) {
+                return;
+            }
+            generation_for_scale.set(generation_for_scale.get().saturating_add(1));
+            let width = (unscaled_for_scale.get() * scale).round() as i32;
+            if state.column_width_limit.get().is_some() {
+                // The sidebar scales too, so the published area is stale until the
+                // next frame; that limit narrows the column once.
+                shell.set_width_request(width);
+                state.clamp_to_next_column_limit.set(true);
+            } else {
+                shell.set_width_request(cap_column_width(width, column_width_cap(&state)));
+            }
+        });
         shell.set_vexpand(true);
         shell.set_overflow(gtk::Overflow::Hidden);
         let column_overlay = gtk::Overlay::new();
@@ -2063,7 +2143,8 @@ impl ViewState {
             shell: shell.clone(),
             resize_handle: resize_handle.clone(),
             reveal_button,
-            animation_generation: Rc::new(Cell::new(0)),
+            animation_generation,
+            unscaled_width,
             presentation,
             model,
             filtered_model,

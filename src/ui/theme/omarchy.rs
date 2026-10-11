@@ -97,7 +97,7 @@ fn luminance(color: &str) -> f64 {
     channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722
 }
 
-fn contrast(left: &str, right: &str) -> f64 {
+pub(super) fn contrast(left: &str, right: &str) -> f64 {
     let left = luminance(left);
     let right = luminance(right);
     (left.max(right) + 0.05) / (left.min(right) + 0.05)

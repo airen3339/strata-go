@@ -145,9 +145,9 @@ fn video_steps_reuse_one_view_and_keep_playback() {
             ));
 
             preferences.set_preview_audio(0.4, false);
-            assert!(state.media_command(gtk::gdk::Key::Up));
+            assert!(state.media_command(gtk::gdk::Key::Up, false));
             assert!((preferences.preview_volume() - 0.5).abs() < 0.001);
-            assert!(state.media_command(gtk::gdk::Key::m));
+            assert!(state.media_command(gtk::gdk::Key::m, false));
             assert!(preferences.preview_muted());
             assert!(stream().is_muted());
 
@@ -581,7 +581,7 @@ fn autoplay_starts_silent_and_eases_in_unless_the_viewer_acts_or_is_muted() {
             let media = decoded();
             media.use_test_stream();
             assert_eq!(media.fade(), 0.0);
-            assert!(state.media_command(gtk::gdk::Key::space));
+            assert!(state.media_command(gtk::gdk::Key::space, false));
             assert_eq!(media.fade(), 1.0, "pausing brings the sound in at once");
             assert!(!view().is_easing_in());
 
@@ -705,7 +705,7 @@ fn files_opened_externally_stay_paused_when_their_preview_lands() {
             ready(&provider, 1, "video/mp4");
             assert!(!playing());
 
-            assert!(state.media_command(gtk::gdk::Key::space));
+            assert!(state.media_command(gtk::gdk::Key::space, false));
             assert!(playing(), "playing by hand lifts the hold");
             drawer.close();
             drawer.show(second, None);

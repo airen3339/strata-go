@@ -8,6 +8,7 @@ import time
 import pytest
 from gi.repository import Atspi
 
+from harness.interaction import SEPARATE_CLICK_GAP
 from harness.modes import ALL_MODES
 
 SINGLE_CLICK = pytest.mark.preferences(
@@ -24,8 +25,18 @@ DOUBLE_CLICK = pytest.mark.preferences(
 
 @SINGLE_CLICK
 @pytest.mark.parametrize("mode", ALL_MODES)
-def test_single_click_opens_a_directory(strata, mode):
-    strata.pointer.click(strata.entry("documents"))
+@pytest.mark.parametrize("initial", ["none", "group"])
+def test_single_click_opens_a_directory(strata, mode, initial):
+    root = strata.fixture.root.name
+    if initial == "group":
+        # A plain press on a member keeps the group for a drag; the release must still open it.
+        strata.wait_for_selection(["archive"], root)
+        strata.click_entry_with("todo.txt", ["ctrl"], root)
+        strata.click_entry_with("documents", ["ctrl"], root)
+        strata.wait_for_selection(["archive", "documents", "todo.txt"], root)
+        time.sleep(SEPARATE_CLICK_GAP)
+
+    strata.pointer.click(strata.entry("documents", root))
 
     strata.wait(
         lambda: strata.pane().name == "documents",
@@ -33,6 +44,8 @@ def test_single_click_opens_a_directory(strata, mode):
     )
     strata.entry("notes.txt")
     strata.wait_for_selection([], "documents")
+    if initial == "group" and mode == "Columns":
+        strata.wait_for_selection(["documents"], root)
 
 
 @SINGLE_CLICK

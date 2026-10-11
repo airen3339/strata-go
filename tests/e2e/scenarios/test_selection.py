@@ -354,7 +354,10 @@ def test_tenxer_space_toggles_the_cursor_and_keeps_the_fill(strata, mode, root):
         assert strata.selected_names(root) == []
 
     if mode == "Columns":
-        strata.select_entry("documents", root)
+        strata.keyboard.press("ctrl+r")
+        strata.wait(lambda: strata.selected_names(root) == [], "Ctrl+R to clear the pane")
+        strata.keyboard.press(NEXT_ENTRY[mode])
+        strata.wait_for_focused_entry("documents")
         strata.keyboard.press("i")
         strata.wait(lambda: "documents" in strata.pane_names(), "the child column to open")
         strata.hover_pane("documents")
