@@ -2,6 +2,7 @@
 
 use std::cell::{Cell, RefCell};
 
+use super::super::{SortFill, SortOrigin};
 use super::*;
 use crate::{
     model::{EntryKind, FileEntry, Location, MetadataValue, SortKey, ViewPreferences},
@@ -103,6 +104,26 @@ fn pump_until(done: impl Fn() -> bool) {
     while !done() {
         assert!(Instant::now() < deadline, "publication did not converge");
         context.iteration(false);
+    }
+}
+
+/// Applies a sort through the metadata-fill path or the debounced one.
+fn apply_sort(fixture: &Fixture, awaited: bool) {
+    fixture.browser.pending_sort.set(Some((17, 0)));
+    if awaited {
+        fixture.browser.finish_awaited_sort(SortFill {
+            generation: 17,
+            depth: 0,
+            origin: SortOrigin::Chosen,
+            fill_request: RequestId(2),
+            directory_request: RequestId(1),
+            preferences: ViewPreferences::default(),
+        });
+    } else {
+        let location = fixture.browser.location_at(0).expect("column location");
+        fixture
+            .browser
+            .apply_debounced_sort(0, &location, 17, SortOrigin::Chosen, |_| {});
     }
 }
 
@@ -357,14 +378,7 @@ fn sort_paths_capture_selection_before_preference_observers() {
                 .borrow_mut()
                 .select(0, 0);
         });
-        fixture.browser.pending_sort.set(Some((17, 0)));
-        if awaited {
-            fixture
-                .browser
-                .finish_awaited_sort(0, 17, ViewPreferences::default());
-        } else {
-            fixture.browser.apply_debounced_sort(0, 17, |_| {});
-        }
+        apply_sort(&fixture, awaited);
         assert_eq!(fixture.browser.state.borrow().columns[0].selected, Some(0));
         {
             let staged = fixture.browser.staged_publishes.borrow();
@@ -374,6 +388,41 @@ fn sort_paths_capture_selection_before_preference_observers() {
         }
         fixture.wait_for_completion();
         assert_selection_then_sorting(&fixture.events.borrow(), 699);
+    }
+}
+
+#[test]
+fn a_sort_left_while_publishing_finishes_once_and_never_after_its_rows_are_out() {
+    let _guard = ASYNC_MAIN_CONTEXT_DEFAULT.lock().expect("async test lock");
+    type Leave = fn(&Rc<Browser>);
+    let leaves: [(&str, Leave); 3] = [
+        ("cancel", |browser| browser.cancel_publish(0)),
+        ("truncate", |browser| browser.truncate_deferred_from(0)),
+        ("replace", |browser| browser.cancel_deferred_work()),
+    ];
+    for awaited in [false, true] {
+        for (route, leave) in leaves {
+            for published in [false, true] {
+                let fixture = Fixture::new(700);
+                apply_sort(&fixture, awaited);
+                assert!(fixture.browser.publishing_sort(0));
+                if published {
+                    fixture.wait_for_completion();
+                }
+                leave(&fixture.browser);
+                leave(&fixture.browser);
+                let finished = fixture
+                    .events
+                    .borrow()
+                    .iter()
+                    .filter(|event| matches!(event, BrowserEvent::SortingFinished { depth: 0 }))
+                    .count();
+                assert_eq!(
+                    finished, 1,
+                    "awaited: {awaited}, {route}, published: {published}"
+                );
+            }
+        }
     }
 }
 

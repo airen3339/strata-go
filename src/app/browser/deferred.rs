@@ -73,9 +73,16 @@ impl Browser {
             .retain(|depth, _| *depth < len);
         self.staging.borrow_mut().retain(|depth, _| *depth < len);
         self.sorting.borrow_mut().retain(|depth, _| *depth < len);
-        self.staged_publishes
-            .borrow_mut()
-            .retain(|depth, _| *depth < len);
+        let removed: Vec<usize> = self
+            .staged_publishes
+            .borrow()
+            .keys()
+            .copied()
+            .filter(|depth| *depth >= len)
+            .collect();
+        for depth in removed {
+            self.drop_staged_publish(depth);
+        }
         if self.staged_publishes.borrow().is_empty()
             && let Some(source) = self.publish_timer.borrow_mut().take()
         {
@@ -111,8 +118,11 @@ impl Browser {
             );
         } else {
             self.sort_loads.borrow_mut().clear();
-            if let Some((_, depth)) = self.pending_sort.take() {
-                self.emit(super::BrowserEvent::SortingFinished { depth });
+            // An applied sort whose rows are all published has already finished.
+            if let Some((_, depth)) = self.pending_sort.take()
+                && (!self.pending_sort_applied.get() || self.publishing_sort(depth))
+            {
+                self.finish_sorting(depth);
             }
         }
     }
