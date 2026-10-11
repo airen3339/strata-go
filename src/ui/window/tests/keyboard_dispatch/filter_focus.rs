@@ -746,3 +746,69 @@ fn an_outside_deletion_keeps_focus_in_the_filter_entry() {
         },
     );
 }
+
+fn tab(fixture: &KeyboardFixture, direction: gtk::DirectionType) {
+    let (key, modifiers) = if direction == gtk::DirectionType::TabBackward {
+        (Key::ISO_Left_Tab, ModifierType::SHIFT_MASK)
+    } else {
+        (Key::Tab, ModifierType::empty())
+    };
+    if !fixture.press(key, modifiers) {
+        fixture.window.emit_move_focus(direction);
+    }
+    pump(50);
+}
+
+fn tab_from_result_case(mode: BrowserMode, recursive: bool) -> Result<(), String> {
+    let fixture = filtered_fixture(mode, recursive);
+    let expected: &[&str] = if recursive {
+        &ALL_REPORTS
+    } else {
+        &IMMEDIATE_REPORTS
+    };
+    let field = show_filter_with_results(&fixture, "report", expected)?;
+    focus_first_result(&fixture, &field)?;
+    let first_hit = hit_cursor(&fixture);
+
+    tab(&fixture, gtk::DirectionType::TabForward);
+    if result_has_focus(&fixture) {
+        return Err(format!(
+            "Tab on a focused result stayed in the results view; focus on {}",
+            describe_focus(&fixture)
+        ));
+    }
+
+    tab(&fixture, gtk::DirectionType::TabBackward);
+    if !result_has_focus(&fixture) {
+        return Err(format!(
+            "Shift+Tab did not return to the results; focus on {}",
+            describe_focus(&fixture)
+        ));
+    }
+    if hit_cursor(&fixture) != first_hit {
+        return Err(format!(
+            "Shift+Tab landed on {:?} rather than previous cursor {:?}",
+            hit_cursor(&fixture),
+            first_hit
+        ));
+    }
+    Ok(())
+}
+
+#[test]
+fn tab_from_focused_result_leaves_in_one_press() {
+    crate::test_support::gtk_test(
+        "ui::window::tests::keyboard_dispatch::filter_focus::tab_from_focused_result_leaves_in_one_press",
+        || {
+            let mut failures = Vec::new();
+            for mode in [BrowserMode::List, BrowserMode::Icons] {
+                for recursive in [false, true] {
+                    if let Err(error) = tab_from_result_case(mode, recursive) {
+                        failures.push(format!("{mode:?}, subfolders {recursive}: {error}"));
+                    }
+                }
+            }
+            report(failures);
+        },
+    );
+}

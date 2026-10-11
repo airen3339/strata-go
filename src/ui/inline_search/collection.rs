@@ -677,6 +677,7 @@ pub(super) fn build_collection(
             grid.set_max_columns(max_columns);
             grid.set_enable_rubberband(false);
             grid.set_single_click_activate(false);
+            grid.set_tab_behavior(gtk::ListTabBehavior::Item);
             grid.set_vexpand(false);
             grid.upcast()
         }
@@ -685,6 +686,7 @@ pub(super) fn build_collection(
             list.add_css_class("file-list");
             list.set_enable_rubberband(false);
             list.set_single_click_activate(false);
+            list.set_tab_behavior(gtk::ListTabBehavior::Item);
             list.set_vexpand(true);
             list.upcast()
         }
