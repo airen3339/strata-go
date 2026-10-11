@@ -54,7 +54,10 @@ header alignment, icon bezels, body and action spacing, focus treatment, and sem
 danger states; dialog-specific code supplies only content and behavior. The search palette remains a
 specialized command interface because its query field and results are one continuous keyboard
 surface. Settings remains a specialized navigable workspace rather than an action dialog. Native
-platform choosers, such as GTK's color dialog, are also kept native.
+platform choosers, such as GTK's color dialog, are also kept native. `style.css` themes the color
+chooser's buttons and editor controls with selectors on GTK's `window.dialog.colorchooser` and
+`colorchooser` nodes that reuse the action-dialog and form-control rules, instead of wrapping the
+chooser in the modal shell.
 
 ### Browser presentation modes
 
