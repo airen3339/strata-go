@@ -235,13 +235,7 @@ fn launch_program(location: &Location) -> std::io::Result<()> {
             "program is not a local file",
         )
     })?;
-    let mut child = program_command(path, terminal::Terminal::resolve)?.spawn()?;
-    std::thread::spawn(move || {
-        if let Err(error) = child.wait() {
-            tracing::warn!(%error, "unable to reap program");
-        }
-    });
-    Ok(())
+    terminal::spawn_reaped(program_command(path, terminal::Terminal::resolve)?)
 }
 
 fn program_command(

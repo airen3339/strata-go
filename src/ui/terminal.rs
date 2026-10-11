@@ -3,7 +3,7 @@
 use std::ffi::{OsStr, OsString};
 use std::io::ErrorKind;
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 
 pub(super) const PREFERRED_LAUNCHER: &str = "xdg-terminal-exec";
 
@@ -216,6 +216,35 @@ pub(super) fn no_terminal_message() -> String {
         .join(", ");
     let fallbacks = format!("\n{fallbacks}");
     rust_i18n::t!("No terminal emulator was found. Install “%{PREFERRED_LAUNCHER}” with a configured ~/.config/xdg-terminals.list, set $TERMINAL, or install one of: %{fallbacks}", PREFERRED_LAUNCHER = PREFERRED_LAUNCHER, fallbacks = fallbacks).into_owned()
+}
+
+/// Spawns `command` and reaps the child from a detached thread so a launcher that exits
+/// (or a terminal whose window closes) never lingers as a defunct child of Strata.
+pub(super) fn spawn_reaped(mut command: Command) -> std::io::Result<()> {
+    let program = command.get_program().to_owned();
+    let child = command.spawn()?;
+    reap_in_background(child, program);
+    Ok(())
+}
+
+/// Waits on `child` off the UI thread. A wait failure is only logged; a thread-creation
+/// failure leaves the child unreaped rather than blocking or panicking the caller.
+fn reap_in_background(mut child: Child, program: OsString) {
+    let label = program.to_string_lossy().into_owned();
+    let spawned = std::thread::Builder::new()
+        .name("process-reaper".into())
+        .spawn(move || {
+            if let Err(error) = child.wait() {
+                tracing::warn!(
+                    %error,
+                    program = %program.to_string_lossy(),
+                    "unable to reap child process"
+                );
+            }
+        });
+    if let Err(error) = spawned {
+        tracing::warn!(%error, program = %label, "unable to start reaper thread");
+    }
 }
 
 fn explicit_terminal(path_var: Option<&OsStr>, terminal_var: Option<&OsStr>) -> Option<Terminal> {
