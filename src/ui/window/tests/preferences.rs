@@ -906,13 +906,27 @@ fn saved_folder_sorts_and_icon_sizes_apply_before_settings_and_follow_changes_ac
                 FolderSort::Saved(size_ascending.0, size_ascending.1),
                 "a default set while folder settings are off drops nothing"
             );
+            manager.set_folder_icons_size(Some(&sorted_location), 160);
             manager.set_remember_folder_views(false);
             manager.set_default_sort(size_ascending.0, size_ascending.1);
+            let notified_sizes = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+            let notified = notified_sizes.clone();
+            let observed = sorted_location.clone();
+            manager.observe(std::rc::Rc::new(move || {
+                notified
+                    .borrow_mut()
+                    .push(PreferenceManager::shared().icons_size_for(Some(&observed)));
+            }));
             manager.set_remember_folder_views(true);
             assert_eq!(
                 manager.resolve_folder_sort(&plain_location, false),
                 FolderSort::Default,
                 "turning folder settings back on drops values equal to the default"
+            );
+            assert_eq!(
+                notified_sizes.borrow().first(),
+                Some(&160),
+                "the first notification already uses the folder's own size"
             );
         },
     );
@@ -991,6 +1005,18 @@ fn folder_settings_saved_by_another_process_are_merged_instead_of_overwritten() 
                 folder_views_file().contains(&here.display_path()),
                 "the save is retried once the file can be read again"
             );
+
+            let saving_elsewhere =
+                std::fs::File::open(crate::storage::state_directory()).expect("state directory");
+            saving_elsewhere.lock().expect("another process saving");
+            manager.set_folder_sort(&here, SortKey::Type, SortDirection::Descending);
+            settle_for(std::time::Duration::from_secs(1));
+            assert!(
+                !folder_views_file().contains("sort = \"type\""),
+                "a save waits until another process has saved"
+            );
+            drop(saving_elsewhere);
+            wait_until(|| folder_views_file().contains("sort = \"type\""));
 
             let mut settings: toml::Table = std::fs::read_to_string(settings_file())
                 .ok()

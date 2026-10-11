@@ -231,6 +231,8 @@ fn defaults_prune_matching_values_without_touching_other_fields() {
 fn least_recently_used_folders_are_evicted_at_the_limit() {
     let mut views = FolderViews::default();
     let view = sorted(SortKey::Size, SortDirection::Ascending);
+    set(&mut views, &local("/trashed"), view);
+    let trashed = views.take_within(&local("/trashed"));
     for index in 0..FOLDER_VIEWS_LIMIT {
         set(&mut views, &local(&format!("/folder/{index}")), view);
     }
@@ -246,6 +248,13 @@ fn least_recently_used_folders_are_evicted_at_the_limit() {
         FolderView::default(),
         "least recently used"
     );
+    assert!(views.put_back(trashed));
+    assert_eq!(
+        views.view(&local("/trashed")),
+        view,
+        "restoring a folder counts as using it"
+    );
+    assert_eq!(views.view(&local("/folder/2")), FolderView::default());
 
     let mut contents = String::from("version = 1\n");
     for index in 0..=FOLDER_VIEWS_LIMIT {
@@ -258,6 +267,24 @@ fn least_recently_used_folders_are_evicted_at_the_limit() {
     assert_eq!(loaded.len(), FOLDER_VIEWS_LIMIT);
     assert_eq!(loaded.view(&local("/loaded/0")), FolderView::default());
     assert!(loaded.view(&local("/loaded/1")).icons_size.is_some());
+
+    let (mut ours, _) =
+        FolderViews::parse("[[folder]]\npath = \"/loaded/1\"\nicons_size = 64\nused = 0\n")
+            .expect("loaded before the other process's saves");
+    set(&mut ours, &local("/mine"), view);
+    assert!(ours.touch(&local("/loaded/1")));
+    let mut merged = ours.merged_over(loaded);
+    assert_eq!(
+        merged.view(&local("/mine")),
+        view,
+        "a change here is newer than any use another process saved"
+    );
+    assert_eq!(merged.view(&local("/loaded/2")), FolderView::default());
+    set(&mut merged, &local("/next"), view);
+    assert!(
+        merged.view(&local("/loaded/1")).icons_size.is_some(),
+        "so is opening a folder here"
+    );
 }
 
 #[test]

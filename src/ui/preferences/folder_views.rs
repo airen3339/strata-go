@@ -296,20 +296,25 @@ impl FolderViews {
         TakenViews(taken)
     }
 
-    pub(in crate::ui) fn put_back(&mut self, taken: TakenViews) -> bool {
+    /// A restore counts as the latest use, so restoring cannot evict what it restored.
+    pub(in crate::ui) fn put_back(&mut self, mut taken: TakenViews) -> bool {
         if taken.0.is_empty() {
             return false;
         }
-        self.changed
-            .extend(taken.0.iter().map(|(key, _)| key.clone()));
-        self.entries.extend(taken.0);
+        taken.0.sort_unstable_by_key(|(_, entry)| entry.used);
+        for (key, mut entry) in taken.0 {
+            entry.used = self.tick();
+            self.changed.insert(key.clone());
+            self.entries.insert(key, entry);
+        }
         self.evict_to(FOLDER_VIEWS_LIMIT);
         true
     }
 
     /// `saved`, as another process may have left it, with this store's unsaved
-    /// changes applied on top. Use times keep the later of the two, and the
-    /// changes stay unsaved until a write succeeds.
+    /// changes applied on top. Folders changed or opened here become the latest
+    /// used, since the other process's clock may have run ahead of this one's,
+    /// and the changes stay unsaved until a write succeeds.
     pub(in crate::ui) fn merged_over(&self, saved: Self) -> Self {
         let mut merged = if self.cleared { Self::default() } else { saved };
         for key in &self.changed {
@@ -322,13 +327,19 @@ impl FolderViews {
                 }
             }
         }
-        for key in &self.touched {
-            if let (Some(ours), Some(merged)) = (self.entries.get(key), merged.entries.get_mut(key))
-            {
-                merged.used = merged.used.max(ours.used);
+        merged.clock = merged.clock.max(self.clock);
+        let mut used_here: Vec<(u64, &FolderKey)> = self
+            .changed
+            .union(&self.touched)
+            .filter_map(|key| Some((self.entries.get(key)?.used, key)))
+            .collect();
+        used_here.sort_unstable();
+        for (_, key) in used_here {
+            let used = merged.tick();
+            if let Some(entry) = merged.entries.get_mut(key) {
+                entry.used = used;
             }
         }
-        merged.clock = merged.clock.max(self.clock);
         merged.changed.clone_from(&self.changed);
         merged.touched.clone_from(&self.touched);
         merged.cleared = self.cleared;

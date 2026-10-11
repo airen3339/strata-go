@@ -2,7 +2,7 @@
 
 use std::{
     cell::{Cell, RefCell},
-    io,
+    fs, io,
     path::{Path, PathBuf},
     time::Duration,
 };
@@ -128,6 +128,23 @@ pub(in crate::ui) fn folder_views_path() -> PathBuf {
     crate::storage::state_directory().join(FILE_NAME)
 }
 
+/// Keeps other Strata processes from saving between this one's merge and its
+/// rename, which would drop their changes. Locks the directory, because every
+/// save replaces the file.
+fn lock_saves(path: &Path, wait: bool) -> io::Result<fs::File> {
+    let directory = path
+        .parent()
+        .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput))?;
+    fs::create_dir_all(directory)?;
+    let lock = fs::File::open(directory)?;
+    if wait {
+        lock.lock()?;
+    } else {
+        lock.try_lock()?;
+    }
+    Ok(lock)
+}
+
 /// Writes pending folder settings, such as use times, before the process exits.
 pub(crate) fn flush_pending_folder_views() {
     if let Some(manager) = SHARED_MANAGER.with(|shared| shared.borrow().upgrade()) {
@@ -147,13 +164,13 @@ impl PreferenceManager {
     /// Defaults changed while this was off can equal saved values, which are
     /// dropped when it is turned back on.
     pub(in crate::ui) fn set_remember_folder_views(&self, enabled: bool) {
+        self.preferences.borrow_mut().remember_folder_views = enabled;
         if enabled {
             let (sort, size) = (self.default_sort(), self.icons_thumbnail_size());
             self.change_folder_views(Affects::Sorts, |views| {
                 views.prune_default_sort(sort) | views.prune_default_icons_size(size)
             });
         }
-        self.preferences.borrow_mut().remember_folder_views = enabled;
         self.save_preferences();
     }
 
@@ -420,7 +437,7 @@ impl PreferenceManager {
         if let Some(store) = self.folder_views.get()
             && store.views.borrow().has_unsaved()
         {
-            self.write_folder_views(store);
+            self.write_folder_views(store, true);
         }
     }
 
@@ -447,7 +464,7 @@ impl PreferenceManager {
     /// A pending write keeps its time unless a shorter wait is asked for.
     fn schedule_folder_views_write(&self, store: &FolderViewStore, delay: Duration) {
         if store.load_failure.is_some() {
-            self.write_folder_views(store);
+            self.write_folder_views(store, false);
             return;
         }
         let mut timer = store.save_timer.borrow_mut();
@@ -467,13 +484,14 @@ impl PreferenceManager {
             if let Some(store) = manager.folder_views.get() {
                 // This source is finishing, so it must not be removed again.
                 store.save_timer.borrow_mut().take();
-                manager.write_folder_views(store);
+                manager.write_folder_views(store, false);
             }
         });
         *timer = Some((source, delay));
     }
 
-    fn write_folder_views(&self, store: &FolderViewStore) {
+    /// Without `wait`, a save that finds another process saving is retried later.
+    fn write_folder_views(&self, store: &FolderViewStore, wait: bool) {
         if let Some((timer, _)) = store.save_timer.borrow_mut().take() {
             timer.remove();
         }
@@ -481,6 +499,14 @@ impl PreferenceManager {
         if let Some(error) = &store.load_failure {
             self.folder_save_notices.unreadable_at_startup(&path, error);
             return;
+        }
+        let lock = lock_saves(&path, wait);
+        if let Err(error) = &lock {
+            if error.kind() == io::ErrorKind::WouldBlock {
+                self.schedule_folder_views_write(store, SAVE_DELAY);
+                return;
+            }
+            tracing::debug!(%error, path = %path.display(), "saving folder settings unlocked");
         }
         let merged = match store.merge_saved_elsewhere(&path) {
             Ok(merged) => merged,
@@ -501,6 +527,7 @@ impl PreferenceManager {
             }
             Err(error) => self.folder_save_notices.write_failed(&path, &error),
         }
+        drop(lock);
         if merged {
             self.publish_folder_views(Affects::Sorts);
         }
