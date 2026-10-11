@@ -207,6 +207,131 @@ fn successive_fills_select_exactly_the_reported_entries() {
 }
 
 #[test]
+fn a_repeated_location_is_selected_on_every_row_that_lists_it() {
+    let names = ["alpha", "bravo", "charlie"];
+    let listing = || {
+        vec![
+            named_entry("/fixture/alpha", "alpha"),
+            named_entry("/fixture/bravo", "bravo"),
+        ]
+    };
+    for arrival in ["batch", "snapshot"] {
+        let mut state = NavigationState::default();
+        state.navigate(location("/fixture"), RequestId(1));
+        state.apply_batch(RequestId(1), listing());
+        state.commit_selection();
+        assert!(state.set_selection(0, &[0, 1], Some(1)));
+        let repeat = named_entry("/fixture/alpha", "charlie");
+        match arrival {
+            "batch" => {
+                state.apply_batch(RequestId(1), vec![repeat]);
+            }
+            "snapshot" => {
+                let mut entries = listing();
+                entries.push(repeat);
+                state.install_snapshot(RequestId(1), entries);
+            }
+            _ => unreachable!(),
+        }
+
+        for (commit, reported, positions) in [
+            (true, &[0, 1][..], &[0, 1, 2][..]),
+            (false, &[0, 1], &[0, 1, 2]),
+            (true, &[1], &[1]),
+            (true, &[1, 2], &[0, 1, 2]),
+        ] {
+            if commit {
+                state.commit_selection();
+            }
+            assert!(state.set_selection(0, reported, reported.last().copied()));
+            let expected: Vec<_> = positions.iter().map(|position| names[*position]).collect();
+            assert_eq!(
+                state.selected_positions(0),
+                positions,
+                "{arrival} {reported:?}"
+            );
+            assert_eq!(selected_names(&state), expected, "{arrival} {reported:?}");
+            assert_eq!(
+                state
+                    .command_entries(0)
+                    .into_iter()
+                    .map(|entry| entry.display_name)
+                    .collect::<Vec<_>>(),
+                expected,
+                "{arrival} {reported:?}"
+            );
+        }
+
+        assert!(state.select(0, 0));
+        assert_eq!(state.selected_positions(0), [0, 2], "{arrival}");
+        state.commit_selection();
+        assert!(state.set_selection(0, &[0, 1], Some(1)));
+        assert_eq!(state.selected_positions(0), [0, 1, 2], "{arrival}");
+    }
+}
+
+#[test]
+fn a_lone_selected_cursor_follows_each_batch_onto_every_row_of_its_location() {
+    let mut state = NavigationState::default();
+    state.navigate(location("/fixture"), RequestId(1));
+    state.apply_batch(RequestId(1), vec![named_entry("/fixture/bravo", "bravo")]);
+    assert!(state.select(0, 0));
+    assert_eq!(state.selected_positions(0), [0]);
+
+    for (arrival, positions, names) in [
+        (
+            named_entry("/fixture/alpha", "alpha"),
+            &[1][..],
+            &["bravo"][..],
+        ),
+        (
+            named_entry("/fixture/bravo", "charlie"),
+            &[1, 2],
+            &["bravo", "charlie"],
+        ),
+    ] {
+        state.apply_batch(RequestId(1), vec![arrival]);
+        assert_eq!(state.selected_positions(0), positions);
+        assert_eq!(selected_names(&state), names);
+    }
+}
+
+#[test]
+fn a_fill_is_matched_by_location_when_the_listing_repeats_one_and_drops_another() {
+    let listed = |name: &str| named_entry(&format!("/fixture/{name}"), name);
+    for (commit, reported, positions, count) in [
+        (true, &[0, 1, 3][..], &[0, 1, 2, 3][..], 3),
+        (false, &[0, 2, 3], &[0, 2, 3], 2),
+    ] {
+        let mut state = NavigationState::default();
+        state.navigate(location("/fixture"), RequestId(1));
+        state.apply_batch(
+            RequestId(1),
+            ["alpha", "bravo", "delta", "echo"].map(listed).to_vec(),
+        );
+        state.commit_selection();
+        assert!(state.set_selection(0, &[0, 2, 3], Some(3)));
+        state.install_snapshot(
+            RequestId(1),
+            vec![
+                listed("alpha"),
+                listed("bravo"),
+                named_entry("/fixture/alpha", "charlie"),
+                listed("delta"),
+            ],
+        );
+        assert_eq!(state.selected_positions(0), [0, 2, 3]);
+
+        if commit {
+            state.commit_selection();
+        }
+        assert!(state.set_selection(0, reported, Some(3)));
+        assert_eq!(state.selected_positions(0), positions, "{reported:?}");
+        assert_eq!(state.selected_count(), count, "{reported:?}");
+    }
+}
+
+#[test]
 fn a_fill_follows_every_listing_change() {
     let watched = location("/home");
     for change in [

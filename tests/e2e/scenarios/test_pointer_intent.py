@@ -120,11 +120,21 @@ def test_marquee_begins_beside_content_in_a_full_pane(strata, mode, modifiers, s
         "marquee selection beside occupied rows",
     )
     if select_all:
-        # The footer counts the browser's fill, including rows scrolled out of view.
+        # The description carries the browser's count in every footer wording. Rows the
+        # band cleared lie between its ends, so on-screen ends keep them all listed.
         def footer_counts_the_remaining_fill():
-            cleared = sum(not entry.has_state("selected") for entry in strata.entries())
-            remaining = f"{len(before) - cleared} items selected"
-            return strata.window.find(role="label", name=remaining)
+            entries = strata.entries()
+            ends = [entry for entry in entries if entry.name in ("001.txt", "011.txt")]
+            if len(ends) != 2 or any(
+                entry.has_state("selected") or not strata.on_screen(entry) for entry in ends
+            ):
+                return None
+            cleared = sum(not entry.has_state("selected") for entry in entries)
+            remaining = f"{len(before) - cleared} of {len(before)} items selected"
+            return strata.window.find(
+                role="label",
+                predicate=lambda node: node.description.startswith(remaining),
+            )
 
         strata.wait(
             footer_counts_the_remaining_fill,
