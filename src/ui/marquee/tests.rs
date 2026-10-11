@@ -128,10 +128,25 @@ fn keeping_origins_clear_only_outside_the_content_they_show() {
             slot.append(&pane);
             let keeps = OriginClick::keeps_selection_within(&pane);
             for (click, picked, clears, label) in [
-                (&keeps, margin.upcast_ref::<gtk::Widget>(), false, "blank chrome in the pane"),
+                (
+                    &keeps,
+                    margin.upcast_ref::<gtk::Widget>(),
+                    false,
+                    "blank chrome in the pane",
+                ),
                 (&keeps, pane.upcast_ref(), false, "the pane itself"),
-                (&keeps, slot.upcast_ref(), true, "the empty slot around a hidden pane"),
-                (&OriginClick::ClearsSelection, margin.upcast_ref(), true, "a clearing origin"),
+                (
+                    &keeps,
+                    slot.upcast_ref(),
+                    true,
+                    "the empty slot around a hidden pane",
+                ),
+                (
+                    &OriginClick::ClearsSelection,
+                    margin.upcast_ref(),
+                    true,
+                    "a clearing origin",
+                ),
             ] {
                 assert_eq!(click.clears_at(picked), clears, "{label}");
             }

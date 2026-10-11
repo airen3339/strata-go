@@ -422,7 +422,11 @@ const TENXER_PREVIEW_OWNED: &[Shortcut] = &[
         "Shift+← → / PgDn / PgUp",
         "Seek −30 / +30 seconds",
     ),
-    within("%{keys} in media", "0 / Home / G / End", "Seek to the start / end"),
+    within(
+        "%{keys} in media",
+        "0 / Home / G / End",
+        "Seek to the start / end",
+    ),
     within("%{keys} in media", "+ / -", "Volume up / down"),
     within(
         "%{keys} in a document, h in media",

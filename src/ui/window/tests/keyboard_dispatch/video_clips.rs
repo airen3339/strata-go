@@ -269,8 +269,8 @@ fn page_home_and_end_seek_a_focused_timeline_in_both_key_maps() {
             settle("a seekable stream", || {
                 media.is_seekable() && media.duration() == DURATION
             });
-            let timeline = widget_with_class(&fixture.preview.widget(), "preview-waveform")
-                .expect("timeline");
+            let timeline =
+                widget_with_class(&fixture.preview.widget(), "preview-waveform").expect("timeline");
 
             let mut mismatches = Vec::new();
             for tenxer in [true, false] {
@@ -322,8 +322,11 @@ fn page_home_and_end_seek_a_focused_timeline_in_both_key_maps() {
                         (media.timestamp() - 20_000_000).abs() <= TICK
                     });
                     preferences.set_preview_audio(0.5, false);
-                    let owner =
-                        press_through(&fixture, key, ModifierType::CONTROL_MASK | ModifierType::ALT_MASK);
+                    let owner = press_through(
+                        &fixture,
+                        key,
+                        ModifierType::CONTROL_MASK | ModifierType::ALT_MASK,
+                    );
                     let observed = (media.timestamp(), preferences.preview_volume());
                     if (observed.0 - 20_000_000).abs() > TICK || (observed.1 - 0.5).abs() > 0.001 {
                         mismatches.push(format!(

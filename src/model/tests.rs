@@ -54,7 +54,10 @@ fn breadcrumbs_preserve_each_native_ancestor() {
 #[test]
 fn lexical_normalization_resolves_dot_segments_without_touching_the_filesystem() {
     for (input, expected) in [
-        (&b"/fixture/documents/../pictures"[..], &b"/fixture/pictures"[..]),
+        (
+            &b"/fixture/documents/../pictures"[..],
+            &b"/fixture/pictures"[..],
+        ),
         (b"/tmp/./../tmp", b"/tmp"),
         (b"/..", b"/"),
         (b"/../..", b"/"),

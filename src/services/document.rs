@@ -389,9 +389,12 @@ fn parse_document_with_limits(
         );
     }
     let parsed = match kind {
-        DocumentKind::Markdown => {
-            parse_markdown_bounded(source, cancellation, limits, MarkdownProfile::DOCUMENT_PREVIEW)
-        }
+        DocumentKind::Markdown => parse_markdown_bounded(
+            source,
+            cancellation,
+            limits,
+            MarkdownProfile::DOCUMENT_PREVIEW,
+        ),
         DocumentKind::Html => parse_html_bounded(source, cancellation, limits),
         DocumentKind::Rtf => parse_html_bounded(
             &super::rtf::to_html(source, cancellation)?,
@@ -414,9 +417,14 @@ pub fn parse_markdown(markdown: &str) -> Document {
         markup: usize::MAX,
         time: Duration::MAX,
     };
-    parse_markdown_bounded(markdown, &cancellation, limits, MarkdownProfile::RELEASE_NOTES)
-        .map(|parsed| parsed.document)
-        .unwrap_or(Document { blocks: Vec::new() })
+    parse_markdown_bounded(
+        markdown,
+        &cancellation,
+        limits,
+        MarkdownProfile::RELEASE_NOTES,
+    )
+    .map(|parsed| parsed.document)
+    .unwrap_or(Document { blocks: Vec::new() })
 }
 
 fn parse_markdown_bounded(

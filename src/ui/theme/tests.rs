@@ -52,9 +52,11 @@ fn bundled_catalog_is_valid_unique_and_alphabetical() {
     }
 }
 
+type ContrastFloor = (&'static str, fn(&ThemeTokens) -> &str, f64);
+
 #[test]
 fn bundled_themes_keep_body_text_readable() {
-    let floors: [(&str, fn(&ThemeTokens) -> &str, f64); 2] = [
+    let floors: [ContrastFloor; 2] = [
         ("background", |tokens| &tokens.background, 4.5),
         ("surface", |tokens| &tokens.surface, 3.0),
     ];

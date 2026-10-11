@@ -10,9 +10,7 @@ use std::{
 
 use crate::{
     app::navigation::{EntryInsertion, EntrySplice, NavigationPath, NavigationState},
-    model::{
-        FileEntry, Location, SortDirection, SortKey, ViewPreferences, lexically_normalized,
-    },
+    model::{FileEntry, Location, SortDirection, SortKey, ViewPreferences, lexically_normalized},
     services::{
         ArchiveFormat, CompressRequest, CreateDirectoryRequest, CreateFileRequest, DeleteRequest,
         DirectoryChange, DirectoryRequest, ExtractRequest, FileSource, LoadHandle,

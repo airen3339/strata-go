@@ -733,7 +733,10 @@ fn location_input_naming_a_file_through_dot_segments_reveals_it_inside_its_paren
         );
         assert_eq!(selected_locations(&browser), vec![file], "{start}");
         let reopened = events.borrow().iter().any(|event| {
-            matches!(event, BrowserEvent::Reset | BrowserEvent::ColumnAdded { .. })
+            matches!(
+                event,
+                BrowserEvent::Reset | BrowserEvent::ColumnAdded { .. }
+            )
         });
         assert_eq!(reopened, !parent_already_open, "{start}");
     }
@@ -837,7 +840,10 @@ fn location_input_with_dot_segments_opens_the_resolved_folder_and_parent_moves_t
     let browser = Browser::new(Rc::new(FakeFileSource));
     browser.navigate(Location::local("/start"));
 
-    assert_eq!(browser.navigate_input("/fixture/documents/../pictures"), Ok(()));
+    assert_eq!(
+        browser.navigate_input("/fixture/documents/../pictures"),
+        Ok(())
+    );
 
     let active = browser.active_location();
     assert_eq!(active, Some(Location::local("/fixture/pictures")));

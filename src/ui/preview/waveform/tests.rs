@@ -83,7 +83,12 @@ fn keys_step_and_jump_the_playback_position() {
                 (20_000_000, Key::G, Mods::LOCK_MASK, Some(LAST)),
                 // Modified paging and jump keys stay free for other bindings.
                 (20_000_000, Key::Page_Up, Mods::SHIFT_MASK, None),
-                (20_000_000, Key::End, Mods::CONTROL_MASK | Mods::ALT_MASK, None),
+                (
+                    20_000_000,
+                    Key::End,
+                    Mods::CONTROL_MASK | Mods::ALT_MASK,
+                    None,
+                ),
                 (20_000_000, Key::Right, Mods::CONTROL_MASK, None),
             ] {
                 media.seek(start);
