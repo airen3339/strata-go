@@ -7,7 +7,7 @@
 
 use std::cell::{Cell, RefCell};
 
-use gtk::{gio, glib, prelude::*};
+use gtk::{gdk, gio, glib, prelude::*};
 
 thread_local! {
     static FOLLOWING: Cell<bool> = const { Cell::new(false) };
@@ -15,6 +15,33 @@ thread_local! {
     static FOLLOWED: RefCell<Vec<glib::WeakRef<gtk::Widget>>> = const { RefCell::new(Vec::new()) };
     /// Fields that show an unfinished composition.
     static COMPOSING: RefCell<Vec<glib::WeakRef<gtk::Widget>>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Presses that a controller forwarded to a composing field, which took them.
+/// GTK keeps the release of a press a controller handled from the widgets
+/// after it, so the release is forwarded too.
+#[derive(Default)]
+pub(super) struct Forwarded(RefCell<Vec<(gdk::Key, glib::WeakRef<gtk::Widget>)>>);
+
+impl Forwarded {
+    pub(super) fn press(&self, key: gdk::Key, field: &gtk::Widget) {
+        let mut presses = self.0.borrow_mut();
+        presses.retain(|(pressed, _)| *pressed != key);
+        presses.push((key, field.downgrade()));
+    }
+
+    pub(super) fn release(&self, controller: &gtk::EventControllerKey, key: gdk::Key) {
+        let field = {
+            let mut presses = self.0.borrow_mut();
+            let Some(index) = presses.iter().position(|(pressed, _)| *pressed == key) else {
+                return;
+            };
+            presses.swap_remove(index).1.upgrade()
+        };
+        if let Some(field) = field {
+            controller.forward(&field);
+        }
+    }
 }
 
 /// The focused text field of the controller's window, while it is composing.

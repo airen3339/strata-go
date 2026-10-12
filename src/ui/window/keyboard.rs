@@ -77,7 +77,8 @@ pub(super) fn install_on(
     keys.set_propagation_phase(gtk::PropagationPhase::Capture);
     let weak_browser = Rc::downgrade(&parts.view.browser());
     let preferences = parts.type_to_search.preferences.clone();
-    let dispatcher = Dispatcher::bind(window, sidebar, parts, None);
+    let dispatcher = Rc::new(Dispatcher::bind(window, sidebar, parts, None));
+    submit_prompt_on_activate(&dispatcher, weak_browser.clone());
     let key_root = root.as_ref().downgrade();
     let tab_scoped = !root.as_ref().is::<gtk::Window>();
     keys::on_press(&keys, move |_, press| {
@@ -182,7 +183,7 @@ pub(in crate::ui) struct ChooserPolicy {
 }
 
 pub(in crate::ui) struct ChooserKeys {
-    dispatcher: Dispatcher,
+    dispatcher: Rc<Dispatcher>,
     browser: std::rc::Weak<Browser>,
 }
 
@@ -194,8 +195,10 @@ impl ChooserKeys {
         policy: ChooserPolicy,
     ) -> Self {
         let browser = Rc::downgrade(&parts.view.browser());
+        let dispatcher = Rc::new(Dispatcher::bind(window, sidebar, parts, Some(policy)));
+        submit_prompt_on_activate(&dispatcher, browser.clone());
         Self {
-            dispatcher: Dispatcher::bind(window, sidebar, parts, Some(policy)),
+            dispatcher,
             browser,
         }
     }
@@ -287,6 +290,17 @@ fn bind_footer_filter(dispatcher: &Dispatcher) {
     dispatcher.view.widget().connect_unrealize(move |_| {
         if let (Some(window), Some(handler)) = (window.upgrade(), handler.take()) {
             window.disconnect(handler);
+        }
+    });
+}
+
+/// Enter reaches the prompt only after an input method commits and passes it
+/// back; otherwise the key handler submits the prompt.
+fn submit_prompt_on_activate(dispatcher: &Rc<Dispatcher>, browser: std::rc::Weak<Browser>) {
+    let entered = Rc::downgrade(dispatcher);
+    dispatcher.shortcuts.connect_prompt_activated(move || {
+        if let (Some(dispatcher), Some(browser)) = (entered.upgrade(), browser.upgrade()) {
+            dispatcher.submit_prompt(&browser);
         }
     });
 }

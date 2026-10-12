@@ -77,12 +77,14 @@ Shortcuts follow the key's label first, then its physical position:
   close the filter, the location bar, a footer prompt, global search, or the
   F1 reference, and Space does not open quick preview from the filter. A key
   the input method passes back works as usual after it: Korean input methods
-  commit the current syllable and pass back Escape, arrows and Ctrl shortcuts,
-  so one press both commits and runs the command. On Wayland the input method
-  runs in the compositor and Strata never receives the keys it uses. Input
-  methods that GTK loads into Strata (`GTK_IM_MODULE=fcitx` or `ibus`, and
-  every input method on X11), GTK's own dead keys, and the Compose key would
-  otherwise get each key after Strata's handlers.
+  such as fcitx5-hangul commit the current syllable and pass back Escape,
+  arrows and Ctrl shortcuts, so one press both commits and runs the command.
+  Keys the text field handles itself go to the field: Enter submits it, and
+  cursor keys move in it. On Wayland the input method runs in the compositor
+  and Strata never receives the keys it uses. Input methods that GTK loads into
+  Strata (`GTK_IM_MODULE=fcitx` or `ibus`, and every input method on X11),
+  GTK's own dead keys, and the Compose key would otherwise get each key after
+  Strata's handlers.
 - **Hanyu Pinyin with AltGr dead keys** (`cn(altgr-pinyin)`): AltGr+1 to
   AltGr+4 are the tone dead keys that type ā á ǎ à, AltGr+6 and Shift+AltGr+6
   are the ^ and ¨ dead keys, and AltGr+v types ü. These are text input, never
@@ -127,8 +129,10 @@ passed to the handler.
 While the focused text field is composing with an input method, `on_press`
 first forwards the key to that field, as GtkSearchEntry's key capture does,
 and calls the handler only if the field and its input method leave the key
-unhandled (see
-[Input methods and Chinese layouts](#input-methods-and-chinese-layouts)).
+unhandled; the release of a key they took is forwarded too (see
+[Input methods and Chinese layouts](#input-methods-and-chinese-layouts)). A
+field that submits on Enter must also do so from its `activate` signal, which
+is how Enter arrives after an input method passes it back.
 `ui::keys` follows the preedit of each window's focused `gtk::Text` or
 `gtk::TextView` through `preedit-changed`, so handlers need no check of their
 own. Release handlers still run.

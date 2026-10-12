@@ -210,6 +210,11 @@ pub(crate) fn on_press(
     handler: impl Fn(&gtk::EventControllerKey, &KeyPress) -> Propagation + 'static,
 ) -> glib::SignalHandlerId {
     composition::follow();
+    let forwarded = std::rc::Rc::new(composition::Forwarded::default());
+    let releases = forwarded.clone();
+    signals::released(controller, move |controller, keyval, _, _| {
+        releases.release(controller, keyval);
+    });
     signals::pressed(controller, move |controller, keyval, keycode, state| {
         if let Some(field) = composition::composing_field(controller) {
             // Forwarding needs a real event, and forwarding from the field's own
@@ -219,6 +224,7 @@ pub(crate) fn on_press(
                 return Propagation::Proceed;
             }
             if controller.forward(&field) {
+                forwarded.press(keyval, &field);
                 return Propagation::Stop;
             }
         }
