@@ -394,6 +394,8 @@ fn score(query: &str, target: &Target) -> Option<i32> {
     let source_title = normalized(&super::translated_in("en", target.title));
     let localized_title = normalized(&super::translated(target.title));
     let title = format!("{source_title} {localized_title}");
+    // Chinese and Japanese queries run across the spaces titles put around Latin words.
+    let joined_title = localized_title.split_whitespace().collect::<String>();
     let aliases = normalized(&format!(
         "{} {} {} {} settings {}",
         target.aliases,
@@ -408,6 +410,7 @@ fn score(query: &str, target: &Target) -> Option<i32> {
     for query_word in query.split_whitespace() {
         let title_score = title
             .split_whitespace()
+            .chain([joined_title.as_str()])
             .filter_map(|word| word_score(query_word, word))
             .max();
         let alias_score = aliases

@@ -46,6 +46,17 @@ fn localized_setting_titles_keep_stable_search_targets() {
                     "ja: {query}"
                 );
             }
+            rust_i18n::set_locale("zh-CN");
+            // The titles are 显示“F1 快捷键”按钮 and Omarchy 主题变体.
+            for (query, id) in [
+                ("快捷键按钮", "hints"),
+                ("Omarchy主题变体", "omarchy-variant"),
+            ] {
+                assert!(
+                    find_matches(&normalized(query)).ids.contains(id),
+                    "zh-CN: {query}"
+                );
+            }
         },
     );
 }

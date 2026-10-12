@@ -419,7 +419,10 @@ impl<'a> ExtractionSession<'a> {
                     .collect();
                 let name = name.to_string_lossy().into_owned();
                 restore_directory_metadata(directory, published).map_err(|error| {
-                    ArchiveError::Failed(append_sentence(&error, &entries_remain_in(&name)))
+                    ArchiveError::Failed(crate::i18n::join_sentences(
+                        &error,
+                        &entries_remain_in(&name),
+                    ))
                 })?;
                 Ok(ArchiveOutcome::Completed(Some(name)))
             }
@@ -465,7 +468,7 @@ impl<'a> ExtractionSession<'a> {
                 match discarded {
                     Ok(()) => Err(error),
                     Err(removal) => Err(ArchiveError::Failed(failure_message(
-                        append_sentence(&error.to_string(), &removal),
+                        crate::i18n::join_sentences(&error.to_string(), &removal),
                         keep_or_remove(directory, staging.as_ref(), archive_name, self.has_content),
                     ))),
                 }
@@ -493,9 +496,9 @@ impl Drop for ExtractionSession<'_> {
 
 fn failure_message(message: String, kept: Result<Option<String>, String>) -> String {
     match kept {
-        Ok(Some(folder)) => append_sentence(&message, &entries_remain_in(&folder)),
+        Ok(Some(folder)) => crate::i18n::join_sentences(&message, &entries_remain_in(&folder)),
         Ok(None) => message,
-        Err(error) => append_sentence(&message, &error),
+        Err(error) => crate::i18n::join_sentences(&message, &error),
     }
 }
 
@@ -590,19 +593,11 @@ fn keep_or_remove(
 }
 
 fn staging_kept_message(error: &str, staging: &Staging) -> String {
-    append_sentence(error, &entries_remain_in(&staging.name.to_string_lossy()))
+    crate::i18n::join_sentences(error, &entries_remain_in(&staging.name.to_string_lossy()))
 }
 
 fn entries_remain_in(folder: &str) -> String {
     rust_i18n::t!("Extracted entries remain in “%{folder}”.", folder = folder).into_owned()
-}
-
-fn append_sentence(message: &str, sentence: &str) -> String {
-    if message.ends_with(['.', '!', '?', '。', '！', '？']) {
-        crate::i18n::join_sentences(message, sentence)
-    } else {
-        rust_i18n::t!("%{first}. %{second}", first = message, second = sentence).into_owned()
-    }
 }
 
 fn staging_kept(error: &str, staging: &Staging) -> ArchiveError {

@@ -820,15 +820,12 @@ fn copy_failure_on_fat32(error: &glib::Error, fat32_destination: bool) -> (Optio
     } else {
         crate::services::gio_error_message(error)
     };
+    let details = rust_i18n::t!(
+        "Earlier completed copies may still be writing; wait for safe eject before unplugging. Details: %{error}",
+        error = crate::services::gio_error_detail(error)
+    );
     (
-        Some(
-            rust_i18n::t!(
-                "%{description} Earlier completed copies may still be writing; wait for safe eject before unplugging. Details: %{error}",
-                description = description,
-                error = crate::services::gio_error_detail(error)
-            )
-            .into_owned(),
-        ),
+        Some(crate::i18n::join_sentences(&description, &details)),
         true,
     )
 }

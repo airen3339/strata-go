@@ -596,7 +596,7 @@
     "vi": "hoàn tất %{count} mục",
     "it": "%{count} elemento completato",
     "ru": "выполнено: %{count} элемент",
-    "zh-CN": "%{count} 个项目已完成"
+    "zh-CN": "已完成 %{count} 项"
   },
   "counts.items_completed.few": {
     "en": "%{count} items completed",
@@ -609,7 +609,7 @@
     "vi": "hoàn tất %{count} mục",
     "it": "%{count} elementi completati",
     "ru": "выполнено: %{count} элемента",
-    "zh-CN": "%{count} 个项目已完成"
+    "zh-CN": "已完成 %{count} 项"
   },
   "counts.items_completed.many": {
     "en": "%{count} items completed",
@@ -622,7 +622,7 @@
     "vi": "hoàn tất %{count} mục",
     "it": "%{count} elementi completati",
     "ru": "выполнено: %{count} элементов",
-    "zh-CN": "%{count} 个项目已完成"
+    "zh-CN": "已完成 %{count} 项"
   },
   "counts.items_completed.other": {
     "en": "%{count} items completed",
@@ -635,7 +635,7 @@
     "vi": "hoàn tất %{count} mục",
     "it": "%{count} elementi completati",
     "ru": "выполнено: %{count} элементов",
-    "zh-CN": "%{count} 个项目已完成"
+    "zh-CN": "已完成 %{count} 项"
   },
   "counts.items_failed.one": {
     "en": "%{count} item failed",
@@ -648,7 +648,7 @@
     "vi": "thất bại %{count} mục",
     "it": "%{count} elemento non riuscito",
     "ru": "с ошибкой: %{count} элемент",
-    "zh-CN": "%{count} 个项目失败"
+    "zh-CN": "失败 %{count} 项"
   },
   "counts.items_failed.few": {
     "en": "%{count} items failed",
@@ -661,7 +661,7 @@
     "vi": "thất bại %{count} mục",
     "it": "%{count} elementi non riusciti",
     "ru": "с ошибкой: %{count} элемента",
-    "zh-CN": "%{count} 个项目失败"
+    "zh-CN": "失败 %{count} 项"
   },
   "counts.items_failed.many": {
     "en": "%{count} items failed",
@@ -674,7 +674,7 @@
     "vi": "thất bại %{count} mục",
     "it": "%{count} elementi non riusciti",
     "ru": "с ошибкой: %{count} элементов",
-    "zh-CN": "%{count} 个项目失败"
+    "zh-CN": "失败 %{count} 项"
   },
   "counts.items_failed.other": {
     "en": "%{count} items failed",
@@ -687,7 +687,7 @@
     "vi": "thất bại %{count} mục",
     "it": "%{count} elementi non riusciti",
     "ru": "с ошибкой: %{count} элементов",
-    "zh-CN": "%{count} 个项目失败"
+    "zh-CN": "失败 %{count} 项"
   },
   "counts.items_not_attempted.one": {
     "en": "%{count} item not attempted",
@@ -700,7 +700,7 @@
     "vi": "chưa xử lý %{count} mục",
     "it": "%{count} elemento non elaborato",
     "ru": "не обработано: %{count} элемент",
-    "zh-CN": "%{count} 个项目未处理"
+    "zh-CN": "未处理 %{count} 项"
   },
   "counts.items_not_attempted.few": {
     "en": "%{count} items not attempted",
@@ -713,7 +713,7 @@
     "vi": "chưa xử lý %{count} mục",
     "it": "%{count} elementi non elaborati",
     "ru": "не обработано: %{count} элемента",
-    "zh-CN": "%{count} 个项目未处理"
+    "zh-CN": "未处理 %{count} 项"
   },
   "counts.items_not_attempted.many": {
     "en": "%{count} items not attempted",
@@ -726,7 +726,7 @@
     "vi": "chưa xử lý %{count} mục",
     "it": "%{count} elementi non elaborati",
     "ru": "не обработано: %{count} элементов",
-    "zh-CN": "%{count} 个项目未处理"
+    "zh-CN": "未处理 %{count} 项"
   },
   "counts.items_not_attempted.other": {
     "en": "%{count} items not attempted",
@@ -739,7 +739,7 @@
     "vi": "chưa xử lý %{count} mục",
     "it": "%{count} elementi non elaborati",
     "ru": "не обработано: %{count} элементов",
-    "zh-CN": "%{count} 个项目未处理"
+    "zh-CN": "未处理 %{count} 项"
   },
   "counts.rendering_triangles.one": {
     "en": "Rendering %{count} triangle…",

@@ -48,16 +48,18 @@ command, path, and accelerator. Escape untrusted values before inserting them
 into markup, just as for an untranslated markup string. Never translate inserted
 filenames, user-defined actions/themes, script output, or document contents.
 Join already translated list items with `i18n::list`, which uses the language's
-separator, rather than `join(", ")`, and two translated sentences with
+separator, rather than `join(", ")`. Join two translated sentences with
 `i18n::join_sentences`, which adds no space after a Chinese or Japanese full
-stop. French values use a no-break space (U+00A0) inside « » and before ":",
-and a narrow no-break space (U+202F) before ";", "?" and "!", so lines never
-break between the mark and its word. Japanese values use
-the ASCII colon (": " mid-line, ":" at the end of a line), never "：", so nested
-templates such as `%{name}: %{error}` never mix styles. Quote names inserted into
-a sentence with the language's quotation marks (en “…”, de „…“, fr « … », ru «…»,
-ja 「…」, zh-CN “…”, and the style each other catalog already uses), never
-Markdown backticks.
+stop and ends a first sentence that has no stop, such as a bare system error,
+with the language's own. A reason that may be either a sentence or a bare error
+stays out of the template of the message that follows it. French values use a
+no-break space (U+00A0) inside « » and before ":", and a narrow no-break space
+(U+202F) before ";", "?" and "!", so lines never break between the mark and its
+word. Japanese values use the ASCII colon (": " mid-line, ":" at the end of a
+line), never "：", so nested templates such as `%{name}: %{error}` never mix
+styles. Quote names inserted into a sentence with the language's quotation marks
+(en “…”, de „…“, fr « … », ru «…», ja 「…」, zh-CN “…”, and the style each
+other catalog already uses), never Markdown backticks.
 
 Simplified Chinese values read like Chinese desktop software, such as File
 Explorer, Finder, and GNOME Files in `zh_CN`, not like a word-for-word rendering
@@ -71,8 +73,9 @@ characters and Latin letters, digits, or placeholders (`%{count} 个文件`,
 `按 %{keys} 打开`), but none next to full-width punctuation or the quotation
 marks. Keep the ellipsis (…) wherever the English has one. Counts use a
 classifier and the same text in every plural form, lists join with "、", and
-durations read "1小时2分", "2分5秒", and "45秒". Key names, unit symbols, and
-product names stay as in English.
+dates and durations put no space between digits and Han: "2026年9月7日",
+"1小时2分", "2分5秒", and "45秒". Key names, unit symbols, and product names stay
+as in English.
 
 Translate each string exactly once. The shared modal builders (`modal_layout`,
 `message_dialog_layout`) display their title, subtitle, and confirm label as given,
@@ -129,8 +132,9 @@ produces compact elapsed times such as "2m 5s". Exact byte counts use the
 `bytes` count message.
 
 Settings search indexes the translated title as well as the English title and
-aliases. A query in Han or kana also matches inside a word, since Chinese and
-Japanese titles have no spaces between words. Stable source IDs remain independent
+aliases. A query in Han or kana also matches inside a word, and a title's words
+are also matched joined, since Chinese and Japanese queries are typed without
+the spaces a title has around Latin words. Stable source IDs remain independent
 of displayed language; do not use a translated label to dispatch an action,
 recognize a page, or sort type groups.
 Shortcut descriptions and key names are translated when rendered, and F1 search
