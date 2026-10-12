@@ -574,6 +574,13 @@ fn catppuccin_icon_texture_at(
         let replacement = if themed { color } else { hex };
         source = source.replace(&format!("var(--vscode-ctp-{variable})"), replacement);
     }
+    if themed {
+        // Tint the outlines the same way the folder icon is tinted.
+        source = source.replace(
+            "fill=\"none\"",
+            &format!("fill=\"{color}\" fill-opacity=\"0.15\""),
+        );
+    }
     let source = scale_catppuccin_strokes(
         source,
         icon_stroke_factor(logical_px, context) * catppuccin_stroke_weight(context),
