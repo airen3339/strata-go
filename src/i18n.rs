@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-use std::collections::HashMap;
+use std::{borrow::Cow, collections::HashMap};
 
 use serde::{Deserialize, Serialize};
 
@@ -137,14 +137,24 @@ impl Catalogs {
 }
 
 impl rust_i18n::Backend for Catalogs {
-    fn available_locales(&self) -> Vec<&str> {
-        let mut locales: Vec<&str> = self.0.keys().copied().collect();
+    fn available_locales(&self) -> Vec<Cow<'_, str>> {
+        let mut locales: Vec<Cow<'_, str>> = self.0.keys().map(|&locale| locale.into()).collect();
         locales.sort_unstable();
         locales
     }
 
-    fn translate(&self, locale: &str, key: &str) -> Option<&str> {
-        self.0.get(locale)?.get(key).copied()
+    fn translate(&self, locale: &str, key: &str) -> Option<Cow<'_, str>> {
+        self.0.get(locale)?.get(key).map(|&text| text.into())
+    }
+
+    fn messages_for_locale(&self, locale: &str) -> Option<Vec<(Cow<'_, str>, Cow<'_, str>)>> {
+        let messages = self.0.get(locale)?;
+        Some(
+            messages
+                .iter()
+                .map(|(&key, &text)| (key.into(), text.into()))
+                .collect(),
+        )
     }
 }
 

@@ -51,8 +51,9 @@ fn catalogs_cover_all_languages_and_preserve_interpolation() {
     assert_eq!(
         rust_i18n::available_locales!()
             .into_iter()
+            .map(String::from)
             .collect::<BTreeSet<_>>(),
-        LOCALES.into_iter().collect()
+        LOCALES.into_iter().map(String::from).collect()
     );
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("data/locales");
     for folder in [&root, &root.join("messages")] {
