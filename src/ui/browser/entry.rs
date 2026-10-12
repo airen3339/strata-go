@@ -247,7 +247,10 @@ pub(in crate::ui) fn icon_for_name(name: &str) -> &'static str {
             | "kdc" | "mef" | "mos" | "mrw" | "nef" | "nrw" | "orf" | "pef" | "raf" | "raw" | "rw2"
             | "rwl" | "sr2" | "srf" | "srw" | "x3f",
         ) => crate::assets::icons::PICTURES,
-        Some("mp4" | "mkv" | "webm" | "mov" | "avi" | "m4v") => crate::assets::icons::VIDEOS,
+        Some(
+            "mp4" | "mkv" | "webm" | "mov" | "avi" | "m4v" | "mpeg" | "mpg" | "ogv" | "3gp" | "3g2"
+            | "flv" | "wmv" | "asf" | "m2ts" | "vob",
+        ) => crate::assets::icons::VIDEOS,
         Some("mp3" | "wav" | "flac" | "ogg" | "m4a" | "aac" | "opus" | "wma" | "aiff") => {
             crate::assets::icons::FILE_AUDIO
         }
@@ -261,9 +264,10 @@ pub(in crate::ui) fn icon_for_name(name: &str) -> &'static str {
             "twig" | "ejs" | "hbs" | "handlebars" | "mustache" | "pug" | "jade" | "haml" | "slim"
             | "smarty" | "tpl",
         ) => crate::assets::icons::LANG_HTML,
-        Some("zip" | "7z" | "tar" | "gz" | "tgz" | "bz2" | "xz" | "zst" | "rar") => {
-            crate::assets::icons::FILE_ARCHIVE
-        }
+        Some(
+            "zip" | "7z" | "tar" | "gz" | "tgz" | "bz2" | "xz" | "zst" | "rar" | "lz" | "lzma"
+            | "lzo" | "rz" | "sz" | "cab" | "arj" | "cpio",
+        ) => crate::assets::icons::FILE_ARCHIVE,
         Some(
             "deb" | "rpm" | "pkg" | "appimage" | "msi" | "exe" | "apk" | "jar" | "war" | "ear"
             | "whl" | "egg" | "gem" | "nupkg" | "crate" | "vsix" | "xpi",
