@@ -83,6 +83,51 @@ fn other_users_home_shorthand_is_rejected() {
 }
 
 #[test]
+fn typed_absolute_and_home_paths_resolve_dot_segments_lexically() {
+    use std::os::unix::ffi::OsStrExt;
+
+    let home = Path::new("/home/fixture");
+    for (input, expected) in [
+        ("/fixture/documents/../pictures", "/fixture/pictures"),
+        ("~/../", "/home"),
+        ("~/./Documents/../Music/", "/home/fixture/Music"),
+        ("/tmp/./../tmp/", "/tmp"),
+        ("/..", "/"),
+        ("/fixture/report.pdf/..", "/fixture"),
+    ] {
+        assert_eq!(
+            location_from_input_with_home(input, home)
+                .map(|location| location.native_path().map(Path::to_path_buf)),
+            Ok(Some(PathBuf::from(expected))),
+            "{input}"
+        );
+    }
+
+    let dotted_home = Path::new("/home/other/../fixture");
+    for input in ["~", "~/"] {
+        assert_eq!(
+            location_from_input_with_home(input, dotted_home)
+                .map(|location| location.native_path().map(Path::to_path_buf)),
+            Ok(Some(PathBuf::from("/home/fixture"))),
+            "{input}"
+        );
+    }
+
+    let home = Path::new(OsStr::from_bytes(b"/home/f\xffx"));
+    for (input, expected) in [
+        ("~/Documents/..", home.to_path_buf()),
+        ("~/Documents/../Music", home.join("Music")),
+    ] {
+        assert_eq!(
+            location_from_input_with_home(input, home)
+                .map(|location| location.native_path().map(Path::to_path_buf)),
+            Ok(Some(expected)),
+            "{input}"
+        );
+    }
+}
+
+#[test]
 fn sidebar_location_navigation_validates_uris_but_navigates_native_paths_directly() {
     let remote_browser = Browser::new(Rc::new(NotMountedFileSource));
     let events = Rc::new(RefCell::new(Vec::new()));
@@ -122,6 +167,17 @@ fn location_input_accepts_uri_schemes_for_local_and_remote_locations() {
     assert_eq!(
         browser.active_location(),
         Some(Location::uri("sftp://user@host:2222/path"))
+    );
+
+    let typed = Location::uri("smb://host/share/caf%C3%A9%20x");
+    assert_eq!(browser.navigate_input("smb://host/share/café x"), Ok(()));
+    assert_eq!(browser.active_location(), Some(typed.clone()));
+    assert_eq!(
+        typed
+            .child(std::ffi::OsStr::new("a"))
+            .and_then(|child| child.parent()),
+        Some(typed),
+        "typed text takes the encoded form of its listed children"
     );
 
     assert_eq!(browser.navigate_input("/regular/absolute/path"), Ok(()));
@@ -167,9 +223,14 @@ fn relative_input_resolves_only_against_a_given_native_folder() {
         ("./child/../../sibling", Location::local("/sibling")),
         ("../../..", Location::local("/")),
         ("/absolute", Location::local("/absolute")),
+        ("/absolute/../sibling", Location::local("/sibling")),
         (
             "~/Documents",
             Location::local(glib::home_dir().join("Documents")),
+        ),
+        (
+            "~/Documents/../Music",
+            Location::local(glib::home_dir().join("Music")),
         ),
         (
             "smb://host/share/sub",
@@ -354,14 +415,14 @@ fn invalid_location_text_is_rejected_before_the_provider() {
     assert_eq!(browser.active_location(), Some(Location::local("/fixture")));
 }
 
-struct TypedPathSource {
+pub(super) struct TypedPathSource {
     files: HashSet<Location>,
     errors: HashMap<Location, LocationValidationError>,
     listing: Vec<FileEntry>,
 }
 
 impl TypedPathSource {
-    fn containing(file: Location, listing: Vec<FileEntry>) -> Self {
+    pub(super) fn containing(file: Location, listing: Vec<FileEntry>) -> Self {
         Self {
             files: HashSet::from([file]),
             errors: HashMap::new(),
@@ -477,7 +538,7 @@ impl FileSource for RefreshingTypedPathSource {
     }
 }
 
-fn listing_file(location: Location, name: &str, is_hidden: bool) -> FileEntry {
+pub(super) fn listing_file(location: Location, name: &str, is_hidden: bool) -> FileEntry {
     FileEntry {
         location,
         native_name: OsString::from(name),
@@ -492,10 +553,26 @@ fn listing_file(location: Location, name: &str, is_hidden: bool) -> FileEntry {
         image_dimensions: MetadataValue::Unknown,
         child_count: MetadataValue::Unknown,
         duration_seconds: MetadataValue::Unknown,
+        recent_uri: None,
     }
 }
 
-fn selected_locations(browser: &Browser) -> Vec<Location> {
+pub(super) fn record_reveal_pending_on_column_added(
+    browser: &Rc<Browser>,
+) -> Rc<RefCell<Vec<bool>>> {
+    let recorded = Rc::new(RefCell::new(Vec::new()));
+    let observed = recorded.clone();
+    let weak = Rc::downgrade(browser);
+    browser.observe(move |event| {
+        if let (BrowserEvent::ColumnAdded { depth, .. }, Some(browser)) = (event, weak.upgrade()) {
+            let snapshot = browser.column_snapshot(*depth).expect("added column");
+            observed.borrow_mut().push(snapshot.reveal_pending);
+        }
+    });
+    recorded
+}
+
+pub(super) fn selected_locations(browser: &Browser) -> Vec<Location> {
     browser
         .selected_entries()
         .iter()
@@ -514,11 +591,14 @@ fn location_input_naming_a_file_reveals_it_inside_its_parent() {
         ],
     )));
     browser.navigate(Location::local("/start"));
+    let reveal_pending_on_add = record_reveal_pending_on_column_added(&browser);
 
     assert_eq!(browser.navigate_input("/fixture/report.pdf"), Ok(()));
 
     assert_eq!(browser.active_location(), Some(Location::local("/fixture")));
     assert_eq!(selected_locations(&browser), vec![file]);
+    assert_eq!(*reveal_pending_on_add.borrow(), [true]);
+    assert!(!browser.column_snapshot(0).expect("column").reveal_pending);
 }
 
 #[test]
@@ -559,6 +639,16 @@ fn synchronous_file_validation_keeps_async_parent_validation_alive() {
     });
     let browser = Browser::new(source.clone());
     browser.navigate(Location::local("/start"));
+    let snapshots = Rc::new(RefCell::new(Vec::new()));
+    let observed = snapshots.clone();
+    let weak = Rc::downgrade(&browser);
+    browser.observe_navigation(move || {
+        if let Some(browser) = weak.upgrade() {
+            observed
+                .borrow_mut()
+                .push(browser.pending_navigation_generation());
+        }
+    });
 
     assert_eq!(
         browser.navigate_input("sftp://host/share/report.pdf"),
@@ -567,39 +657,89 @@ fn synchronous_file_validation_keeps_async_parent_validation_alive() {
 
     assert!(source.parent_validation.borrow().is_some());
     assert!(!source.parent_cancelled.get());
+    let pending = browser
+        .pending_navigation_generation()
+        .expect("pending parent validation");
+    assert_eq!(&*snapshots.borrow(), &[Some(pending)]);
+    let complete = source.parent_validation.take().expect("parent validation");
+    complete(Ok(()));
+    assert_eq!(&*snapshots.borrow(), &[Some(pending), None]);
+    assert_eq!(browser.active_location(), file.parent());
 }
 
 #[test]
-fn location_input_naming_a_file_inside_the_open_directory_selects_it_in_place() {
-    let file = Location::local("/fixture/report.pdf");
-    let browser = Browser::new(Rc::new(TypedPathSource::containing(
-        file.clone(),
-        vec![
-            listing_file(Location::local("/fixture/notes.txt"), "notes.txt", false),
-            listing_file(file.clone(), "report.pdf", false),
-        ],
-    )));
-    let events = Rc::new(RefCell::new(Vec::new()));
-    let observed = events.clone();
-    browser.observe(move |event| observed.borrow_mut().push(event.clone()));
-    browser.navigate(Location::local("/fixture"));
-    events.borrow_mut().clear();
-
-    assert_eq!(browser.navigate_input("/fixture/report.pdf"), Ok(()));
-
-    assert_eq!(browser.active_location(), Some(Location::local("/fixture")));
-    assert_eq!(selected_locations(&browser), vec![file]);
-    assert!(events.borrow().iter().any(|event| matches!(
-        event,
-        BrowserEvent::SelectionSetChanged {
-            take_focus: true,
-            ..
+fn location_input_naming_a_file_inside_an_open_directory_selects_it_in_place() {
+    for open_child in [false, true] {
+        let file = Location::local("/fixture/report.pdf");
+        let browser = Browser::new(Rc::new(TypedPathSource::containing(
+            file.clone(),
+            vec![
+                listing_file(Location::local("/fixture/notes.txt"), "notes.txt", false),
+                listing_file(file.clone(), "report.pdf", false),
+            ],
+        )));
+        let events = Rc::new(RefCell::new(Vec::new()));
+        let observed = events.clone();
+        browser.observe(move |event| observed.borrow_mut().push(event.clone()));
+        browser.navigate(Location::local("/fixture"));
+        if open_child {
+            browser.descend(0, Location::local("/fixture/child"));
+            assert_eq!(browser.active_depth(), Some(1));
         }
-    )));
-    assert!(!events.borrow().iter().any(|event| matches!(
-        event,
-        BrowserEvent::Reset | BrowserEvent::ColumnAdded { .. }
-    )));
+        events.borrow_mut().clear();
+
+        assert_eq!(browser.navigate_input("/fixture/report.pdf"), Ok(()));
+
+        assert_eq!(browser.active_location(), Some(Location::local("/fixture")));
+        assert_eq!(browser.location_at(1), None);
+        assert_eq!(selected_locations(&browser), vec![file]);
+        assert!(events.borrow().iter().any(|event| matches!(
+            event,
+            BrowserEvent::SelectionSetChanged {
+                take_focus: true,
+                ..
+            }
+        )));
+        assert!(!events.borrow().iter().any(|event| matches!(
+            event,
+            BrowserEvent::Reset | BrowserEvent::ColumnAdded { .. }
+        )));
+    }
+}
+
+#[test]
+fn location_input_naming_a_file_through_dot_segments_reveals_it_inside_its_parent() {
+    for (start, parent_already_open) in [("/start", false), ("/fixture", true)] {
+        let file = Location::local("/fixture/report.pdf");
+        let browser = Browser::new(Rc::new(TypedPathSource::containing(
+            file.clone(),
+            vec![
+                listing_file(Location::local("/fixture/notes.txt"), "notes.txt", false),
+                listing_file(file.clone(), "report.pdf", false),
+            ],
+        )));
+        let events = Rc::new(RefCell::new(Vec::new()));
+        let observed = events.clone();
+        browser.observe(move |event| observed.borrow_mut().push(event.clone()));
+        browser.navigate(Location::local(start));
+        events.borrow_mut().clear();
+
+        assert_eq!(browser.navigate_input("/fixture/a/../report.pdf"), Ok(()));
+
+        assert_eq!(
+            browser.active_location(),
+            Some(Location::local("/fixture")),
+            "{start}"
+        );
+        assert_eq!(selected_locations(&browser), vec![file], "{start}");
+        let reopened = events.borrow().iter().any(|event| {
+            matches!(
+                event,
+                BrowserEvent::Reset | BrowserEvent::ColumnAdded { .. }
+            )
+        });
+        assert_eq!(reopened, !parent_already_open, "{start}");
+    }
 }
 
 #[test]
@@ -693,4 +833,28 @@ fn location_input_naming_a_file_reports_a_rejected_parent() {
             error: LocationValidationError::Inaccessible
         }
     )));
+}
+
+#[test]
+fn location_input_with_dot_segments_opens_the_resolved_folder_and_parent_moves_toward_the_root() {
+    let browser = Browser::new(Rc::new(FakeFileSource));
+    browser.navigate(Location::local("/start"));
+
+    assert_eq!(
+        browser.navigate_input("/fixture/documents/../pictures"),
+        Ok(())
+    );
+
+    let active = browser.active_location();
+    assert_eq!(active, Some(Location::local("/fixture/pictures")));
+    let active = active.expect("active location");
+    assert_eq!(active.parent(), Some(Location::local("/fixture")));
+    assert_eq!(
+        active.breadcrumbs(),
+        vec![
+            Location::local("/"),
+            Location::local("/fixture"),
+            Location::local("/fixture/pictures"),
+        ]
+    );
 }

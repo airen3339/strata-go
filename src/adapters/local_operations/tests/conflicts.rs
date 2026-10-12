@@ -19,6 +19,27 @@ fn transfers_into_the_same_location_or_a_descendant_are_noops() {
 }
 
 #[test]
+fn transfer_noops_resolve_aliased_destinations_but_not_symlink_sources()
+-> Result<(), Box<dyn Error>> {
+    let root = tempfile::tempdir()?;
+    let docs = root.path().join("docs");
+    fs::create_dir_all(docs.join("Backup"))?;
+    let link = root.path().join("link");
+    std::os::unix::fs::symlink(&docs, &link)?;
+    let docs = gio::File::for_path(&docs);
+    let link = gio::File::for_path(&link);
+    let aliased_backup = link.child("Backup");
+
+    assert!(transfer_is_noop(
+        &docs,
+        &aliased_backup,
+        &aliased_backup.child("docs")
+    ));
+    assert!(!transfer_is_noop(&link, &docs, &docs.child("link")));
+    Ok(())
+}
+
+#[test]
 fn each_transfer_item_keeps_its_own_conflict_decision() -> Result<(), Box<dyn Error>> {
     let _serial = ASYNC_MAIN_CONTEXT_DEFAULT
         .lock()
@@ -35,6 +56,7 @@ fn each_transfer_item_keeps_its_own_conflict_decision() -> Result<(), Box<dyn Er
     fs::write(sources.join("late.txt"), b"new late item")?;
     fs::write(destination.join("replace.txt"), b"old replacement")?;
     fs::write(destination.join("late.txt"), b"late arrival")?;
+    let replaced = TrashedOriginal::at_path(&destination.join("replace.txt")).ok_or("identity")?;
 
     let events = Rc::new(RefCell::new(Vec::new()));
     let emitted = events.clone();
@@ -75,6 +97,18 @@ fn each_transfer_item_keeps_its_own_conflict_decision() -> Result<(), Box<dyn Er
             ..
         }) if completed_locations == &[Location::local(sources.join("replace.txt"))]
     ));
+    assert_eq!(
+        item_moves(&events.borrow()),
+        [(
+            Location::local(sources.join("replace.txt")),
+            Location::local(destination.join("replace.txt"))
+        )]
+    );
+    assert_eq!(
+        trashed_items(&events.borrow()),
+        [(Location::local(destination.join("replace.txt")), replaced)],
+        "the replaced item went to Trash"
+    );
     assert_eq!(
         fs::read(destination.join("replace.txt"))?,
         b"new replacement"
@@ -132,6 +166,7 @@ fn cutting_in_the_same_folder_remains_a_noop() -> Result<(), Box<dyn Error>> {
         events.borrow().last(),
         Some(OperationEvent::Pasted { .. })
     ));
+    assert!(item_moves(&events.borrow()).is_empty());
     assert!(file.exists());
     assert!(directory.is_dir());
     assert!(!destination.join("document (1).txt").exists());
@@ -219,7 +254,7 @@ fn keeping_both_while_moving_renames_the_destination_instead_of_replacing_it()
     fs::write(&source, b"incoming")?;
     fs::write(destination.join("report.txt"), b"existing")?;
 
-    let created = run_paste_collecting_created(PasteRequest {
+    let events = run_paste(PasteRequest {
         id: OperationRequestId(75),
         destination: Location::local(&destination),
         items: vec![PasteItem {
@@ -227,9 +262,15 @@ fn keeping_both_while_moving_renames_the_destination_instead_of_replacing_it()
             conflict: TransferConflict::KeepBoth,
         }],
         move_sources: true,
-    })?;
+    });
 
-    assert!(created.into_iter().flatten().next().is_none());
+    assert_eq!(
+        item_moves(&events),
+        [(
+            Location::local(&source),
+            Location::local(destination.join("report (1).txt"))
+        )]
+    );
     assert_eq!(fs::read(destination.join("report.txt"))?, b"existing");
     assert_eq!(fs::read(destination.join("report (1).txt"))?, b"incoming");
     assert!(!source.exists());

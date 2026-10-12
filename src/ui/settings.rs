@@ -8,13 +8,14 @@ use std::{
     time::{Duration, Instant},
 };
 
-use gtk::{gdk, gio, glib, prelude::*, subclass::prelude::*};
+use gtk::{gio, glib, prelude::*, subclass::prelude::*};
 
 use crate::{
     assets::icons,
     services::{
-        self, BuildKind, Channel, DocumentBlock, InstallRequest, InstallSource, ManagedInstall,
-        ReleaseMetadata, ReleaseNotes, UpdateCheck, UpdateInstall, UpdateMethod, Version,
+        self, BuildKind, Channel, DocumentBlock, InstallCancel, InstallRequest, InstallSource,
+        ManagedInstall, ReleaseMetadata, ReleaseNotes, UpdateCheck, UpdateInstall, UpdateMethod,
+        Version,
     },
 };
 
@@ -24,6 +25,7 @@ mod tests;
 mod about;
 mod actions;
 mod bindings;
+mod exclusions;
 mod general;
 mod search;
 mod theme;
@@ -35,13 +37,15 @@ use theme::theme_page;
 
 use super::{
     blur::BlurBin,
-    browser::{dismiss_modal_layer, modal_layer},
+    browser::dismiss_modal_layer,
     controls::modal_layout,
+    keys::{self, bindings::SELECT_ALL},
+    modal::{close_on_escape, modal_layer_with_backdrop},
     preferences::PreferenceManager,
     terminal,
 };
 
-type AvailableUpdate = (ReleaseMetadata, String, UpdateMethod);
+type AvailableUpdate = (ReleaseMetadata, InstallRequest, UpdateMethod);
 type CachedUpdate = Option<AvailableUpdate>;
 pub(super) type UpdateNoticeHandler = Rc<dyn Fn(CachedUpdate)>;
 type WeakUpdateNoticeHandler = Weak<dyn Fn(CachedUpdate)>;
@@ -51,6 +55,16 @@ struct UpdateCheckRow {
     run_check: Rc<dyn Fn(bool)>,
     responsive_action: (gtk::Box, gtk::Button),
     install_underway: Rc<dyn Fn() -> bool>,
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "tests read the row's status text")
+    )]
+    status: gtk::Label,
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "tests seed and inspect the cached install offer")
+    )]
+    pending_download: Rc<RefCell<Option<PendingInstall>>>,
 }
 
 struct ResponsiveContent {
@@ -70,6 +84,37 @@ pub struct ResponsiveActivationRow {
 /// process-wide guard, separate windows could replace the executable at the
 /// same time. See [`start_install`].
 pub(super) type InstallGuard = Rc<Cell<bool>>;
+
+const RESTART_GRACE_SECONDS: u64 = 20;
+// Must outlast the restart waiter's recovery window.
+const ROLLBACK_RETENTION: Duration = Duration::from_secs(60);
+
+pub(crate) fn schedule_rollback_cleanup() {
+    let Ok(current_exe) = services::installed_executable() else {
+        return;
+    };
+    let Some(rollback) = current_exe.parent().map(services::rollback_path) else {
+        return;
+    };
+    use std::os::unix::fs::MetadataExt;
+    let Ok(preserved) = std::fs::symlink_metadata(&rollback) else {
+        return;
+    };
+    if !preserved.is_file() {
+        return;
+    }
+    glib::timeout_add_local_once(ROLLBACK_RETENTION, move || {
+        // A later install owns its own rollback copy, even in this process.
+        if !std::fs::symlink_metadata(&rollback).is_ok_and(|current| {
+            current.dev() == preserved.dev() && current.ino() == preserved.ino()
+        }) {
+            return;
+        }
+        if let Err(error) = std::fs::remove_file(&rollback) {
+            tracing::warn!(%error, "could not remove the preserved previous version");
+        }
+    });
+}
 
 thread_local! {
     static INSTALL_GUARD: InstallGuard = Rc::new(Cell::new(false));
@@ -91,6 +136,13 @@ thread_local! {
 /// happening to still hold a strong reference.
 pub(super) fn install_guard() -> InstallGuard {
     INSTALL_GUARD.with(|guard| guard.clone())
+}
+
+type InstallLauncher =
+    Rc<dyn Fn(InstallRequest, InstallCancel) -> std::sync::mpsc::Receiver<UpdateInstall>>;
+
+fn default_install_launcher() -> InstallLauncher {
+    Rc::new(services::install_update)
 }
 
 thread_local! {
@@ -220,12 +272,8 @@ fn complete_due_update_check(
         return;
     }
     LAST_COMPLETED_CHECK.set(Some(Instant::now()));
-    if let UpdateCheck::Available {
-        release,
-        download_url,
-    } = result
-    {
-        publish_update_notice(Some((release, download_url, method)));
+    if let UpdateCheck::Available { release, install } = result {
+        publish_update_notice(Some((release, install, method)));
     }
 }
 
@@ -266,6 +314,7 @@ const COMPACT_CONTENT_BREAKPOINT: i32 = 1250;
 const MIN_SIDE_BY_SIDE_ACTIVATION_WIDTH: i32 = 620;
 const STACK_ACTIVATION_OPTIONS_BREAKPOINT: i32 = 350;
 const STACK_TEXT_SIZE_BREAKPOINT: i32 = 600;
+const STACK_EXCLUSION_INPUT_BREAKPOINT: i32 = 1000;
 
 mod responsive_bin {
     use super::*;
@@ -275,6 +324,10 @@ mod responsive_bin {
         pub compact_navigation: Cell<bool>,
         pub compact_content: Cell<bool>,
         pub typography_scale: Cell<f64>,
+        // Matrix widths below which the translated choices were seen squeezed: side by side,
+        // or with each label beside its control.
+        pub activation_side_by_side_min: Cell<i32>,
+        pub activation_inline_options_min: Cell<i32>,
         pub navigation: RefCell<Option<gtk::Box>>,
         pub navigation_heading: RefCell<Option<gtk::Label>>,
         pub navigation_labels: RefCell<Vec<gtk::Label>>,
@@ -368,10 +421,13 @@ mod responsive_bin {
             let available_activation_width = child_width - if compact { 100 } else { 330 };
             let scaled_activation_width = MIN_SIDE_BY_SIDE_ACTIVATION_WIDTH as f64
                 + (self.typography_scale.get() - 1.0).max(0.0) * 320.0;
-            let activation_compact =
-                f64::from(available_activation_width) < scaled_activation_width;
-            let stack_activation_options =
-                available_activation_width < STACK_ACTIVATION_OPTIONS_BREAKPOINT;
+            let matrix_width = activation_matrix_width(&self.responsive_activation_rows.borrow());
+            let activation_compact = f64::from(available_activation_width)
+                < scaled_activation_width
+                || matrix_width < self.activation_side_by_side_min.get();
+            let stack_activation_options = available_activation_width
+                < STACK_ACTIVATION_OPTIONS_BREAKPOINT
+                || matrix_width < self.activation_inline_options_min.get();
             for responsive_row in self.responsive_activation_rows.borrow().iter() {
                 responsive_row.row.set_orientation(if activation_compact {
                     gtk::Orientation::Vertical
@@ -405,11 +461,45 @@ mod responsive_bin {
                 compact_content,
                 activation_compact,
                 logical_width < f64::from(STACK_TEXT_SIZE_BREAKPOINT),
+                logical_width < f64::from(STACK_EXCLUSION_INPUT_BREAKPOINT),
             );
             let x = ((width - child_width) / 2) as f32;
             let y = ((height - child_height) / 2) as f32;
             let transform = gtk::gsk::Transform::new().translate(&gtk::graphene::Point::new(x, y));
             child.allocate(child_width, child_height, baseline, Some(transform));
+            self.stack_squeezed_activation_choices(activation_compact, stack_activation_options);
+        }
+    }
+
+    impl ResponsiveBin {
+        /// Long translated choices can need more room than the fixed breakpoints allow; once
+        /// a choice gets less than its natural width, stack the matrix further at this width.
+        fn stack_squeezed_activation_choices(&self, compact: bool, stacked_options: bool) {
+            if compact && stacked_options {
+                return;
+            }
+            let rows = self.responsive_activation_rows.borrow();
+            let squeezed = rows.iter().filter(|row| row.row.is_mapped()).any(|row| {
+                row.options
+                    .iter()
+                    .filter_map(|option| option.last_child())
+                    .any(|control| choice_label_wraps(&control))
+            });
+            if !squeezed {
+                return;
+            }
+            let threshold = activation_matrix_width(&rows) + 1;
+            if compact {
+                self.activation_inline_options_min.set(threshold);
+            } else {
+                self.activation_side_by_side_min.set(threshold);
+            }
+            let bin = self.obj().downgrade();
+            glib::idle_add_local_once(move || {
+                if let Some(bin) = bin.upgrade() {
+                    bin.queue_allocate();
+                }
+            });
         }
     }
 }
@@ -447,6 +537,8 @@ impl ResponsiveBin {
                 .downcast_ref::<ResponsiveBin>()
                 .expect("settings bin");
             bin.imp().typography_scale.set(scale);
+            bin.imp().activation_side_by_side_min.set(0);
+            bin.imp().activation_inline_options_min.set(0);
             bin.queue_allocate();
         });
         bin
@@ -484,11 +576,32 @@ impl ResponsiveBin {
     }
 }
 
+/// Whether a segmented control gives any choice less than its one-line width.
+fn choice_label_wraps(control: &gtk::Widget) -> bool {
+    let mut choice = control.first_child();
+    while let Some(button) = choice {
+        choice = button.next_sibling();
+        if let Some(label) = button.downcast_ref::<gtk::Button>().and_then(|b| b.child())
+            && label.width() < label.measure(gtk::Orientation::Horizontal, -1).1
+        {
+            return true;
+        }
+    }
+    false
+}
+
+fn activation_matrix_width(rows: &[ResponsiveActivationRow]) -> i32 {
+    rows.first()
+        .and_then(|row| row.row.parent())
+        .map_or(0, |matrix| matrix.width())
+}
+
 fn reflow_settings(
     widget: &gtk::Widget,
     compact: bool,
     activation_compact: bool,
     stack_text_size: bool,
+    stack_exclusion_input: bool,
 ) {
     if widget.has_css_class("settings-dialog") {
         if compact {
@@ -513,7 +626,9 @@ fn reflow_settings(
             .last_child()
             .is_some_and(|child| child.is::<gtk::Switch>());
         // Short numeric controls can stay beside wrapping copy after other rows stack.
-        let stack_row = if row.has_css_class("settings-renderer-row") {
+        let stack_row = if row.has_css_class("settings-renderer-row")
+            || row.has_css_class("settings-exclusions-row")
+        {
             true
         } else if row.has_css_class("settings-text-size-row") {
             stack_text_size
@@ -569,16 +684,48 @@ fn reflow_settings(
         label.set_wrap(compact);
         label.set_wrap_mode(gtk::pango::WrapMode::WordChar);
     }
+    // Keep the exclusion placeholder readable instead of squeezing it beside translated buttons.
+    if widget.has_css_class("settings-exclusions-input")
+        && let Some(row) = widget.downcast_ref::<gtk::Box>()
+    {
+        let orientation = if stack_exclusion_input {
+            gtk::Orientation::Vertical
+        } else {
+            gtk::Orientation::Horizontal
+        };
+        if row.orientation() != orientation {
+            row.set_orientation(orientation);
+        }
+    }
     if widget.has_css_class("activation-header") {
         widget.set_visible(!activation_compact);
     }
     if widget.has_css_class("activation-inline-label") {
         widget.set_visible(activation_compact);
     }
+    // Beside the choices, keep long single-word view names whole; stacked, they have the full width.
+    if let Some(label) = widget.downcast_ref::<gtk::Label>()
+        && label.has_css_class("click-activation-title")
+    {
+        let mode = if activation_compact {
+            gtk::pango::WrapMode::WordChar
+        } else {
+            gtk::pango::WrapMode::Word
+        };
+        if label.wrap_mode() != mode {
+            label.set_wrap_mode(mode);
+        }
+    }
     let mut child = widget.first_child();
     while let Some(next) = child {
         child = next.next_sibling();
-        reflow_settings(&next, compact, activation_compact, stack_text_size);
+        reflow_settings(
+            &next,
+            compact,
+            activation_compact,
+            stack_text_size,
+            stack_exclusion_input,
+        );
     }
 }
 
@@ -628,14 +775,14 @@ pub fn build_layer(
     page.set_hexpand(true);
     let titlebar = gtk::Box::new(gtk::Orientation::Horizontal, 8);
     titlebar.add_css_class("settings-titlebar");
-    let title = gtk::Label::new(Some("General"));
+    let title = gtk::Label::new(Some(&crate::i18n::tr("General")));
     title.set_xalign(0.0);
     title.set_hexpand(true);
     title.add_css_class("settings-title");
     title.set_ellipsize(gtk::pango::EllipsizeMode::End);
     title.set_max_width_chars(1);
     let close = gtk::Button::builder()
-        .tooltip_text("Close settings")
+        .tooltip_text(crate::i18n::tr("Close settings"))
         .build();
     close.set_child(Some(&crate::assets::primary_icon(icons::X, 18)));
     close.add_css_class("settings-close");
@@ -691,25 +838,22 @@ pub fn build_layer(
     let responsive_for_nav = responsive_panel.clone();
     let built: Rc<RefCell<std::collections::HashSet<&'static str>>> =
         Rc::new(RefCell::new(["general", "about"].into_iter().collect()));
-    let nav_buttons: Rc<RefCell<Vec<gtk::Button>>> = Rc::new(RefCell::new(Vec::new()));
-    for (label, icon, name) in [
-        ("General", icons::SLIDERS, "general"),
-        ("Appearance", icons::PALETTE, "theme"),
-        ("Actions", icons::PLAY, "actions"),
-        ("Updates", icons::DOWNLOADS, "updates"),
-        ("About", icons::INFO, "about"),
-    ] {
+    let dismiss_hooks = DismissHooks::default();
+    let nav_buttons: Rc<RefCell<Vec<(gtk::Button, &'static str)>>> =
+        Rc::new(RefCell::new(Vec::new()));
+    for entry in &NAVIGATION {
+        let name = entry.page;
         let active = name == "general";
-        let (button, navigation_label, navigation_content) = navigation_button(icon, label);
+        let (button, navigation_label, navigation_content) = navigation_button(entry);
         responsive_for_nav.add_navigation(navigation_label, navigation_content);
         if active {
             button.add_css_class("settings-nav-active");
         }
-        nav_buttons.borrow_mut().push(button.clone());
+        nav_buttons.borrow_mut().push((button.clone(), name));
         let buttons = nav_buttons.clone();
         let stack = stack.clone();
         let title = title.clone();
-        let page_title = label.to_owned();
+        let page_title = entry.label;
         let built = built.clone();
         let preferences = preferences.clone();
         let update_notice = update_notice.clone();
@@ -717,8 +861,9 @@ pub fn build_layer(
         let updates_container = updates_container.clone();
         let responsive_panel = responsive_panel.clone();
         let search_state = settings_search.state.clone();
+        let dismiss_hooks = dismiss_hooks.clone();
         button.connect_clicked(move |clicked| {
-            for candidate in buttons.borrow().iter() {
+            for (candidate, _) in buttons.borrow().iter() {
                 if candidate == clicked {
                     candidate.add_css_class("settings-nav-active");
                 } else {
@@ -735,6 +880,7 @@ pub fn build_layer(
                         for (flow, columns) in page.flows {
                             responsive_panel.add_flow(flow, columns);
                         }
+                        dismiss_hooks.add(page.dismiss);
                     }
                     "actions" => {
                         let page = actions::actions_page();
@@ -767,7 +913,7 @@ pub fn build_layer(
                 }
             }
             stack.set_visible_child_name(name);
-            title.set_text(&page_title);
+            title.set_text(&crate::i18n::tr(page_title));
         });
         navigation.append(&button);
     }
@@ -803,27 +949,22 @@ pub fn build_layer(
     layer.append(&row);
     layer.append(&bottom);
 
-    let hidden_layer = layer.clone();
-    let inactive_settings = settings_button.clone();
-    let unblurred_root = root.clone();
-    close.connect_clicked(move |_| hide(&hidden_layer, &inactive_settings, &unblurred_root));
-    let hidden_layer = layer.clone();
-    let inactive_settings = settings_button.clone();
-    let unblurred_root = root.clone();
-    let keys = gtk::EventControllerKey::new();
-    keys.connect_key_pressed(move |_, key, _, _| {
-        if key != gdk::Key::Escape {
-            return gtk::glib::Propagation::Proceed;
-        }
-        hide(&hidden_layer, &inactive_settings, &unblurred_root);
-        gtk::glib::Propagation::Stop
-    });
-    layer.add_controller(keys);
+    let close_settings: Rc<dyn Fn()> = {
+        let layer = layer.clone();
+        let button = settings_button.clone();
+        let root = root.clone();
+        let hooks = dismiss_hooks.clone();
+        Rc::new(move || hide(&layer, &button, &root, &hooks))
+    };
+    // A window closed mid-preview never runs `hide`; the preview is process-wide.
+    layer.connect_unrealize(move |_| dismiss_hooks.run());
+    let close_hide = close_settings.clone();
+    close.connect_clicked(move |_| close_hide());
+    let escape_hide = close_settings.clone();
+    close_on_escape(&layer, move || escape_hide());
 
     let click_layer = layer.clone();
     let click_dialog = responsive_panel.clone();
-    let click_settings = settings_button.clone();
-    let click_root = root.clone();
     let click = gtk::GestureClick::new();
     click.connect_pressed(move |_, _, x, y| {
         let on_dialog = click_dialog
@@ -836,7 +977,7 @@ pub fn build_layer(
                     && y < dy + alloc.height() as f64
             });
         if !on_dialog {
-            hide(&click_layer, &click_settings, &click_root);
+            close_settings();
         }
     });
     layer.add_controller(click);
@@ -844,7 +985,28 @@ pub fn build_layer(
     layer
 }
 
-fn hide(layer: &gtk::Box, button: &gtk::Button, root: &BlurBin) {
+/// Work that every route closing Settings must run, such as discarding a theme preview.
+type DismissHookList = RefCell<Vec<Rc<dyn Fn()>>>;
+
+#[derive(Clone, Default)]
+struct DismissHooks(Rc<DismissHookList>);
+
+impl DismissHooks {
+    fn add(&self, hook: Rc<dyn Fn()>) {
+        self.0.borrow_mut().push(hook);
+    }
+
+    /// Hooks are idempotent: they run on every close and again when the layer unrealizes.
+    fn run(&self) {
+        let hooks = self.0.borrow().clone();
+        for hook in hooks {
+            hook();
+        }
+    }
+}
+
+fn hide(layer: &gtk::Box, button: &gtk::Button, root: &BlurBin, hooks: &DismissHooks) {
+    hooks.run();
     if layer.has_css_class("dismissing") {
         return;
     }
@@ -878,14 +1040,16 @@ fn updates_page(
     }
 
     let available_notes = release_notes_card(
-        "Available release",
-        "Check for updates to see the latest release notes.",
+        ReleaseNotesKind::Available,
+        &crate::i18n::tr("Available release"),
+        &crate::i18n::tr("Check for updates to see the latest release notes."),
     );
     let UpdateCheckRow {
         row: update_row,
         run_check,
         responsive_action,
         install_underway,
+        ..
     } = update_check_row(
         manager.clone(),
         available_notes.clone(),
@@ -930,8 +1094,12 @@ fn append_channel_option(
 fn append_current_release_notes(preferences: &gtk::Box) {
     append_heading(preferences, "RELEASE NOTES");
     let current_notes = release_notes_card(
-        &format!("What's new in v{}", crate::build_info::installed_version()),
-        "Loading release notes…",
+        ReleaseNotesKind::Current,
+        &rust_i18n::t!(
+            "What's new in v%{value1}",
+            value1 = crate::build_info::installed_version()
+        ),
+        &crate::i18n::tr("Loading release notes…"),
     );
     current_notes.container.remove(&current_notes.title);
     current_notes.container.remove(&current_notes.summary);
@@ -1040,15 +1208,37 @@ fn automatic_updates_option(manager: &Rc<PreferenceManager>, method: UpdateMetho
 }
 
 const RELEASE_CHANNEL_TITLE: &str = "Release channel";
+const STABLE_CHANNEL: &str = "Stable";
+// The release channel, distinct from the file-preview sense of "Preview".
+const PREVIEW_CHANNEL: &str = "release_channel.preview";
+const NIGHTLY_CHANNEL: &str = "Nightly";
+
+fn channel_label(channel: Channel) -> String {
+    crate::i18n::tr(match channel {
+        Channel::Stable => STABLE_CHANNEL,
+        Channel::Preview => PREVIEW_CHANNEL,
+        Channel::Nightly => NIGHTLY_CHANNEL,
+    })
+}
+
+/// The manifest's channel id, shown by its localized name when Strata knows it.
+fn managed_channel_label(managed: &ManagedInstall) -> Option<String> {
+    let id = managed.channel()?;
+    Some(
+        managed
+            .tracked_channel()
+            .map_or_else(|| id.to_owned(), channel_label),
+    )
+}
 
 fn channel_option(manager: Rc<PreferenceManager>, managed: Option<&ManagedInstall>) -> gtk::Box {
     let control = bindings::choice_menu(
         &manager,
         RELEASE_CHANNEL_TITLE,
         &[
-            ("Stable", Channel::Stable),
-            ("Preview", Channel::Preview),
-            ("Nightly", Channel::Nightly),
+            (STABLE_CHANNEL, Channel::Stable),
+            (PREVIEW_CHANNEL, Channel::Preview),
+            (NIGHTLY_CHANNEL, Channel::Nightly),
         ],
         PreferenceManager::release_channel,
         PreferenceManager::set_release_channel,
@@ -1073,7 +1263,7 @@ fn channel_option(manager: Rc<PreferenceManager>, managed: Option<&ManagedInstal
                 widget
                     .downcast_ref::<gtk::Label>()
                     .expect("channel description binding")
-                    .set_text(channel_description(channel));
+                    .set_text(&crate::i18n::tr(channel_description(channel)));
             },
         );
     }
@@ -1089,9 +1279,13 @@ fn channel_description(channel: Channel) -> &'static str {
 }
 
 fn managed_channel_description(managed: &ManagedInstall) -> String {
-    let tracked = match managed.channel() {
-        Some(channel) => format!("This install tracks the {channel} release channel."),
-        None => "The installed package decides the release channel.".to_owned(),
+    let tracked = match managed_channel_label(managed) {
+        Some(channel) => rust_i18n::t!(
+            "This install tracks the %{channel} release channel.",
+            channel = channel
+        )
+        .into_owned(),
+        None => crate::i18n::tr("The installed package decides the release channel."),
     };
     match managed.alternate_instruction() {
         Some(alternate) => format!("{tracked} {alternate}"),
@@ -1210,8 +1404,15 @@ fn set_release_note_blocks(notes: &gtk::Box, blocks: &[DocumentBlock]) {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ReleaseNotesKind {
+    Current,
+    Available,
+}
+
 #[derive(Clone)]
 struct ReleaseNotesCard {
+    kind: ReleaseNotesKind,
     container: gtk::Box,
     title: gtk::Label,
     summary: gtk::Label,
@@ -1220,7 +1421,7 @@ struct ReleaseNotesCard {
     fallback: gtk::LinkButton,
 }
 
-fn release_notes_card(title: &str, initial: &str) -> ReleaseNotesCard {
+fn release_notes_card(kind: ReleaseNotesKind, title: &str, initial: &str) -> ReleaseNotesCard {
     let container = gtk::Box::new(gtk::Orientation::Vertical, 8);
     container.add_css_class("release-notes-card");
     let title_label = gtk::Label::new(Some(title));
@@ -1235,8 +1436,10 @@ fn release_notes_card(title: &str, initial: &str) -> ReleaseNotesCard {
     badge.set_visible(false);
     let notes = gtk::Box::new(gtk::Orientation::Vertical, 6);
     set_release_notes_message(&notes, initial);
-    let fallback =
-        gtk::LinkButton::with_label("https://github.com/lgse/strata/releases", "View on GitHub");
+    let fallback = gtk::LinkButton::with_label(
+        "https://github.com/lgse/strata/releases",
+        &crate::i18n::tr("View on GitHub"),
+    );
     fallback.set_has_tooltip(false);
     fallback.add_css_class("release-notes-fallback");
     fallback.set_halign(gtk::Align::Start);
@@ -1252,6 +1455,7 @@ fn release_notes_card(title: &str, initial: &str) -> ReleaseNotesCard {
     container.append(&notes);
     container.append(&fallback);
     ReleaseNotesCard {
+        kind,
         container,
         title: title_label,
         summary,
@@ -1266,46 +1470,41 @@ fn release_notes_card(title: &str, initial: &str) -> ReleaseNotesCard {
 /// release notes and update surfaces must visibly label prerelease software.
 fn show_release_notes(card: &ReleaseNotesCard, release: &ReleaseMetadata) {
     card.container.set_visible(true);
-    let current_release = card.title.text().starts_with("What's new in");
-    card.title.set_text(&format!(
-        "{} · v{}",
-        card.title
-            .text()
-            .split('·')
-            .next()
-            .unwrap_or("Release")
-            .trim(),
-        release.version
-    ));
-    if current_release {
-        card.title
-            .set_text(&format!("What's new in v{}", release.version));
-    }
+    card.title.set_text(&match card.kind {
+        ReleaseNotesKind::Current => {
+            rust_i18n::t!("What's new in v%{value1}", value1 = release.version)
+        }
+        ReleaseNotesKind::Available => {
+            rust_i18n::t!("Available release · v%{version}", version = release.version)
+        }
+    });
     let changes = release
         .note_blocks
         .iter()
         .filter(|block| matches!(block, DocumentBlock::ListItem { .. }))
         .count();
-    let published = release
-        .published_at
-        .as_deref()
-        .and_then(|date| date.split('T').next());
+    let published = release.published_at.as_deref().map(release_date);
     card.summary.set_text(&match (changes, published) {
-        (0, None) => "Release notes".to_owned(),
-        (0, Some(date)) => format!("Published {date}"),
-        (count, None) => format!("{count} changes"),
-        (count, Some(date)) => format!("{count} changes · published {date}"),
+        (0, None) => crate::i18n::tr("Release notes"),
+        (0, Some(date)) => rust_i18n::t!("Published %{date}", date = date).into_owned(),
+        (count, None) => crate::i18n::count("changes", count),
+        (count, Some(date)) => rust_i18n::t!(
+            "%{changes} · published %{date}",
+            changes = crate::i18n::count("changes", count),
+            date = date
+        )
+        .into_owned(),
     });
     if release.kind == BuildKind::Stable {
         card.badge.set_visible(false);
     } else {
-        card.badge.set_text(release.kind.label());
+        card.badge.set_text(&release.kind.localized_label());
         card.badge.set_visible(true);
     }
-    if release.notes.trim().is_empty() {
+    if release.note_blocks.is_empty() {
         set_release_notes_message(
             &card.notes,
-            "No release notes were provided for this release.",
+            &crate::i18n::tr("No release notes were provided for this release."),
         );
     } else {
         set_release_note_blocks(&card.notes, &release.note_blocks);
@@ -1325,20 +1524,23 @@ fn load_current_release_notes(card: &ReleaseNotesCard) {
             }
             Ok(ReleaseNotes::Unavailable { url }) => {
                 card.summary
-                    .set_text("Release notes unavailable for this build");
+                    .set_text(&crate::i18n::tr("Release notes unavailable for this build"));
                 set_release_notes_message(
                     &card.notes,
-                    "Release notes are unavailable because this version’s tag was not found.",
+                    &crate::i18n::tr(
+                        "Release notes are unavailable because this version’s tag was not found.",
+                    ),
                 );
                 card.fallback.set_uri(&url);
                 card.fallback.set_visible(true);
                 glib::ControlFlow::Break
             }
             Ok(ReleaseNotes::Failed { message, url }) => {
-                card.summary.set_text("Couldn’t load release notes");
+                card.summary
+                    .set_text(&crate::i18n::tr("Couldn’t load release notes"));
                 set_release_notes_message(
                     &card.notes,
-                    &format!("Couldn’t load release notes: {message}"),
+                    &rust_i18n::t!("Couldn’t load release notes: %{message}", message = message),
                 );
                 card.fallback.set_uri(&url);
                 card.fallback.set_visible(true);
@@ -1346,10 +1548,13 @@ fn load_current_release_notes(card: &ReleaseNotesCard) {
             }
             Err(TryRecvError::Empty) => glib::ControlFlow::Continue,
             Err(TryRecvError::Disconnected) => {
-                card.summary.set_text("Couldn’t load release notes");
+                card.summary
+                    .set_text(&crate::i18n::tr("Couldn’t load release notes"));
                 set_release_notes_message(
                     &card.notes,
-                    "Couldn’t load release notes because the request ended unexpectedly.",
+                    &crate::i18n::tr(
+                        "Couldn’t load release notes because the request ended unexpectedly.",
+                    ),
                 );
                 glib::ControlFlow::Break
             }
@@ -1370,7 +1575,8 @@ fn load_current_release_notes(card: &ReleaseNotesCard) {
 fn managed_install_row(managed: &ManagedInstall) -> gtk::Box {
     let row = gtk::Box::new(gtk::Orientation::Vertical, 2);
     row.add_css_class("settings-option");
-    let title = gtk::Label::new(Some("Package-managed installation"));
+    search::tag(&row, "Check for updates");
+    let title = gtk::Label::new(Some(&crate::i18n::tr("Package-managed installation")));
     title.set_xalign(0.0);
     title.add_css_class("settings-option-title");
     let description = gtk::Label::new(Some(&managed_install_summary(managed)));
@@ -1385,8 +1591,14 @@ fn managed_install_row(managed: &ManagedInstall) -> gtk::Box {
 
 fn managed_install_summary(managed: &ManagedInstall) -> String {
     let mut lines = vec![managed.ownership_summary()];
-    if let Some(channel) = managed.channel() {
-        lines.push(format!("Tracking the {channel} release channel."));
+    if let Some(channel) = managed_channel_label(managed) {
+        lines.push(
+            rust_i18n::t!(
+                "Tracking the %{channel} release channel.",
+                channel = channel
+            )
+            .into_owned(),
+        );
     }
     lines.push(managed.update_instruction());
     lines.extend(managed.alternate_instruction());
@@ -1397,14 +1609,6 @@ fn is_stale_check(result_generation: u64, current_generation: u64) -> bool {
     result_generation != current_generation
 }
 
-/// An update that a completed check offered and that the next click will
-/// install, held with the [`BuildKind`] it was offered as.
-///
-/// The kind is what lets the click re-test the offer against the channel
-/// preference in force *then* rather than when the check ran -- see
-/// [`offer_still_eligible`]. It is kept here, beside the request, rather
-/// than on [`InstallRequest`], which deliberately carries nothing but the
-/// URL the installer actually uses.
 struct PendingInstall {
     kind: BuildKind,
     returns_to_stable: bool,
@@ -1444,6 +1648,22 @@ fn update_check_row(
     install_guard: InstallGuard,
     update_method: UpdateMethod,
 ) -> UpdateCheckRow {
+    update_check_row_with(
+        manager,
+        available_notes,
+        install_guard,
+        update_method,
+        default_install_launcher(),
+    )
+}
+
+fn update_check_row_with(
+    manager: Rc<PreferenceManager>,
+    available_notes: ReleaseNotesCard,
+    install_guard: InstallGuard,
+    update_method: UpdateMethod,
+    launcher: InstallLauncher,
+) -> UpdateCheckRow {
     let row = gtk::Box::new(gtk::Orientation::Vertical, 0);
     row.add_css_class("settings-option");
     row.add_css_class("settings-update-status");
@@ -1455,7 +1675,7 @@ fn update_check_row(
     let copy = gtk::Box::new(gtk::Orientation::Vertical, 2);
     copy.set_hexpand(true);
     copy.set_valign(gtk::Align::Center);
-    let title = gtk::Label::new(Some("Check for updates"));
+    let title = gtk::Label::new(Some(&crate::i18n::tr("Check for updates")));
     title.set_xalign(0.0);
     title.add_css_class("settings-option-title");
     let status = gtk::Label::new(Some(&installed_version_status(
@@ -1480,7 +1700,7 @@ fn update_check_row(
     progress.set_hexpand(true);
     progress.set_visible(false);
     copy.append(&progress);
-    let button = gtk::Button::with_label("Check now");
+    let button = gtk::Button::with_label(&crate::i18n::tr("Check now"));
     button.add_css_class("settings-update-check");
     button.set_valign(gtk::Align::Center);
     summary.append(&copy);
@@ -1498,6 +1718,7 @@ fn update_check_row(
     // Set once an install finishes, so the next click restarts instead of re-checking.
     let installed = Rc::new(Cell::new(false));
     let installing = Rc::new(Cell::new(false));
+    let cancel_handle = Rc::new(RefCell::new(None::<InstallCancel>));
     let install_underway: Rc<dyn Fn() -> bool> = Rc::new({
         let installed = installed.clone();
         let installing = installing.clone();
@@ -1530,12 +1751,12 @@ fn update_check_row(
             *pending_download.borrow_mut() = None;
             installed.set(false);
             managed_update_available.set(false);
-            button.set_label("Check now");
+            button.set_label(&crate::i18n::tr("Check now"));
             progress.set_fraction(0.0);
             progress.set_visible(false);
             progress.remove_css_class("error");
-            title.set_text("Checking for updates…");
-            status.set_text("Checking for updates…");
+            title.set_text(&crate::i18n::tr("Checking for updates…"));
+            status.set_text(&crate::i18n::tr("Checking for updates…"));
             available_notes.container.set_visible(false);
             available_notes.fallback.set_visible(false);
             // Clear any previously offered release immediately, not only once
@@ -1585,11 +1806,11 @@ fn update_check_row(
                                 UpdateCheck::Failed(_) => icons::TRIANGLE_ALERT,
                             },
                         );
-                        title.set_text(match &result {
+                        title.set_text(&crate::i18n::tr(match &result {
                             UpdateCheck::UpToDate => "Strata is up to date",
                             UpdateCheck::Available { .. } => "An update is available",
                             UpdateCheck::Failed(_) => "Couldn’t check for updates",
-                        });
+                        }));
                         let returns_to_stable = matches!(
                             &result,
                             UpdateCheck::Available { release, .. }
@@ -1603,11 +1824,12 @@ fn update_check_row(
                             let UpdateCheck::Available { release, .. } = &result else {
                                 unreachable!();
                             };
-                            format!(
-                                "Stable channel target: <a href=\"{}\">v{}</a>",
-                                glib::markup_escape_text(&release.url),
-                                glib::markup_escape_text(&release.version),
+                            rust_i18n::t!(
+                                "Stable channel target: <a href=\"%{value1}\">v%{value2}</a>",
+                                value1 = glib::markup_escape_text(&release.url),
+                                value2 = glib::markup_escape_text(&release.version)
                             )
+                            .into_owned()
                         } else {
                             update_check_message(&result, update_method)
                         };
@@ -1620,45 +1842,35 @@ fn update_check_row(
                             .container
                             .set_visible(shows_available_release_notes(&result));
                         match &result {
-                            UpdateCheck::Available {
-                                release,
-                                download_url,
-                            } => publish_update_notice(Some((
-                                release.clone(),
-                                download_url.clone(),
-                                update_method,
-                            ))),
+                            UpdateCheck::Available { release, install } => publish_update_notice(
+                                Some((release.clone(), install.clone(), update_method)),
+                            ),
                             UpdateCheck::UpToDate | UpdateCheck::Failed(_) => {
                                 publish_update_notice(None)
                             }
                         }
                         match &result {
-                            UpdateCheck::Available {
-                                release,
-                                download_url,
-                            } => {
+                            UpdateCheck::Available { release, install } => {
                                 show_release_notes(&available_notes, release);
                                 if update_method.is_package_managed() {
                                     managed_update_available.set(true);
-                                    button.set_label(match update_method {
+                                    button.set_label(&crate::i18n::tr(match update_method {
                                         UpdateMethod::Aur => aur_update_action_label(),
                                         UpdateMethod::Omarchy => "Open Omarchy Update",
                                         UpdateMethod::Pacman => "Check again",
                                         UpdateMethod::InPlace => unreachable!(),
-                                    });
+                                    }));
                                 } else {
                                     *pending_download.borrow_mut() = Some(PendingInstall {
                                         kind: release.kind,
                                         returns_to_stable,
-                                        request: InstallRequest {
-                                            download_url: download_url.clone(),
-                                        },
+                                        request: install.clone(),
                                     });
-                                    button.set_label(if returns_to_stable {
+                                    button.set_label(&crate::i18n::tr(if returns_to_stable {
                                         "Return to stable"
                                     } else {
                                         "Install update"
-                                    });
+                                    }));
                                 }
                             }
                             UpdateCheck::UpToDate | UpdateCheck::Failed(_) => {}
@@ -1670,11 +1882,11 @@ fn update_check_row(
                     Err(TryRecvError::Empty) => glib::ControlFlow::Continue,
                     Err(TryRecvError::Disconnected) => {
                         CHECK_IN_FLIGHT.set(false);
-                        title.set_text("Couldn’t check for updates");
+                        title.set_text(&crate::i18n::tr("Couldn’t check for updates"));
                         crate::assets::set_primary_icon(&status_icon, icons::TRIANGLE_ALERT);
-                        status.set_markup(
+                        status.set_markup(&crate::i18n::tr(
                             "Couldn't check for updates · <a href=\"https://github.com/lgse/strata/releases/latest\">View releases on GitHub</a>",
-                        );
+                        ));
                         available_notes.container.set_visible(false);
                         button.set_sensitive(true);
                         checking.set(false);
@@ -1686,18 +1898,28 @@ fn update_check_row(
     });
 
     let clicked_check = run_check.clone();
+    let row_status = status.clone();
+    let row_pending_download = pending_download.clone();
     button.connect_clicked(move |button| {
         if update_method == UpdateMethod::Aur && managed_update_available.get() {
             match launch_aur_update() {
-                Ok(message) => status.set_text(message),
-                Err(error) => status.set_text(&format!("Couldn’t open AUR update: {error}")),
+                Ok(message) => status.set_text(&message),
+                Err(error) => status.set_text(&rust_i18n::t!(
+                    "Couldn’t open AUR update: %{error}",
+                    error = error
+                )),
             }
             return;
         }
         if update_method == UpdateMethod::Omarchy && managed_update_available.get() {
             match launch_omarchy_update() {
-                Ok(()) => status.set_text("Omarchy Update opened in your terminal."),
-                Err(error) => status.set_text(&format!("Couldn’t open Omarchy Update: {error}")),
+                Ok(()) => {
+                    status.set_text(&crate::i18n::tr("Omarchy Update opened in your terminal."))
+                }
+                Err(error) => status.set_text(&rust_i18n::t!(
+                    "Couldn’t open Omarchy Update: %{error}",
+                    error = error
+                )),
             }
             return;
         }
@@ -1705,7 +1927,18 @@ fn update_check_row(
             restart_application(button);
             return;
         }
-        if let Some(pending) = pending_download.borrow_mut().take() {
+        if let Some(cancel) = cancel_handle.borrow_mut().take() {
+            status.set_text(&crate::i18n::tr(if cancel.cancel() {
+                "Cancelling…"
+            } else {
+                FINALIZING_STATUS
+            }));
+            button.set_sensitive(false);
+            return;
+        }
+        // Both branches can reborrow this cell; an `if let` scrutinee would retain the RefMut.
+        let pending = pending_download.take();
+        if let Some(pending) = pending {
             if !offer_still_eligible(manager.release_channel(), pending.kind) {
                 // The channel was switched back to Stable -- possibly from
                 // another window, which this row never hears about -- after
@@ -1725,17 +1958,18 @@ fn update_check_row(
                 return;
             }
             installing.set(true);
-            status.set_text(if returns_to_stable {
+            status.set_text(&crate::i18n::tr(if returns_to_stable {
                 "Downloading stable release…"
             } else {
                 "Downloading update…"
-            });
+            }));
             progress.set_fraction(0.0);
             progress.set_visible(true);
             progress.remove_css_class("error");
-            button.set_sensitive(false);
+            button.set_label(&crate::i18n::tr("Cancel"));
             let progress_for_progress = progress.clone();
             let status_for_progress = status.clone();
+            let button_for_progress = button.clone();
             let checking_for_installed = checking.clone();
             let status_for_installed = status.clone();
             let button_for_installed = button.clone();
@@ -1745,49 +1979,85 @@ fn update_check_row(
             let status_for_failed = status.clone();
             let button_for_failed = button.clone();
             let progress_for_failed = progress.clone();
+            let cancel_for_installed = cancel_handle.clone();
+            let cancel_for_cancelled = cancel_handle.clone();
+            let cancel_for_failed = cancel_handle.clone();
+            let checking_for_cancelled = checking.clone();
+            let installing_for_cancelled = installing.clone();
+            let status_for_cancelled = status.clone();
+            let button_for_cancelled = button.clone();
+            let progress_for_cancelled = progress.clone();
             let started = start_install(
                 &install_guard,
                 request,
+                &launcher,
                 move |event| {
+                    if matches!(event, InstallProgress::Finalizing) {
+                        button_for_progress.set_sensitive(false);
+                    }
                     apply_install_progress(&status_for_progress, &progress_for_progress, event)
                 },
                 move || {
-                    status_for_installed.set_text(if returns_to_stable {
+                    let _taken = cancel_for_installed.borrow_mut().take();
+                    status_for_installed.set_text(&crate::i18n::tr(if returns_to_stable {
                         "Stable release installed — restart to apply"
                     } else {
                         "Update installed — restart to apply"
-                    });
-                    button_for_installed.set_label("Restart now");
+                    }));
+                    button_for_installed.set_label(&crate::i18n::tr("Restart now"));
                     button_for_installed.set_sensitive(true);
                     installed_for_installed.set(true);
                     checking_for_installed.set(false);
                     restart_application(&button_for_installed);
                 },
+                move || {
+                    let _taken = cancel_for_cancelled.borrow_mut().take();
+                    status_for_cancelled.set_text(&crate::i18n::tr("Update cancelled"));
+                    progress_for_cancelled.set_visible(false);
+                    button_for_cancelled.set_label(&crate::i18n::tr("Check now"));
+                    button_for_cancelled.set_sensitive(true);
+                    checking_for_cancelled.set(false);
+                    installing_for_cancelled.set(false);
+                },
                 move |message| {
+                    let _taken = cancel_for_failed.borrow_mut().take();
                     match message {
-                        Some(message) => status_for_failed
-                            .set_text(&format!("Couldn't install update: {message}")),
-                        None => status_for_failed.set_text("Couldn't install update"),
+                        Some(message) => status_for_failed.set_text(&rust_i18n::t!(
+                            "Couldn't install update: %{message}",
+                            message = crate::services::error_detail(message)
+                        )),
+                        None => {
+                            status_for_failed.set_text(&crate::i18n::tr("Couldn't install update"))
+                        }
                     }
                     progress_for_failed.add_css_class("error");
-                    button_for_failed.set_label("Check now");
+                    button_for_failed.set_label(&crate::i18n::tr("Check now"));
                     button_for_failed.set_sensitive(true);
                     checking_for_failed.set(false);
                     installing_for_failed.set(false);
                 },
             );
+            let started = match started {
+                Ok(cancel) => {
+                    *cancel_handle.borrow_mut() = Some(cancel);
+                    Ok(())
+                }
+                Err(request) => Err(request),
+            };
             if let Err(request) = started {
                 // An install from an update dialog or another window is
                 // already running. Leave this row
                 // re-triable rather than stuck mid-"downloading" with
                 // nothing actually happening.
-                status.set_text("Another install is already running — try again shortly.");
+                status.set_text(&crate::i18n::tr(
+                    "Another install is already running — try again shortly.",
+                ));
                 progress.set_visible(false);
-                button.set_label(if returns_to_stable {
+                button.set_label(&crate::i18n::tr(if returns_to_stable {
                     "Return to stable"
                 } else {
                     "Install update"
-                });
+                }));
                 button.set_sensitive(true);
                 checking.set(false);
                 installing.set(false);
@@ -1806,6 +2076,8 @@ fn update_check_row(
         run_check,
         responsive_action: (summary, button),
         install_underway,
+        status: row_status,
+        pending_download: row_pending_download,
     }
 }
 
@@ -1818,7 +2090,10 @@ enum InstallProgress {
     Downloading { downloaded: u64, total: Option<u64> },
     Verifying,
     Installing,
+    Finalizing,
 }
+
+const FINALIZING_STATUS: &str = "Finalizing update…";
 
 /// Drives an install `receiver` on the GTK main loop until it reports a
 /// terminal outcome, then stops.
@@ -1836,6 +2111,7 @@ fn drive_install(
     receiver: std::sync::mpsc::Receiver<UpdateInstall>,
     on_progress: impl Fn(InstallProgress) + 'static,
     on_installed: impl Fn() + 'static,
+    on_cancelled: impl Fn() + 'static,
     on_failed: impl Fn(Option<String>) + 'static,
 ) {
     glib::timeout_add_local(Duration::from_millis(100), move || {
@@ -1846,8 +2122,13 @@ fn drive_install(
                 }
                 Ok(UpdateInstall::Verifying) => on_progress(InstallProgress::Verifying),
                 Ok(UpdateInstall::Installing) => on_progress(InstallProgress::Installing),
+                Ok(UpdateInstall::Finalizing) => on_progress(InstallProgress::Finalizing),
                 Ok(UpdateInstall::Installed) => {
                     on_installed();
+                    return glib::ControlFlow::Break;
+                }
+                Ok(UpdateInstall::Cancelled) => {
+                    on_cancelled();
                     return glib::ControlFlow::Break;
                 }
                 Ok(UpdateInstall::Failed(message)) => {
@@ -1864,31 +2145,24 @@ fn drive_install(
     });
 }
 
-/// Starts `request`'s install unless another install-guarded flow is
-/// already running, driving it with [`drive_install`] and clearing `guard`
-/// once it reaches a terminal state.
-///
-/// `guard` is shared by [`update_check_row`] and [`show_update_dialog`] -- the
-/// only call sites of [`services::install_update`]. Without it, controls in
-/// separate windows could start two replacement threads concurrently.
-///
-/// Returns `Ok(())` once an install has started, or `Err(request)` --
-/// handing `request` back unused -- if `guard` was already held. Callers
-/// must handle the `Err` case by leaving their own button/status in a
-/// re-triable state, since the click that produced it did not actually
-/// start anything.
+/// The shared guard prevents concurrent replacements from different windows.
+/// Guard rejection leaves the request unused and must keep the caller retryable.
 fn start_install(
     guard: &InstallGuard,
     request: InstallRequest,
+    launcher: &InstallLauncher,
     on_progress: impl Fn(InstallProgress) + 'static,
     on_installed: impl Fn() + 'static,
+    on_cancelled: impl Fn() + 'static,
     on_failed: impl Fn(Option<String>) + 'static,
-) -> Result<(), InstallRequest> {
+) -> Result<InstallCancel, InstallRequest> {
     if guard.replace(true) {
         return Err(request);
     }
-    let receiver = services::install_update(request);
+    let cancel = InstallCancel::new();
+    let receiver = launcher(request, cancel.clone());
     let guard_for_installed = guard.clone();
+    let guard_for_cancelled = guard.clone();
     let guard_for_failed = guard.clone();
     drive_install(
         receiver,
@@ -1897,12 +2171,16 @@ fn start_install(
             guard_for_installed.set(false);
             on_installed();
         },
+        move || {
+            guard_for_cancelled.set(false);
+            on_cancelled();
+        },
         move |message| {
             guard_for_failed.set(false);
             on_failed(message);
         },
     );
-    Ok(())
+    Ok(cancel)
 }
 
 /// The update row's compact progress rendering, distinct from the update
@@ -1917,19 +2195,26 @@ fn apply_install_progress(
             if let Some(total) = total.filter(|total| *total > 0) {
                 let fraction = (downloaded as f64 / total as f64).clamp(0.0, 1.0);
                 progress.set_fraction(fraction);
-                status.set_text(&format!("Downloading update… {:.0}%", fraction * 100.0));
+                status.set_text(&rust_i18n::t!(
+                    "Downloading update… %{value1}%",
+                    value1 = format!("{:.0}", fraction * 100.0)
+                ));
             } else {
                 progress.pulse();
-                status.set_text(&format!(
-                    "Downloading update… {:.1} MB",
-                    downloaded as f64 / 1_048_576.0
+                status.set_text(&rust_i18n::t!(
+                    "Downloading update… %{value1} MB",
+                    value1 = crate::i18n::decimal(downloaded as f64 / 1_048_576.0, 1)
                 ));
             }
         }
-        InstallProgress::Verifying => status.set_text("Verifying update…"),
+        InstallProgress::Verifying => status.set_text(&crate::i18n::tr("Verifying update…")),
         InstallProgress::Installing => {
             progress.set_fraction(1.0);
-            status.set_text("Installing update…");
+            status.set_text(&crate::i18n::tr("Installing update…"));
+        }
+        InstallProgress::Finalizing => {
+            progress.set_fraction(1.0);
+            status.set_text(&crate::i18n::tr(FINALIZING_STATUS));
         }
     }
 }
@@ -1960,16 +2245,23 @@ fn restart_waiter(current_exe: &std::path::Path, parent_pid: u32) -> Option<Comm
     let mut command = crate::trusted_command::command("sh").ok()?;
     let sleep = crate::trusted_command::resolve("sleep").ok()?;
     let start_time = process_start_time(parent_pid).unwrap_or_default();
+    let date = crate::trusted_command::resolve("date").ok()?;
+    let mv = crate::trusted_command::resolve("mv").ok()?;
+    let rollback = current_exe.parent().map(services::rollback_path)?;
     command
         .args([
             "-c",
-            "pid=$1; binary=$2; sleeper=$3; born=$4; while kill -0 \"$pid\" 2>/dev/null && [ -r \"/proc/$pid/stat\" ]; do IFS= read -r stat < \"/proc/$pid/stat\" || break; rest=${stat##*) }; set -- $rest; shift 19; [ \"${1:-}\" = \"$born\" ] || break; \"$sleeper\" 0.1; done; \"$sleeper\" 0.5; exec \"$binary\"",
+            "pid=$1; binary=$2; sleeper=$3; born=$4; rollback=$5; clock=$6; mover=$7; grace=$8; while kill -0 \"$pid\" 2>/dev/null && [ -r \"/proc/$pid/stat\" ]; do IFS= read -r stat < \"/proc/$pid/stat\" || break; rest=${stat##*) }; set -- $rest; shift 19; [ \"${1:-}\" = \"$born\" ] || break; \"$sleeper\" 0.1; done; \"$sleeper\" 0.5; started=$(\"$clock\" +%s); \"$binary\" && exit 0; status=$?; [ $(($(\"$clock\" +%s) - started)) -lt \"$grace\" ] || exit \"$status\"; [ -f \"$rollback\" ] || exit \"$status\"; \"$mover\" -f -- \"$rollback\" \"$binary\" && exec \"$binary\"; exit \"$status\"",
             "strata-restart",
         ])
         .arg(parent_pid.to_string())
         .arg(current_exe)
         .arg(sleep)
         .arg(start_time)
+        .arg(rollback)
+        .arg(date)
+        .arg(mv)
+        .arg(RESTART_GRACE_SECONDS.to_string())
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -1985,7 +2277,11 @@ fn restart_waiter(current_exe: &std::path::Path, parent_pid: u32) -> Option<Comm
     Some(command)
 }
 
+/// A closed window may no longer have an application; never exit the process in that case.
 fn restart(application: Option<&gtk::Application>) {
+    let Some(application) = application else {
+        return;
+    };
     let Ok(current_exe) = crate::services::installed_executable() else {
         return;
     };
@@ -1999,25 +2295,90 @@ fn restart(application: Option<&gtk::Application>) {
     let Some(mut waiter) = restart_waiter(&current_exe, std::process::id()) else {
         return;
     };
-    if waiter.spawn().is_err() {
+    if restart_blocker_shown(application) {
         return;
     }
-    match application {
-        Some(application) => application.quit(),
-        None => std::process::exit(0),
+    let Ok(mut waiter) = waiter.spawn() else {
+        return;
+    };
+    // Do not leave a waiter behind when an unregistered close handler refuses.
+    if !close_windows_for_restart(application) {
+        let _ = waiter.kill();
+        let _ = waiter.wait();
+        return;
     }
+    application.quit();
+}
+
+/// Checks every window before closing any, so a refusal cannot leave some closed.
+fn restart_blocker_shown(application: &gtk::Application) -> bool {
+    let Some((window, blocker)) = crate::ui::close_guard::application_blocker(application) else {
+        return false;
+    };
+    window.present();
+    blocker.show(&window);
+    true
+}
+
+fn close_windows_for_restart(application: &gtk::Application) -> bool {
+    if restart_blocker_shown(application) {
+        return false;
+    }
+    for window in application.windows() {
+        window.close();
+    }
+    application.windows().is_empty()
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum UpdateDialogPhase {
+    Ready,
+    Downloading,
+    Finalizing,
+    Cancelled,
+    Failed,
+    Installed,
+}
+
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "tests drive the dialog through these handles")
+)]
+struct UpdateDialog {
+    layer: gtk::Box,
+    cancel: gtk::Button,
+    close: gtk::Button,
+    action: gtk::Button,
+    status: gtk::Label,
+    escape: gtk::EventControllerKey,
 }
 
 pub(super) fn show_update_dialog(
     parent: &gtk::Window,
     release: &ReleaseMetadata,
-    download_url: String,
+    install: InstallRequest,
     install_guard: InstallGuard,
     update_method: UpdateMethod,
 ) {
-    let Some(window_overlay) = parent.child().and_downcast::<gtk::Overlay>() else {
-        return;
-    };
+    let _dialog = build_update_dialog(
+        parent,
+        release,
+        install,
+        install_guard,
+        update_method,
+        default_install_launcher(),
+    );
+}
+
+fn build_update_dialog(
+    parent: &gtk::Window,
+    release: &ReleaseMetadata,
+    install: InstallRequest,
+    install_guard: InstallGuard,
+    update_method: UpdateMethod,
+    launcher: InstallLauncher,
+) -> Option<UpdateDialog> {
+    let window_overlay = parent.child().and_downcast::<gtk::Overlay>()?;
     let blurred_root = window_overlay.child().and_downcast::<BlurBin>();
     if let Some(root) = blurred_root.as_ref() {
         root.set_blurred(true);
@@ -2026,18 +2387,18 @@ pub(super) fn show_update_dialog(
     let aur_action = aur_update_action_label();
     let layout = modal_layout(
         icons::DOWNLOADS,
-        &format!("Strata v{} is available", release.version),
-        &format!(
-            "Installed v{}  →  Available v{}",
-            crate::build_info::installed_version(),
-            release.version
+        &rust_i18n::t!("Strata v%{value1} is available", value1 = release.version),
+        &rust_i18n::t!(
+            "Installed v%{value1}  →  Available v%{value2}",
+            value1 = crate::build_info::installed_version(),
+            value2 = release.version
         ),
-        match update_method {
+        &crate::i18n::tr(match update_method {
             UpdateMethod::InPlace => "Download update",
             UpdateMethod::Aur => aur_action,
             UpdateMethod::Omarchy => "Open Omarchy Update",
             UpdateMethod::Pacman => "Close",
-        },
+        }),
     );
     layout.content.add_css_class("update-dialog");
     layout.content.set_size_request(560, -1);
@@ -2046,21 +2407,23 @@ pub(super) fn show_update_dialog(
     // channel it is, its precise tag, the source commit, and when it was
     // published.
     if release.kind != BuildKind::Stable {
-        let badge = gtk::Label::new(Some(release.kind.label()));
+        let badge = gtk::Label::new(Some(&release.kind.localized_label()));
         badge.add_css_class("prerelease-badge");
         badge.set_xalign(0.0);
         badge.set_halign(gtk::Align::Start);
         layout.body.append(&badge);
         layout.body.append(&update_dialog_details(release));
     }
-    let notes_heading = gtk::Label::new(Some("What’s new"));
+    let notes_heading = gtk::Label::new(Some(&crate::i18n::tr("What’s new")));
     notes_heading.add_css_class("release-notes-title");
     notes_heading.set_xalign(0.0);
     let notes = gtk::Box::new(gtk::Orientation::Vertical, 6);
-    if release.notes.trim().is_empty() {
+    if release.note_blocks.is_empty() {
         set_release_notes_message(
             &notes,
-            "No release notes were provided. Review this release on GitHub before continuing.",
+            &crate::i18n::tr(
+                "No release notes were provided. Review this release on GitHub before continuing.",
+            ),
         );
     } else {
         set_release_note_blocks(&notes, &release.note_blocks);
@@ -2074,26 +2437,27 @@ pub(super) fn show_update_dialog(
         .child(&notes)
         .build();
     notes_scroll.add_css_class("update-dialog-notes");
-    let fallback = gtk::LinkButton::with_label(&release.url, "View release on GitHub");
+    let fallback =
+        gtk::LinkButton::with_label(&release.url, &crate::i18n::tr("View release on GitHub"));
     fallback.set_has_tooltip(false);
     fallback.add_css_class("release-notes-fallback");
     fallback.set_halign(gtk::Align::Start);
     let status_message = match update_method {
         UpdateMethod::InPlace => {
-            "Review the release notes before downloading the update.".to_owned()
+            crate::i18n::tr("Review the release notes before downloading the update.")
         }
         UpdateMethod::Aur => InstallSource::detect()
             .managed()
             .map(update_dialog_status)
-            .unwrap_or_else(|| "This installation is managed by its package manager.".to_owned()),
-        UpdateMethod::Omarchy => {
-            "This installation is managed by Omarchy. Run “omarchy update” to install it."
-                .to_owned()
-        }
-        UpdateMethod::Pacman => {
-            "This installation is managed by pacman. Install it through a full system update."
-                .to_owned()
-        }
+            .unwrap_or_else(|| {
+                crate::i18n::tr("This installation is managed by its package manager.")
+            }),
+        UpdateMethod::Omarchy => crate::i18n::tr(
+            "This installation is managed by Omarchy. Run “omarchy update” to install it.",
+        ),
+        UpdateMethod::Pacman => crate::i18n::tr(
+            "This installation is managed by pacman. Install it through a full system update.",
+        ),
     };
     let status = gtk::Label::new(Some(&status_message));
     status.add_css_class("update-dialog-status");
@@ -2113,47 +2477,72 @@ pub(super) fn show_update_dialog(
     let cancel = layout.cancel;
     let action = layout.confirm;
 
-    let layer = modal_layer(&content, &window_overlay, blurred_root.clone(), None);
+    let phase = Rc::new(Cell::new(UpdateDialogPhase::Ready));
+    let cancel_handle = Rc::new(RefCell::new(None::<InstallCancel>));
+    let set_dismissible: Rc<dyn Fn(bool)> = Rc::new({
+        let cancel = cancel.clone();
+        let close = close.clone();
+        move |enabled| {
+            cancel.set_sensitive(enabled);
+            close.set_sensitive(enabled);
+        }
+    });
+    let enter_finalizing: Rc<dyn Fn()> = Rc::new({
+        let phase = phase.clone();
+        let status = status.clone();
+        let progress = progress.clone();
+        let set_dismissible = set_dismissible.clone();
+        move || {
+            phase.set(UpdateDialogPhase::Finalizing);
+            progress.set_fraction(1.0);
+            status.set_text(&crate::i18n::tr(FINALIZING_STATUS));
+            set_dismissible(false);
+        }
+    });
+    let close_dialog: Rc<dyn Fn(&gtk::Box)> = Rc::new({
+        let phase = phase.clone();
+        let cancel_handle = cancel_handle.clone();
+        let enter_finalizing = enter_finalizing.clone();
+        let overlay = window_overlay.clone();
+        let root = blurred_root.clone();
+        move |layer| {
+            match phase.get() {
+                UpdateDialogPhase::Finalizing => return,
+                UpdateDialogPhase::Downloading => {
+                    let committed = cancel_handle
+                        .borrow()
+                        .as_ref()
+                        .is_some_and(|handle| !handle.cancel());
+                    if committed {
+                        // The installer can commit before its Finalizing event reaches the UI.
+                        enter_finalizing();
+                        return;
+                    }
+                    cancel_handle.take();
+                    phase.set(UpdateDialogPhase::Cancelled);
+                }
+                UpdateDialogPhase::Ready
+                | UpdateDialogPhase::Cancelled
+                | UpdateDialogPhase::Failed
+                | UpdateDialogPhase::Installed => {}
+            }
+            dismiss_modal_layer(layer, &overlay, root.as_ref());
+        }
+    });
+    let layer = modal_layer_with_backdrop(&content, close_dialog.clone());
     window_overlay.add_overlay(&layer);
     action.grab_focus();
 
-    let started = Rc::new(Cell::new(false));
-    let cancel_layer = layer.clone();
-    let cancel_overlay = window_overlay.clone();
-    let cancel_root = blurred_root.clone();
-    let cancel_started = started.clone();
-    cancel.connect_clicked(move |_| {
-        if !cancel_started.get() {
-            dismiss_modal_layer(&cancel_layer, &cancel_overlay, cancel_root.as_ref());
-        }
+    for button in [&cancel, &close] {
+        let close_dialog = close_dialog.clone();
+        let layer = layer.clone();
+        button.connect_clicked(move |_| close_dialog(&layer));
+    }
+    let escape = close_on_escape(&layer, {
+        let layer = layer.clone();
+        move || close_dialog(&layer)
     });
-    let close_layer = layer.clone();
-    let close_overlay = window_overlay.clone();
-    let close_root = blurred_root.clone();
-    let close_started = started.clone();
-    close.connect_clicked(move |_| {
-        if !close_started.get() {
-            dismiss_modal_layer(&close_layer, &close_overlay, close_root.as_ref());
-        }
-    });
-    let escape = gtk::EventControllerKey::new();
-    let escape_layer = layer.clone();
-    let escape_overlay = window_overlay.clone();
-    let escape_root = blurred_root.clone();
-    let escape_started = started.clone();
-    escape.connect_key_pressed(move |_, key, _, _| {
-        if key == gtk::gdk::Key::Escape {
-            if !escape_started.get() {
-                dismiss_modal_layer(&escape_layer, &escape_overlay, escape_root.as_ref());
-            }
-            glib::Propagation::Stop
-        } else {
-            glib::Propagation::Proceed
-        }
-    });
-    layer.add_controller(escape);
 
-    let installed = Rc::new(Cell::new(false));
     // Set when the offer this dialog was opened with is no longer eligible on
     // the current channel, which turns the action button into a plain Close.
     let withdrawn = Rc::new(Cell::new(false));
@@ -2164,19 +2553,18 @@ pub(super) fn show_update_dialog(
         let action = action.clone();
         move || {
             withdrawn.set(true);
-            status.set_text(
+            status.set_text(&crate::i18n::tr(
                 "This build is no longer offered on your update channel — check for updates again.",
-            );
-            action.set_label("Close");
+            ));
+            action.set_label(&crate::i18n::tr("Close"));
         }
     });
     PreferenceManager::shared().on_release_channel_changed(&layer, {
         let withdraw = withdraw.clone();
         let withdrawn = withdrawn.clone();
-        let started = started.clone();
-        let installed = installed.clone();
+        let phase = phase.clone();
         Rc::new(move || {
-            if started.get() || installed.get() || withdrawn.get() {
+            if phase.get() != UpdateDialogPhase::Ready || withdrawn.get() {
                 return;
             }
             if !offer_still_eligible(PreferenceManager::shared().release_channel(), offered_kind) {
@@ -2188,7 +2576,7 @@ pub(super) fn show_update_dialog(
     let action_overlay = window_overlay.clone();
     let action_root = blurred_root.clone();
     let application = parent.application();
-    let action_close = close.clone();
+    let dialog_status = status.clone();
     action.connect_clicked(move |button| {
         if update_method == UpdateMethod::Aur {
             if aur_action == "Close" {
@@ -2201,7 +2589,10 @@ pub(super) fn show_update_dialog(
                     dismiss_modal_layer(&action_layer, &action_overlay, action_root.as_ref());
                     button.set_sensitive(false);
                 }
-                Err(error) => status.set_text(&format!("Couldn’t open AUR update: {error}")),
+                Err(error) => status.set_text(&rust_i18n::t!(
+                    "Couldn’t open AUR update: %{error}",
+                    error = error
+                )),
             }
             return;
         }
@@ -2211,7 +2602,10 @@ pub(super) fn show_update_dialog(
                     dismiss_modal_layer(&action_layer, &action_overlay, action_root.as_ref());
                     button.set_sensitive(false);
                 }
-                Err(error) => status.set_text(&format!("Couldn’t open Omarchy Update: {error}")),
+                Err(error) => status.set_text(&rust_i18n::t!(
+                    "Couldn’t open Omarchy Update: %{error}",
+                    error = error
+                )),
             }
             return;
         }
@@ -2220,10 +2614,19 @@ pub(super) fn show_update_dialog(
             button.set_sensitive(false);
             return;
         }
-        if installed.get() {
-            restart(application.as_ref());
-            button.set_sensitive(false);
-            return;
+        match phase.get() {
+            UpdateDialogPhase::Installed => {
+                restart(application.as_ref());
+                button.set_sensitive(false);
+                return;
+            }
+            UpdateDialogPhase::Failed | UpdateDialogPhase::Cancelled => {
+                dismiss_modal_layer(&action_layer, &action_overlay, action_root.as_ref());
+                button.set_sensitive(false);
+                return;
+            }
+            UpdateDialogPhase::Downloading | UpdateDialogPhase::Finalizing => return,
+            UpdateDialogPhase::Ready => {}
         }
         if withdrawn.get() {
             dismiss_modal_layer(&action_layer, &action_overlay, action_root.as_ref());
@@ -2233,101 +2636,135 @@ pub(super) fn show_update_dialog(
         // Read the channel at the click, not when the dialog was opened: this
         // dialog is driven by the sidebar notice, whose cached offer survives
         // a channel switch made anywhere in the process -- including in
-        // another window. `withdrawn` rather than `started` so Cancel and
+        // another window. `withdrawn` rather than a phase change so Cancel and
         // Escape keep dismissing normally.
         if !offer_still_eligible(PreferenceManager::shared().release_channel(), offered_kind) {
             withdraw();
             return;
         }
-        if started.replace(true) {
-            dismiss_modal_layer(&action_layer, &action_overlay, action_root.as_ref());
-            button.set_sensitive(false);
-            return;
-        }
 
+        phase.set(UpdateDialogPhase::Downloading);
         button.set_sensitive(false);
-        cancel.set_sensitive(false);
-        action_close.set_sensitive(false);
         progress.set_visible(true);
-        status.set_text("Starting download…");
+        status.set_text(&crate::i18n::tr("Starting download…"));
         let progress_for_progress = progress.clone();
         let status_for_progress = status.clone();
         let progress_for_installed = progress.clone();
         let status_for_installed = status.clone();
         let action_for_installed = button.clone();
-        let installed_for_installed = installed.clone();
+        let phase_for_installed = phase.clone();
+        let dismissible_for_installed = set_dismissible.clone();
         let progress_for_failed = progress.clone();
         let status_for_failed = status.clone();
         let action_for_failed = button.clone();
-        let status_for_guard = status.clone();
-        let progress_for_guard = progress.clone();
-        let action_for_guard = button.clone();
-        let started_for_guard = started.clone();
+        let phase_for_failed = phase.clone();
+        let dismissible_for_failed = set_dismissible.clone();
+        let phase_for_progress = phase.clone();
+        let enter_finalizing = enter_finalizing.clone();
         let install_guard = install_guard.clone();
-        let request = InstallRequest {
-            download_url: download_url.clone(),
-        };
+        let cancel_for_installed = cancel_handle.clone();
+        let cancel_for_cancelled = cancel_handle.clone();
+        let cancel_for_failed = cancel_handle.clone();
+        let phase_for_cancelled = phase.clone();
+        let layer_for_cancelled = action_layer.clone();
+        let overlay_for_cancelled = action_overlay.clone();
+        let root_for_cancelled = action_root.clone();
         let outcome = start_install(
             &install_guard,
-            request,
+            install.clone(),
+            &launcher,
             move |event| match event {
                 InstallProgress::Downloading { downloaded, total } => {
                     if let Some(total) = total.filter(|total| *total > 0) {
                         let fraction = (downloaded as f64 / total as f64).clamp(0.0, 1.0);
                         progress_for_progress.set_fraction(fraction);
-                        status_for_progress.set_text(&format!(
-                            "Downloading… {:.0}%  ({:.1} of {:.1} MB)",
-                            fraction * 100.0,
-                            downloaded as f64 / 1_048_576.0,
-                            total as f64 / 1_048_576.0,
+                        status_for_progress.set_text(&rust_i18n::t!(
+                            "Downloading… %{value1}%  (%{value2} of %{value3} MB)",
+                            value1 = format!("{:.0}", fraction * 100.0),
+                            value2 = crate::i18n::decimal(downloaded as f64 / 1_048_576.0, 1),
+                            value3 = crate::i18n::decimal(total as f64 / 1_048_576.0, 1)
                         ));
                     } else {
                         progress_for_progress.pulse();
-                        status_for_progress.set_text(&format!(
-                            "Downloading… {:.1} MB",
-                            downloaded as f64 / 1_048_576.0
+                        status_for_progress.set_text(&rust_i18n::t!(
+                            "Downloading… %{value1} MB",
+                            value1 = crate::i18n::decimal(downloaded as f64 / 1_048_576.0, 1)
                         ));
                     }
                 }
-                InstallProgress::Verifying => status_for_progress.set_text("Verifying update…"),
+                InstallProgress::Verifying => {
+                    status_for_progress.set_text(&crate::i18n::tr("Verifying update…"))
+                }
                 InstallProgress::Installing => {
                     progress_for_progress.set_fraction(1.0);
-                    status_for_progress.set_text("Installing update…");
+                    status_for_progress.set_text(&crate::i18n::tr("Installing update…"));
+                }
+                InstallProgress::Finalizing => {
+                    if phase_for_progress.get() == UpdateDialogPhase::Downloading {
+                        enter_finalizing();
+                    }
                 }
             },
             move || {
+                let _taken = cancel_for_installed.borrow_mut().take();
+                phase_for_installed.set(UpdateDialogPhase::Installed);
                 progress_for_installed.set_fraction(1.0);
-                status_for_installed.set_text("Update installed — restart to apply");
-                action_for_installed.set_label("Restart now");
+                status_for_installed
+                    .set_text(&crate::i18n::tr("Update installed — restart to apply"));
+                action_for_installed.set_label(&crate::i18n::tr("Restart now"));
                 action_for_installed.add_css_class("suggested-action");
                 action_for_installed.set_sensitive(true);
-                installed_for_installed.set(true);
+                // Restart can fail; leave a way to close the dialog.
+                dismissible_for_installed(true);
                 restart_application(&action_for_installed);
             },
+            move || {
+                let _taken = cancel_for_cancelled.borrow_mut().take();
+                phase_for_cancelled.set(UpdateDialogPhase::Cancelled);
+                dismiss_modal_layer(
+                    &layer_for_cancelled,
+                    &overlay_for_cancelled,
+                    root_for_cancelled.as_ref(),
+                );
+            },
             move |message| {
+                let _taken = cancel_for_failed.borrow_mut().take();
+                phase_for_failed.set(UpdateDialogPhase::Failed);
+                dismissible_for_failed(true);
                 match message {
                     Some(message) => {
-                        status_for_failed.set_text(&format!("Couldn’t install update: {message}"));
+                        status_for_failed.set_text(&rust_i18n::t!(
+                            "Couldn’t install update: %{message}",
+                            message = crate::services::error_detail(message)
+                        ));
                         progress_for_failed.add_css_class("error");
                     }
-                    None => status_for_failed.set_text("Couldn’t install update"),
+                    None => status_for_failed.set_text(&crate::i18n::tr("Couldn’t install update")),
                 }
-                action_for_failed.set_label("Close");
+                action_for_failed.set_label(&crate::i18n::tr("Close"));
                 action_for_failed.set_sensitive(true);
             },
         );
-        if outcome.is_err() {
-            // An install from the update row or another window is already
-            // running. Reset `started` too, so the next
-            // click retries the install instead of being treated as a
-            // dismissal -- this click never actually started one.
-            status_for_guard.set_text("Another install is already running — try again shortly.");
-            progress_for_guard.set_visible(false);
-            action_for_guard.set_sensitive(true);
-            cancel.set_sensitive(true);
-            started_for_guard.set(false);
+        match outcome {
+            Ok(handle) => *cancel_handle.borrow_mut() = Some(handle),
+            Err(_request) => {
+                phase.set(UpdateDialogPhase::Ready);
+                status.set_text(&crate::i18n::tr(
+                    "Another install is already running — try again shortly.",
+                ));
+                progress.set_visible(false);
+                button.set_sensitive(true);
+            }
         }
     });
+    Some(UpdateDialog {
+        layer,
+        cancel,
+        close,
+        action,
+        status: dialog_status,
+        escape,
+    })
 }
 
 fn aur_update_action_label() -> &'static str {
@@ -2342,25 +2779,24 @@ fn aur_update_command(terminal: &terminal::Terminal, helper: &str, package: &str
     terminal.exec_command(&[helper, "-Syu", package])
 }
 
-fn launch_aur_update() -> Result<&'static str, String> {
+fn launch_aur_update() -> Result<String, String> {
     let managed = InstallSource::detect()
         .managed()
-        .ok_or_else(|| "missing package metadata".to_owned())?;
+        .ok_or_else(|| crate::i18n::tr("missing package metadata"))?;
     if let Some((helper, package)) = managed.aur_update_target() {
         let Some(terminal) = terminal::Terminal::resolve() else {
             return Err(terminal::no_terminal_message());
         };
-        return aur_update_command(&terminal, helper, package)
-            .spawn()
-            .map(|_child| "AUR update opened in your terminal.")
+        return terminal::spawn_reaped(aur_update_command(&terminal, helper, package))
+            .map(|()| crate::i18n::tr("AUR update opened in your terminal."))
             .map_err(|error| terminal.launch_failure(&error));
     }
     let package = managed
         .package()
-        .ok_or_else(|| "missing AUR package name".to_owned())?;
+        .ok_or_else(|| crate::i18n::tr("missing AUR package name"))?;
     let uri = format!("https://aur.archlinux.org/packages/{package}");
     gio::AppInfo::launch_default_for_uri(&uri, None::<&gio::AppLaunchContext>)
-        .map(|()| "AUR package page opened.")
+        .map(|()| crate::i18n::tr("AUR package page opened."))
         .map_err(|error| error.to_string())
 }
 
@@ -2372,22 +2808,37 @@ fn launch_omarchy_update() -> Result<(), String> {
     let Some(terminal) = terminal::Terminal::resolve() else {
         return Err(terminal::no_terminal_message());
     };
-    omarchy_update_command(&terminal)
-        .spawn()
-        .map(|_child| ())
+    terminal::spawn_reaped(omarchy_update_command(&terminal))
         .map_err(|error| terminal.launch_failure(&error))
 }
 
 fn or_unknown(value: Option<String>) -> String {
-    value.unwrap_or_else(|| "Unknown".to_owned())
+    value.unwrap_or_else(|| crate::i18n::tr("Unknown"))
+}
+
+/// Formats a GitHub `published_at` timestamp as a date in the app language,
+/// keeping the raw value when it cannot be parsed.
+fn release_date(published_at: &str) -> String {
+    let Ok(date) = glib::DateTime::from_iso8601(published_at, None) else {
+        return published_at
+            .split('T')
+            .next()
+            .unwrap_or(published_at)
+            .to_owned();
+    };
+    let date = date.to_local().unwrap_or(date);
+    crate::util::localized_date(&date, &crate::i18n::tr("dates.older"))
 }
 
 fn release_detail_rows(release: &ReleaseMetadata) -> [(&'static str, String); 4] {
     [
-        ("Channel", release.kind.label().to_owned()),
+        ("Channel", release.kind.localized_label()),
         ("Tag", release.tag.clone()),
         ("Commit", or_unknown(release.commit.clone())),
-        ("Published", or_unknown(release.published_at.clone())),
+        (
+            "Published",
+            or_unknown(release.published_at.as_deref().map(release_date)),
+        ),
     ]
 }
 
@@ -2401,7 +2852,7 @@ fn update_dialog_details(release: &ReleaseMetadata) -> gtk::Box {
     for (label, value) in release_detail_rows(release) {
         let row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
         row.add_css_class("update-dialog-detail-row");
-        let label_widget = gtk::Label::new(Some(label));
+        let label_widget = gtk::Label::new(Some(&crate::i18n::tr(label)));
         label_widget.add_css_class("update-dialog-detail-label");
         label_widget.set_xalign(0.0);
         label_widget.set_hexpand(true);
@@ -2434,21 +2885,35 @@ fn installed_version_status(
     update_method: UpdateMethod,
 ) -> String {
     let version = if kind == BuildKind::Stable {
-        format!("Version {version}")
+        rust_i18n::t!("Version %{version}", version = version).into_owned()
     } else {
-        format!("Version {version} · {}", kind.label())
+        rust_i18n::t!(
+            "Version %{version} · %{value1}",
+            version = version,
+            value1 = kind.localized_label()
+        )
+        .into_owned()
     };
     match update_method {
         UpdateMethod::InPlace => version,
-        UpdateMethod::Aur => format!(
-            "{version} · Managed by {}",
-            InstallSource::detect()
-                .managed()
-                .map(ManagedInstall::manager)
-                .unwrap_or("a package manager")
-        ),
-        UpdateMethod::Omarchy => format!("{version} · Managed by Omarchy"),
-        UpdateMethod::Pacman => format!("{version} · Managed by pacman"),
+        UpdateMethod::Aur => match InstallSource::detect().managed() {
+            Some(managed) => rust_i18n::t!(
+                "%{version} · Managed by %{manager}",
+                version = version,
+                manager = managed.manager()
+            ),
+            None => rust_i18n::t!(
+                "%{version} · Managed by a package manager",
+                version = version
+            ),
+        }
+        .into_owned(),
+        UpdateMethod::Omarchy => {
+            rust_i18n::t!("%{version} · Managed by Omarchy", version = version).into_owned()
+        }
+        UpdateMethod::Pacman => {
+            rust_i18n::t!("%{version} · Managed by pacman", version = version).into_owned()
+        }
     }
 }
 
@@ -2473,67 +2938,99 @@ fn update_dialog_status(managed: &ManagedInstall) -> String {
 fn update_check_message(result: &UpdateCheck, update_method: UpdateMethod) -> String {
     match result {
         UpdateCheck::UpToDate => {
-            format!(
-                "Up to date — version {}",
-                crate::build_info::installed_version()
-            )
+            rust_i18n::t!("Up to date — version %{value1}", value1 = crate::build_info::installed_version()).into_owned()
         }
         UpdateCheck::Available { release, .. } => {
-            let instruction = match update_method {
-                UpdateMethod::InPlace | UpdateMethod::Aur => "",
-                UpdateMethod::Omarchy => " · Run “omarchy update” to install",
-                UpdateMethod::Pacman => " · Install through a full system update",
-            };
-            format!(
-                "Update available: <a href=\"{}\">v{}</a>{instruction}",
-                glib::markup_escape_text(&release.url),
-                glib::markup_escape_text(&release.version),
-            )
+            let url = glib::markup_escape_text(&release.url);
+            let version = glib::markup_escape_text(&release.version);
+            match update_method {
+                UpdateMethod::InPlace | UpdateMethod::Aur => rust_i18n::t!("Update available: <a href=\"%{value1}\">v%{value2}</a>", value1 = url, value2 = version),
+                UpdateMethod::Omarchy => rust_i18n::t!("Update available: <a href=\"%{value1}\">v%{value2}</a> · Run “omarchy update” to install", value1 = url, value2 = version),
+                UpdateMethod::Pacman => rust_i18n::t!("Update available: <a href=\"%{value1}\">v%{value2}</a> · Install through a full system update", value1 = url, value2 = version),
+            }
+            .into_owned()
         }
-        UpdateCheck::Failed(message) => format!(
-            "Couldn't check for updates: {} · <a href=\"https://github.com/lgse/strata/releases/latest\">View releases on GitHub</a>",
-            glib::markup_escape_text(message)
-        ),
+        UpdateCheck::Failed(message) => rust_i18n::t!("Couldn't check for updates: %{value1} · <a href=\"https://github.com/lgse/strata/releases/latest\">View releases on GitHub</a>", value1 = glib::markup_escape_text(message)).into_owned(),
     }
 }
 
-fn navigation_button(icon: &str, label: &str) -> (gtk::Button, gtk::Label, gtk::Box) {
+struct NavigationEntry {
+    page: &'static str,
+    label: &'static str,
+    subtitle: &'static str,
+    icon: &'static str,
+    accessible_label: Option<&'static str>,
+}
+
+/// Settings pages in navigation order. Search finds page titles here and routes
+/// to the button built from each entry.
+static NAVIGATION: [NavigationEntry; 5] = [
+    NavigationEntry {
+        page: "general",
+        label: "General",
+        subtitle: "Browsing, search, files",
+        icon: icons::SLIDERS,
+        accessible_label: None,
+    },
+    NavigationEntry {
+        page: "theme",
+        label: "Appearance",
+        subtitle: "Theme, text, motion",
+        icon: icons::PALETTE,
+        accessible_label: Some("Appearance settings"),
+    },
+    NavigationEntry {
+        page: "actions",
+        label: "Actions",
+        subtitle: "Custom actions",
+        icon: icons::PLAY,
+        accessible_label: None,
+    },
+    NavigationEntry {
+        page: "updates",
+        label: "Updates",
+        subtitle: "Channel, release notes",
+        icon: icons::DOWNLOADS,
+        accessible_label: None,
+    },
+    NavigationEntry {
+        page: "about",
+        label: "About",
+        subtitle: "Version and links",
+        icon: icons::INFO,
+        accessible_label: None,
+    },
+];
+
+fn navigation_button(entry: &NavigationEntry) -> (gtk::Button, gtk::Label, gtk::Box) {
+    let label = entry.label;
     let content = gtk::Box::new(gtk::Orientation::Horizontal, 10);
-    let icon_image = crate::assets::primary_icon(icon, 18);
-    let subtitle = match label {
-        "General" => "Browsing, search, files",
-        "Appearance" => "Theme, text, motion",
-        "Updates" => "Channel, release notes",
-        _ => "Version and links",
-    };
+    let icon_image = crate::assets::primary_icon(entry.icon, 18);
     let text = gtk::Label::new(None);
     text.set_markup(&format!(
-        "{}\n<span size=\"small\" weight=\"normal\">{subtitle}</span>",
-        glib::markup_escape_text(label)
+        "{}\n<span size=\"small\" weight=\"normal\">{}</span>",
+        glib::markup_escape_text(&crate::i18n::tr(label)),
+        glib::markup_escape_text(&crate::i18n::tr(entry.subtitle))
     ));
     text.set_xalign(0.0);
     text.add_css_class("settings-nav-copy");
     content.append(&icon_image);
     content.append(&text);
     let button = gtk::Button::builder().child(&content).build();
-    button.set_widget_name(label);
+    button.set_widget_name(entry.page);
     button.set_has_frame(false);
     button.set_cursor_from_name(Some("pointer"));
     super::accessibility::set_label(
         &button,
-        if label == "Appearance" {
-            "Appearance settings"
-        } else {
-            label
-        },
+        &crate::i18n::tr(entry.accessible_label.unwrap_or(label)),
     );
     (button, text, content)
 }
 
 fn scrollable_page(content: &gtk::Box, class: Option<&str>) -> gtk::Widget {
-    let empty = gtk::Label::new(Some(
+    let empty = gtk::Label::new(Some(&crate::i18n::tr(
         "No matching settings are available on this installation.",
-    ));
+    )));
     empty.add_css_class("settings-search-page-empty");
     empty.add_css_class("settings-option-description");
     empty.set_visible(false);
@@ -2569,7 +3066,12 @@ fn constrain_page_text(widget: &gtk::Widget) {
                 && !label.has_css_class("menu-heading")
                 && !label.has_css_class("settings-control-label"),
         );
-        label.set_wrap_mode(gtk::pango::WrapMode::WordChar);
+        label.set_wrap_mode(if label.has_css_class("settings-word-wrap") {
+            gtk::pango::WrapMode::Word
+        } else {
+            gtk::pango::WrapMode::WordChar
+        });
+        crate::ui::controls::keep_words_whole(label);
     }
     if let Some(entry) = widget.downcast_ref::<gtk::Entry>() {
         entry.set_width_chars(1);
@@ -2587,6 +3089,27 @@ fn page_content() -> gtk::Box {
     content
 }
 
+/// Translates Settings copy, rendering the shortcuts it names.
+fn translated(message: &str) -> String {
+    translated_in(&rust_i18n::locale(), message)
+}
+
+fn translated_in(locale: &str, message: &str) -> String {
+    use super::keys::{
+        Keys::One,
+        bindings::{REFERENCE, SIDEBAR_FOCUS, TENXER_MODE},
+        label_in,
+    };
+    rust_i18n::t!(
+        message,
+        locale = locale,
+        reference_keys = label_in(locale, &One(REFERENCE)),
+        sidebar_focus_keys = label_in(locale, &One(SIDEBAR_FOCUS)),
+        tenxer_mode_keys = label_in(locale, &One(TENXER_MODE))
+    )
+    .into_owned()
+}
+
 fn settings_option(title: &str, description: &str, active: bool) -> (gtk::Box, gtk::Switch) {
     let row = gtk::Box::new(gtk::Orientation::Horizontal, 16);
     search::tag(&row, title);
@@ -2594,12 +3117,12 @@ fn settings_option(title: &str, description: &str, active: bool) -> (gtk::Box, g
     let copy = gtk::Box::new(gtk::Orientation::Vertical, 2);
     copy.set_hexpand(true);
     copy.set_valign(gtk::Align::Center);
-    let title_label = gtk::Label::new(Some(title));
+    let title_label = gtk::Label::new(Some(&translated(title)));
     title_label.set_xalign(0.0);
     title_label.set_wrap(true);
     title_label.set_wrap_mode(gtk::pango::WrapMode::WordChar);
     title_label.add_css_class("settings-option-title");
-    let description_label = gtk::Label::new(Some(description));
+    let description_label = gtk::Label::new(Some(&translated(description)));
     description_label.set_xalign(0.0);
     description_label.set_wrap(true);
     description_label.add_css_class("settings-option-description");
@@ -2612,29 +3135,25 @@ fn settings_option(title: &str, description: &str, active: bool) -> (gtk::Box, g
         .valign(gtk::Align::Center)
         .build();
     toggle.update_property(&[
-        gtk::accessible::Property::Label(title),
-        gtk::accessible::Property::Description(description),
+        gtk::accessible::Property::Label(&translated(title)),
+        gtk::accessible::Property::Description(&translated(description)),
     ]);
     row.append(&copy);
     row.append(&toggle);
     (row, toggle)
 }
 
-fn selects_all_in_settings_search(key: gdk::Key, modifiers: gdk::ModifierType) -> bool {
-    modifiers.contains(gdk::ModifierType::CONTROL_MASK) && matches!(key, gdk::Key::a | gdk::Key::A)
-}
-
 fn search_field(placeholder: &str) -> (gtk::Overlay, gtk::Entry, gtk::Button) {
     let theme_search = gtk::Entry::new();
     theme_search.add_css_class("form-control");
     theme_search.add_css_class("settings-search");
-    theme_search.set_placeholder_text(Some(placeholder));
-    super::accessibility::set_label(&theme_search, placeholder);
+    theme_search.set_placeholder_text(Some(&crate::i18n::tr(placeholder)));
+    super::accessibility::set_label(&theme_search, &crate::i18n::tr(placeholder));
     let search_keys = gtk::EventControllerKey::new();
     search_keys.set_propagation_phase(gtk::PropagationPhase::Capture);
     let selected_search = theme_search.downgrade();
-    search_keys.connect_key_pressed(move |_, key, _, modifiers| {
-        if !selects_all_in_settings_search(key, modifiers) {
+    keys::on_press(&search_keys, move |_, press| {
+        if !press.is(SELECT_ALL) {
             return glib::Propagation::Proceed;
         }
         let Some(search) = selected_search.upgrade() else {
@@ -2646,7 +3165,7 @@ fn search_field(placeholder: &str) -> (gtk::Overlay, gtk::Entry, gtk::Button) {
     theme_search.add_controller(search_keys);
     let clear_search = gtk::Button::builder()
         .child(&crate::assets::primary_icon(icons::X, 15))
-        .tooltip_text("Clear search")
+        .tooltip_text(crate::i18n::tr("Clear search"))
         .halign(gtk::Align::End)
         .valign(gtk::Align::Center)
         .margin_end(6)
@@ -2710,7 +3229,7 @@ fn indent_row(row: &gtk::Box) {
 }
 
 fn append_heading(container: &gtk::Box, text: &str) -> gtk::Label {
-    let heading = gtk::Label::new(Some(text));
+    let heading = gtk::Label::new(Some(&crate::i18n::tr(text)));
     heading.set_xalign(0.0);
     heading.add_css_class("menu-heading");
     container.append(&heading);

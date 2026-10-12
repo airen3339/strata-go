@@ -2,13 +2,14 @@
 
 use crate::adapters::directory_summary::{DirectorySummary, summarize_directory};
 use crate::adapters::gio_file_for_location;
+use crate::assets::icons;
 use crate::model::{EntryKind, FileEntry, MetadataValue};
 use crate::services::{
     PathMatcher, PathQuery, PreviewContent, content_family, filter_name_matches, fold_for_search,
     has_plain_text_extension, is_extensionless_dotfile,
 };
-use gtk::gio;
 use gtk::prelude::*;
+use gtk::{gio, glib};
 use std::cell::{Cell, RefCell};
 use std::path::Path;
 use std::rc::Rc;
@@ -18,32 +19,7 @@ thread_local! {
 }
 
 pub(in crate::ui) fn format_file_size(bytes: u64) -> String {
-    const UNITS: [&str; 5] = ["B", "kB", "MB", "GB", "TB"];
-    let (value, unit) = rounded_size_and_unit(bytes, &UNITS);
-    let formatted = format!("{value:.1}");
-    format!("{} {}", formatted.trim_end_matches(".0"), UNITS[unit])
-}
-
-/// Divide `bytes` into the largest unit whose threshold it meets after
-/// rounding to one decimal, returning the rounded value and unit index.
-/// Callers that format with zero decimals for values >= 10 still receive
-/// the one-decimal rounded value so they can decide their own precision.
-pub(in crate::ui) fn rounded_size_and_unit(bytes: u64, units: &[&str]) -> (f64, usize) {
-    if bytes < 1_000 {
-        return (bytes as f64, 0);
-    }
-    let mut value = bytes as f64;
-    let mut unit = 0;
-    while value >= 1_000.0 && unit < units.len() - 1 {
-        value /= 1_000.0;
-        unit += 1;
-    }
-    let rounded = (value * 10.0).round() / 10.0;
-    if rounded >= 1_000.0 && unit < units.len() - 1 {
-        (rounded / 1_000.0, unit + 1)
-    } else {
-        (rounded, unit)
-    }
+    crate::i18n::file_size(bytes)
 }
 
 pub(in crate::ui) fn metadata_needs_fill(entry: &FileEntry) -> bool {
@@ -178,12 +154,93 @@ pub(super) fn with_filter_terms<R>(query: &str, apply: impl FnOnce(&mut PathMatc
     })
 }
 
+static FILENAME_ICONS: &[(&str, &str)] = &[
+    ("package-lock.json", icons::COG),
+    ("npm-shrinkwrap.json", icons::COG),
+    ("pnpm-lock.yaml", icons::COG),
+    ("bun.lockb", icons::COG),
+    ("cargo.lock", icons::COG),
+    ("gemfile", icons::COG),
+    ("rakefile", icons::LANG_RUBY),
+    ("vagrantfile", icons::LANG_RUBY),
+    ("podfile", icons::LANG_RUBY),
+    ("justfile", icons::COG),
+    ("dune", icons::LANG_OCAML),
+    ("dune-project", icons::LANG_OCAML),
+    ("go.mod", icons::COG),
+    ("pom.xml", icons::COG),
+    ("build.gradle", icons::COG),
+    ("cmakelists.txt", icons::COG),
+    ("dockerfile", icons::COG),
+    ("makefile", icons::COG),
+    (".gitignore", icons::COG),
+    (".gitconfig", icons::COG),
+    (".editorconfig", icons::COG),
+    (".inputrc", icons::COG),
+    (".npmrc", icons::COG),
+    (".yarnrc", icons::COG),
+    (".pypirc", icons::COG),
+    (".xcompose", icons::COG),
+    (".vimrc", icons::COG),
+    (".gvimrc", icons::COG),
+    (".viminfo", icons::COG),
+    (".bashrc", icons::FILE_TERMINAL),
+    (".bash_profile", icons::FILE_TERMINAL),
+    (".bash_login", icons::FILE_TERMINAL),
+    (".bash_logout", icons::FILE_TERMINAL),
+    (".zshrc", icons::FILE_TERMINAL),
+    (".zprofile", icons::FILE_TERMINAL),
+    (".zlogin", icons::FILE_TERMINAL),
+    (".zlogout", icons::FILE_TERMINAL),
+    (".profile", icons::FILE_TERMINAL),
+    (".login", icons::FILE_TERMINAL),
+    (".logout", icons::FILE_TERMINAL),
+    (".kshrc", icons::FILE_TERMINAL),
+    (".cshrc", icons::FILE_TERMINAL),
+    (".tcshrc", icons::FILE_TERMINAL),
+    ("id_rsa", icons::KEY_ROUND),
+    ("id_ed25519", icons::KEY_ROUND),
+    ("authorized_keys", icons::KEY_ROUND),
+    ("known_hosts", icons::KEY_ROUND),
+    ("readme", icons::DOCUMENTS),
+    ("license", icons::DOCUMENTS),
+    (".rprofile", icons::LANG_R),
+    (".rhistory", icons::LANG_R),
+    (".renviron", icons::COG),
+];
+
+static FILENAME_AFFIX_PATTERNS: &[(&str, &str, &str)] = &[
+    ("Dockerfile.", "", icons::COG),
+    (".env.", "", icons::COG),
+    ("tsconfig.", ".json", icons::COG),
+    ("", "_history", icons::FILE_TERMINAL),
+    ("", ".lock", icons::COG),
+];
+
+fn exact_filename_icon(lowered: &str) -> Option<&'static str> {
+    FILENAME_ICONS
+        .iter()
+        .find(|(name, _)| *name == lowered)
+        .map(|(_, icon)| *icon)
+}
+
+fn affix_pattern_icon(name: &str) -> Option<&'static str> {
+    FILENAME_AFFIX_PATTERNS
+        .iter()
+        .find(|(prefix, suffix, _)| name.starts_with(prefix) && name.ends_with(suffix))
+        .map(|(_, _, icon)| *icon)
+}
+
 pub(in crate::ui) fn icon_for_name(name: &str) -> &'static str {
-    let extension = name
-        .rsplit_once('.')
-        .map(|(_, extension)| extension.to_ascii_lowercase());
-    match extension.as_deref() {
-        Some("sh" | "bash" | "zsh" | "fish") => crate::assets::icons::TERMINAL,
+    let lowered = name.to_ascii_lowercase();
+    if let Some(icon) = exact_filename_icon(&lowered) {
+        return icon;
+    }
+    if let Some(icon) = affix_pattern_icon(name) {
+        return icon;
+    }
+    let extension = lowered.rsplit_once('.').map(|(_, extension)| extension);
+    match extension {
         Some(
             "png" | "jpg" | "jpeg" | "gif" | "webp" | "svg" | "bmp" | "avif" | "heic" | "heif"
             | "jxl" | "tif" | "tiff" | "3fr" | "arw" | "cr2" | "cr3" | "dcr" | "dng" | "erf"
@@ -191,40 +248,132 @@ pub(in crate::ui) fn icon_for_name(name: &str) -> &'static str {
             | "rwl" | "sr2" | "srf" | "srw" | "x3f",
         ) => crate::assets::icons::PICTURES,
         Some("mp4" | "mkv" | "webm" | "mov" | "avi" | "m4v") => crate::assets::icons::VIDEOS,
-        Some("zip" | "tar" | "gz" | "bz2" | "xz" | "7z" | "rar" | "zst") => {
+        Some("mp3" | "wav" | "flac" | "ogg" | "m4a" | "aac" | "opus" | "wma" | "aiff") => {
+            crate::assets::icons::FILE_AUDIO
+        }
+        Some("html" | "htm" | "xhtml" | "mjml") => crate::assets::icons::LANG_HTML,
+        Some("css" | "scss" | "less" | "sass") => crate::assets::icons::LANG_CSS,
+        Some(
+            "xml" | "xsd" | "dtd" | "rng" | "xsl" | "xslt" | "wsdl" | "xaml" | "resx" | "xcscheme"
+            | "storyboard" | "xib" | "plist" | "entitlements" | "rss" | "atom" | "mml",
+        ) => crate::assets::icons::GLOBE,
+        Some(
+            "twig" | "ejs" | "hbs" | "handlebars" | "mustache" | "pug" | "jade" | "haml" | "slim"
+            | "smarty" | "tpl",
+        ) => crate::assets::icons::LANG_HTML,
+        Some("zip" | "7z" | "tar" | "gz" | "tgz" | "bz2" | "xz" | "zst" | "rar") => {
             crate::assets::icons::FILE_ARCHIVE
         }
         Some(
-            "rs" | "c" | "h" | "cpp" | "go" | "py" | "rb" | "java" | "js" | "jsx" | "ts" | "tsx"
-            | "lua" | "php" | "html" | "css" | "scss" | "json",
+            "deb" | "rpm" | "pkg" | "appimage" | "msi" | "exe" | "apk" | "jar" | "war" | "ear"
+            | "whl" | "egg" | "gem" | "nupkg" | "crate" | "vsix" | "xpi",
+        ) => crate::assets::icons::BOX,
+        Some("o" | "obj" | "so" | "dll" | "dylib") => crate::assets::icons::BOX,
+        Some("pem" | "crt" | "cer" | "key" | "der" | "csr" | "pub" | "p12" | "pfx" | "jks") => {
+            crate::assets::icons::KEY_ROUND
+        }
+        Some(
+            "yaml" | "yml" | "toml" | "ini" | "conf" | "cfg" | "config" | "env" | "lock" | "cmake"
+            | "mk" | "mak" | "ninja" | "m4" | "am" | "ac" | "gyp" | "gypi" | "bazel" | "bzl"
+            | "pbxproj" | "xcconfig" | "pro" | "pri",
+        ) => crate::assets::icons::COG,
+        Some(
+            "json" | "jsonc" | "json5" | "jsonl" | "ndjson" | "proto" | "thrift" | "avsc" | "avdl",
+        ) => crate::assets::icons::FILE_BRACES,
+        Some(
+            "db" | "sqlite" | "sqlite3" | "db3" | "sql" | "psql" | "pgsql" | "tsql" | "plsql"
+            | "pls" | "pks" | "pkb" | "mdb" | "accdb" | "prisma" | "cypher" | "cql" | "parquet"
+            | "orc" | "arrow" | "feather" | "avro",
+        ) => crate::assets::icons::DATABASE,
+        Some("iso" | "img" | "dmg" | "vhd" | "vhdx" | "vdi" | "qcow") => crate::assets::icons::DISC,
+        Some("csv" | "tsv" | "xls" | "xlsx" | "ods") => icons::FILE_SPREADSHEET,
+        Some("rs") => crate::assets::icons::LANG_RUST,
+        Some("py" | "pyw" | "pyi" | "pyx" | "pxd" | "pxi" | "pyc" | "pyo") => {
+            crate::assets::icons::LANG_PYTHON
+        }
+        Some("js" | "jsx" | "cjs" | "mjs") => crate::assets::icons::LANG_JS,
+        Some("ts" | "tsx" | "mts" | "cts") => crate::assets::icons::LANG_TS,
+        Some("go") => crate::assets::icons::LANG_GO,
+        Some("java" | "jsp" | "jspx" | "class") => crate::assets::icons::LANG_JAVA,
+        Some("kt" | "kts") => crate::assets::icons::LANG_KOTLIN,
+        Some("swift" | "swiftinterface") => crate::assets::icons::LANG_SWIFT,
+        Some("dart") => crate::assets::icons::LANG_DART,
+        Some("scala" | "sbt") => crate::assets::icons::LANG_SCALA,
+        Some("hs" | "lhs" | "hsc" | "cabal") => crate::assets::icons::LANG_HASKELL,
+        Some("lua" | "fnl" | "tl") => crate::assets::icons::LANG_LUA,
+        Some(
+            "cs" | "csproj" | "sln" | "vb" | "razor" | "cshtml" | "props" | "targets" | "nuspec",
+        ) => crate::assets::icons::LANG_CSHARP,
+        Some("fs" | "fsx" | "fsi") => crate::assets::icons::LANG_FSHARP,
+        Some("r" | "rmd" | "rproj") => crate::assets::icons::LANG_R,
+        Some("jl") => crate::assets::icons::LANG_JULIA,
+        Some("ex" | "exs" | "heex" | "eex" | "leex") => crate::assets::icons::LANG_ELIXIR,
+        Some("erl" | "hrl" | "beam") => crate::assets::icons::LANG_ERLANG,
+        Some("zig" | "zon") => crate::assets::icons::LANG_ZIG,
+        Some("vue") => crate::assets::icons::LANG_VUE,
+        Some("svelte") => crate::assets::icons::LANG_SVELTE,
+        Some("astro") => crate::assets::icons::LANG_ASTRO,
+        Some("elm") => crate::assets::icons::LANG_ELM,
+        Some("coffee") => crate::assets::icons::LANG_JS,
+        Some("c" | "h" | "i") => crate::assets::icons::LANG_C,
+        Some(
+            "cpp" | "hpp" | "cc" | "cxx" | "hh" | "hxx" | "ii" | "inl" | "ipp" | "tcc" | "tpp",
+        ) => crate::assets::icons::LANG_CPP,
+        Some("rb" | "erb" | "rake" | "gemspec" | "podspec" | "builder" | "ru") => {
+            crate::assets::icons::LANG_RUBY
+        }
+        Some("php" | "phtml" | "ctp") => crate::assets::icons::LANG_PHP,
+        Some("pl" | "pm" | "pod") => crate::assets::icons::LANG_PERL,
+        Some("ml" | "mli" | "mll" | "mly" | "opam" | "dune") => crate::assets::icons::LANG_OCAML,
+        Some("re" | "res" | "resi") => crate::assets::icons::LANG_OCAML,
+        Some("clj" | "cljs" | "cljc" | "edn" | "bb") => crate::assets::icons::LANG_CLOJURE,
+        Some("groovy" | "gvy" | "gradle") => crate::assets::icons::LANG_GROOVY,
+        Some("tf" | "tfvars" | "hcl" | "tofu" | "nomad") => crate::assets::icons::LANG_TERRAFORM,
+        Some("graphql" | "gql" | "gqls") => crate::assets::icons::LANG_GRAPHQL,
+        Some("nim" | "nims" | "nimble" | "nimcfg") => crate::assets::icons::LANG_NIM,
+        Some("cr" | "ecr") => crate::assets::icons::LANG_CRYSTAL,
+        Some("rkt") => crate::assets::icons::LANG_RACKET,
+        Some("qml" | "qrc" | "ui") => crate::assets::icons::LANG_QT,
+        Some("nix") => crate::assets::icons::LANG_NIXOS,
+        Some("ipynb") => crate::assets::icons::LANG_JUPYTER,
+        Some("sol") => crate::assets::icons::LANG_SOLIDITY,
+        Some("asm" | "s" | "nasm" | "sv" | "svh" | "vhdl") => crate::assets::icons::FILE_CODE,
+        Some(
+            "m" | "v" | "mm" | "tcl" | "tk" | "exp" | "awk" | "sed" | "el" | "elc" | "lisp" | "lsp"
+            | "asd" | "scm" | "ss" | "pas" | "pp" | "lpr" | "dpr" | "adb" | "ads" | "ada" | "f"
+            | "for" | "f90" | "f95" | "cob" | "cbl" | "bas" | "purs" | "idr" | "lidr" | "agda"
+            | "lean" | "rego",
         ) => crate::assets::icons::FILE_CODE,
-        _ => crate::assets::icons::DOCUMENTS,
+        Some(
+            "sh" | "bash" | "zsh" | "fish" | "ksh" | "csh" | "ps1" | "psm1" | "psd1" | "bat"
+            | "cmd" | "nu" | "elv",
+        ) => crate::assets::icons::FILE_TERMINAL,
+        Some("ppt" | "pptx" | "pps" | "ppsx" | "odp") => icons::PRESENTATION,
+        Some("ttf" | "otf" | "woff" | "woff2" | "eot" | "ttc" | "otc") => icons::FILE_TYPE,
+        _ => icons::DOCUMENTS,
     }
 }
 
 pub(super) fn item_count_label(count: usize) -> String {
-    if count == 1 {
-        "1 item".to_owned()
-    } else {
-        format!("{count} items")
-    }
+    crate::i18n::count("items", count)
 }
 
 pub(super) fn entry_kind_summary(entries: &[FileEntry]) -> String {
     let directories = entries.iter().filter(|entry| entry.is_directory()).count();
     let files = entries.len().saturating_sub(directories);
     match (files, directories) {
-        (1, 0) => "1 file".to_owned(),
-        (files, 0) => format!("{files} files"),
-        (0, 1) => "1 folder".to_owned(),
-        (0, directories) => format!("{directories} folders"),
+        (files, 0) => crate::i18n::count("files", files),
+        (0, directories) => crate::i18n::count("folders", directories),
         _ => item_count_label(entries.len()),
     }
 }
 
 pub(super) async fn aggregate_directory_summary(entries: &[FileEntry]) -> DirectorySummary {
     let mut total = DirectorySummary::default();
-    for entry in entries {
+    for (index, entry) in entries.iter().enumerate() {
+        if index > 0 && index % 256 == 0 {
+            glib::timeout_future(std::time::Duration::ZERO).await;
+        }
         if entry.is_directory() {
             let directory = gio_file_for_location(&entry.location);
             match summarize_directory(&directory).await {
@@ -258,3 +407,6 @@ pub(super) async fn aggregate_directory_summary(entries: &[FileEntry]) -> Direct
     }
     total
 }
+
+#[cfg(test)]
+mod tests;

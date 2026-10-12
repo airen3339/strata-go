@@ -69,7 +69,9 @@ impl Browser {
         let state = self.state.borrow();
         let depth = state.depth_for_request(request_id)?;
         state.open_load_depth(request_id)?;
-        if state.location_at(depth)?.native_path().is_some() {
+        if state.location_at(depth)?.native_path().is_some()
+            || self.preserving_refreshes.borrow().contains(&depth)
+        {
             Some(OpenLoad::Native(depth))
         } else {
             Some(OpenLoad::Remote(depth))
@@ -193,6 +195,7 @@ impl Browser {
         if let Some(depth) = state.fail(request_id, message.clone()) {
             drop(state);
             self.emit(BrowserEvent::LoadFailed { depth, message });
+            self.check_failed_root_load(depth);
         } else if state.fail_peek(request_id, message.clone()) {
             drop(state);
             self.emit(BrowserEvent::PeekFailed { message });

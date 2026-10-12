@@ -52,6 +52,28 @@ fn breadcrumbs_preserve_each_native_ancestor() {
 }
 
 #[test]
+fn lexical_normalization_resolves_dot_segments_without_touching_the_filesystem() {
+    for (input, expected) in [
+        (
+            &b"/fixture/documents/../pictures"[..],
+            &b"/fixture/pictures"[..],
+        ),
+        (b"/tmp/./../tmp", b"/tmp"),
+        (b"/..", b"/"),
+        (b"/../..", b"/"),
+        (b"/a/b/../../..", b"/"),
+        (b"/fixture/\xff\xfe/../\xfd", b"/fixture/\xfd"),
+    ] {
+        let input = Path::new(OsStr::from_bytes(input));
+        assert_eq!(
+            lexically_normalized(input).as_os_str(),
+            OsStr::from_bytes(expected),
+            "{input:?}"
+        );
+    }
+}
+
+#[test]
 fn uri_locations_remain_explicit_and_have_one_breadcrumb() {
     let trash = Location::uri("trash:///");
 
@@ -129,6 +151,7 @@ fn remote_locations_keep_uri_parents_and_breadcrumbs() {
         ("sftp://host/share/a%2Fb", "sftp://host/share"),
         ("sftp://host/share/a%2Fb/child", "sftp://host/share/a%2Fb"),
         ("sftp://host/share/100%25/child", "sftp://host/share/100%25"),
+        ("trash:///caf%E9.txt", "trash:///"),
     ] {
         assert_eq!(Location::uri(uri).parent(), Some(Location::uri(parent)));
     }
@@ -240,6 +263,10 @@ fn diagnostic_paths_preserve_native_paths_and_redact_remote_secrets() {
         "sftp://example.com/home/alice"
     );
     assert_eq!(
+        Location::uri("sftp://alice:pw@example.com/caf%E9?token=x#frag").diagnostic_path(),
+        "sftp://example.com/caf%E9"
+    );
+    assert_eq!(
         Location::uri("not a uri with alice:password@example.com").diagnostic_path(),
         "<invalid-uri>"
     );
@@ -261,6 +288,15 @@ fn display_paths_hide_remote_credentials_but_preserve_usernames() {
         Location::uri("smb://alice@host/share").display_path(),
         "smb://alice@host/share"
     );
+    for (uri, displayed) in [
+        ("trash:///caf%E9.txt", "trash:///caf%E9.txt"),
+        ("smb://host/caf%C3%A9", "smb://host/café"),
+        ("smb://alice:secret@host/caf%E9", "smb://host/caf%E9"),
+        ("sftp://host/share/a%2Fb", "sftp://host/share/a%2Fb"),
+        ("sftp://host/share/a%2fb", "sftp://host/share/a%2Fb"),
+    ] {
+        assert_eq!(Location::uri(uri).display_path(), displayed, "{uri}");
+    }
     assert_eq!(
         Location::uri("smb://alice%ZZ@host/share").display_path(),
         "<invalid-uri>"
@@ -318,6 +354,57 @@ fn transfer_targets_keep_the_item_name_under_the_destination() {
         Location::local("/home/user/a b.txt").transfer_target(&Location::uri("smb://host/share")),
         Some(Location::uri("smb://host/share/a%20b.txt"))
     );
+}
+
+#[test]
+fn trash_transfer_targets_decode_only_virtual_root_names() {
+    use std::os::unix::ffi::OsStrExt;
+
+    let destination = Location::local("/home/user/Documents");
+    for (uri, expected) in [
+        ("trash:///report.txt", b"report.txt".as_slice()),
+        (
+            "trash:///%5Cmnt%5CData%5C.Trash-1000%5Cfiles%5CSAMPLED.2",
+            b"SAMPLED.2",
+        ),
+        (
+            "trash:///%5Cmnt%5CData%5C.Trash-1000%5Cfiles%5Ca%2520b.txt",
+            b"a b.txt",
+        ),
+        (
+            "trash:///%5Cmnt%5CData%5C.Trash-1000%5Cfiles%5Ca%255Cb.txt",
+            b"a\\b.txt",
+        ),
+        (
+            "trash:///%5Cmnt%5CData%5C.Trash-1000%5Cfiles%5Ca%2560b%2525.txt",
+            b"a`b%.txt",
+        ),
+        (
+            "trash:///%5Cmnt%5CData%5C.Trash-1000%5Cfiles%5Ca%25FF.txt",
+            b"a\xff.txt",
+        ),
+        ("trash:///foo%5Cbar.txt", b"foo\\bar.txt"),
+        (
+            "trash:///foo%5C.Trash-1000%5Cbar.txt",
+            b"foo\\.Trash-1000\\bar.txt",
+        ),
+        ("trash:///%60%5Cbar.txt", b"\\bar.txt"),
+        ("trash:///%60%60bar.txt", b"`bar.txt"),
+        ("trash:///folder/%60%60bar.txt", b"``bar.txt"),
+        ("trash:///folder/%5Cbar.txt", b"\\bar.txt"),
+    ] {
+        let source = Location::uri(uri);
+        let expected = std::ffi::OsStr::from_bytes(expected);
+        assert_eq!(
+            source.transfer_target(&destination),
+            destination.child(expected),
+            "{uri}"
+        );
+    }
+    for leaf in ["", ".", "..", "%252Fescape", "%2500", "%25invalid"] {
+        let source = Location::uri(format!("trash:///%5Cmnt%5Cfiles%5C{leaf}"));
+        assert_eq!(source.transfer_target(&destination), None, "{leaf}");
+    }
 }
 
 #[test]

@@ -4,19 +4,32 @@
 
 use std::rc::Rc;
 
-use gtk::{
-    gdk::{Key, ModifierType as Modifiers},
-    glib::Propagation,
-};
+use gtk::{gdk::ModifierType as Modifiers, glib::Propagation};
 
-use super::{Dispatcher, KeyResult, command_modifiers};
+use super::{Dispatcher, KeyResult};
 use crate::{
     app::Browser,
     ui::{
-        preview::{DocumentScroll, PreviewSurface, preview_target},
+        keys::{Binding, KeyPress, SHORTCUT_MODIFIERS, bindings::*},
+        preview::{ArchiveMove, DocumentScroll, PreviewSurface, media_key_command, preview_target},
         tenxer_mode::Chord,
     },
 };
+
+const CONTROL: Modifiers = Modifiers::CONTROL_MASK;
+const SHIFT: Modifiers = Modifiers::SHIFT_MASK;
+
+/// GTK's own text selection keys, which a focused document keeps.
+const DOCUMENT_SELECTION: [Binding; 8] = [
+    EXTEND_UP.ignoring(CONTROL),
+    EXTEND_DOWN.ignoring(CONTROL),
+    EXTEND_LEFT.ignoring(CONTROL),
+    EXTEND_RIGHT.ignoring(CONTROL),
+    EXTEND_TO_FIRST.ignoring(CONTROL),
+    EXTEND_TO_LAST.ignoring(CONTROL),
+    DOCUMENT_START,
+    DOCUMENT_END,
+];
 
 impl Dispatcher {
     fn preview_focus(&self) -> Option<gtk::Widget> {
@@ -32,15 +45,9 @@ impl Dispatcher {
 
     /// Text fields inside the drawer keep typed text and editing shortcuts,
     /// including characters the footer would otherwise claim.
-    pub(super) fn tenxer_preview_text(
-        &self,
-        browser: &Browser,
-        key: Key,
-        modifiers: Modifiers,
-    ) -> KeyResult {
+    pub(super) fn tenxer_preview_text(&self, browser: &Browser, press: &KeyPress) -> KeyResult {
         if !self.type_to_search.preferences.tenxer_mode()
-            || key == Key::F1
-            || crate::ui::tenxer_mode::is_toggle_shortcut(key, modifiers)
+            || press.is_any(&[REFERENCE.ignoring(SHORTCUT_MODIFIERS), TENXER_MODE])
         {
             return None;
         }
@@ -49,56 +56,48 @@ impl Dispatcher {
             return None;
         }
         Some(
-            self.leave_or_close_preview(browser, key, modifiers)
+            self.leave_or_close_preview(browser, press)
                 .unwrap_or(Propagation::Proceed),
         )
     }
 
-    pub(super) fn tenxer_preview(
-        &self,
-        browser: &Browser,
-        key: Key,
-        modifiers: Modifiers,
-    ) -> KeyResult {
+    pub(super) fn tenxer_preview(&self, browser: &Browser, press: &KeyPress) -> KeyResult {
         let focused = self.preview_focus()?;
-        if let Some(result) = self.leave_or_close_preview(browser, key, modifiers) {
+        if let Some(result) = self.leave_or_close_preview(browser, press) {
             return Some(result);
         }
-        let mods = command_modifiers(modifiers);
         // `i` toggled the preview open from the listing; from inside it, it closes.
-        if key == Key::i && mods.is_empty() {
+        if press.is(PEEK) {
             self.close_preview(browser);
             return Some(Propagation::Stop);
         }
         let surface = self.preview.surface(&focused);
-        if !mods.intersects(Modifiers::CONTROL_MASK | Modifiers::ALT_MASK | Modifiers::SUPER_MASK) {
-            if matches!(key, Key::J | Key::K) {
-                if surface != PreviewSurface::Media {
-                    self.scroll_open_preview(key);
-                }
-                return Some(Propagation::Stop);
-            }
-            if matches!(key, Key::Tab) && mods.is_empty() {
-                return Some(Propagation::Proceed);
-            }
+        if surface == PreviewSurface::Document && press.is_any(&DOCUMENT_SELECTION) {
+            return Some(Propagation::Proceed);
         }
-        if key == Key::g
-            && mods.is_empty()
-            && matches!(surface, PreviewSurface::Document | PreviewSurface::Archive)
-        {
+        if press.is_any(&[SCROLL_PREVIEW_DOWN, SCROLL_PREVIEW_UP]) {
+            if surface != PreviewSurface::Media {
+                self.scroll_open_preview(if press.is(SCROLL_PREVIEW_DOWN) { 1 } else { -1 });
+            }
+            return Some(Propagation::Stop);
+        }
+        if press.is(FOCUS_NEXT) {
+            return Some(Propagation::Proceed);
+        }
+        if press.is(GO) && matches!(surface, PreviewSurface::Document | PreviewSurface::Archive) {
             self.shortcuts.arm_chord(Chord::PreviewTop);
             return Some(Propagation::Stop);
         }
         let handled = match surface {
-            PreviewSurface::Document => self.preview_document_key(key, mods),
-            PreviewSurface::Archive => self.preview_archive_key(browser, key, mods),
-            PreviewSurface::Media => self.preview_media_key(browser, key, mods),
+            PreviewSurface::Document => self.preview_document_key(press),
+            PreviewSurface::Archive => self.preview_archive_key(browser, press),
+            PreviewSurface::Media => self.preview_media_key(browser, press),
             PreviewSurface::Control | PreviewSurface::Text => {
                 // A focused button or slider keeps GTK's Enter.
                 let listing = surface == PreviewSurface::Control
-                    && !matches!(key, Key::Return | Key::KP_Enter)
-                    && reaches_listing(key, mods);
-                if !listing && !mods.intersects(Modifiers::CONTROL_MASK | Modifiers::ALT_MASK) {
+                    && !press.is(ENTER_ANY)
+                    && reaches_listing(press);
+                if !listing && !press.modifiers().intersects(CONTROL | Modifiers::ALT_MASK) {
                     return Some(Propagation::Proceed);
                 }
                 false
@@ -107,17 +106,14 @@ impl Dispatcher {
         if handled {
             return Some(Propagation::Stop);
         }
-        if passes_through_preview(key, mods) {
+        if passes_through_preview(press) {
             return None;
         }
-        if mods == Modifiers::CONTROL_MASK
-            && matches!(key, Key::c | Key::a)
-            && surface != PreviewSurface::Media
-        {
+        if press.is_any(&[COPY, SELECT_ALL]) && surface != PreviewSurface::Media {
             // The focused document widget selects all or copies its own text.
             return Some(Propagation::Proceed);
         }
-        if reaches_listing(key, mods) {
+        if reaches_listing(press) {
             self.return_from_preview(browser);
             return None;
         }
@@ -126,18 +122,15 @@ impl Dispatcher {
 
     /// **Esc** closes the drawer; **Shift+Tab** returns keys to the listing
     /// with the drawer still open. Both work on every preview surface.
-    fn leave_or_close_preview(
-        &self,
-        browser: &Browser,
-        key: Key,
-        modifiers: Modifiers,
-    ) -> KeyResult {
-        let mods = command_modifiers(modifiers);
-        if key == Key::Escape && mods.is_empty() {
+    fn leave_or_close_preview(&self, browser: &Browser, press: &KeyPress) -> KeyResult {
+        if press.is(ESCAPE) {
             self.close_preview(browser);
             return Some(Propagation::Stop);
         }
-        if key == Key::ISO_Left_Tab || (key == Key::Tab && mods == Modifiers::SHIFT_MASK) {
+        let held_too = CONTROL
+            .union(Modifiers::ALT_MASK)
+            .union(Modifiers::SUPER_MASK);
+        if press.is(FOCUS_PREVIOUS.ignoring(held_too)) {
             self.return_from_preview(browser);
             return Some(Propagation::Stop);
         }
@@ -158,99 +151,71 @@ impl Dispatcher {
         browser.focus_active();
     }
 
-    fn preview_document_key(&self, key: Key, mods: Modifiers) -> bool {
-        let motion = if mods == Modifiers::CONTROL_MASK {
-            match key {
-                Key::u | Key::U => DocumentScroll::HalfPage(-1),
-                Key::d | Key::D => DocumentScroll::HalfPage(1),
-                Key::b | Key::B | Key::Page_Up | Key::KP_Page_Up => DocumentScroll::Page(-1),
-                Key::f | Key::F | Key::Page_Down | Key::KP_Page_Down => DocumentScroll::Page(1),
-                Key::Up | Key::KP_Up => DocumentScroll::Start,
-                Key::Down | Key::KP_Down => DocumentScroll::End,
-                _ => return false,
-            }
-        } else if mods.is_empty() || mods == Modifiers::SHIFT_MASK {
-            match key {
-                Key::h | Key::Left | Key::KP_Left if mods.is_empty() => {
-                    self.return_from_preview(&self.view.browser());
-                    return true;
-                }
-                Key::j | Key::Down | Key::KP_Down => DocumentScroll::Line(1),
-                Key::k | Key::Up | Key::KP_Up => DocumentScroll::Line(-1),
-                Key::Page_Up | Key::KP_Page_Up => DocumentScroll::Page(-1),
-                Key::Page_Down | Key::KP_Page_Down => DocumentScroll::Page(1),
-                Key::Home | Key::KP_Home => DocumentScroll::Start,
-                Key::End | Key::KP_End | Key::G => DocumentScroll::End,
-                _ => return false,
-            }
-        } else {
+    fn preview_document_key(&self, press: &KeyPress) -> bool {
+        if press.is_any(&[VIM_LEFT, LEFT]) {
+            self.return_from_preview(&self.view.browser());
+            return true;
+        }
+        let Some((_, motion)) = [
+            (HALF_PAGE_UP, DocumentScroll::HalfPage(-1)),
+            (HALF_PAGE_DOWN, DocumentScroll::HalfPage(1)),
+            (TENXER_PAGE_UP, DocumentScroll::Page(-1)),
+            (TENXER_PAGE_UP_PAGE_UP, DocumentScroll::Page(-1)),
+            (TENXER_PAGE_DOWN, DocumentScroll::Page(1)),
+            (TENXER_PAGE_DOWN_PAGE_DOWN, DocumentScroll::Page(1)),
+            (FIRST_ITEM_UP, DocumentScroll::Start),
+            (LAST_ITEM_DOWN, DocumentScroll::End),
+            (VIM_DOWN, DocumentScroll::Line(1)),
+            (DOWN, DocumentScroll::Line(1)),
+            (VIM_UP, DocumentScroll::Line(-1)),
+            (UP, DocumentScroll::Line(-1)),
+            (PAGE_UP.ignoring(SHIFT), DocumentScroll::Page(-1)),
+            (PAGE_DOWN.ignoring(SHIFT), DocumentScroll::Page(1)),
+            (FIRST_ITEM, DocumentScroll::Start),
+            (LAST_ITEM, DocumentScroll::End),
+            (TENXER_LAST_ITEM, DocumentScroll::End),
+        ]
+        .into_iter()
+        .find(|(key, _)| press.is(*key)) else {
             return false;
         };
         self.preview.scroll_document(motion);
         true
     }
 
-    fn preview_archive_key(&self, browser: &Browser, key: Key, mods: Modifiers) -> bool {
-        if !mods.is_empty() && !(mods == Modifiers::SHIFT_MASK && key == Key::G) {
+    fn preview_archive_key(&self, browser: &Browser, press: &KeyPress) -> bool {
+        if press.is_any(&[VIM_DOWN, DOWN]) {
+            self.preview.archive_key(ArchiveMove::Next);
+        } else if press.is_any(&[VIM_UP, UP]) {
+            self.preview.archive_key(ArchiveMove::Previous);
+        } else if press.is_any(&[VIM_RIGHT, RIGHT, ENTER]) {
+            self.preview.archive_key(ArchiveMove::Open);
+        } else if press.is_any(&[VIM_LEFT, LEFT]) {
+            if self.preview.archive_at_root() {
+                self.return_from_preview(browser);
+            } else {
+                self.preview.archive_key(ArchiveMove::Parent);
+            }
+        } else if press.is(FIRST_ITEM) {
+            self.preview.archive_edge(false);
+        } else if press.is_any(&[LAST_ITEM, TENXER_LAST_ITEM]) {
+            self.preview.archive_edge(true);
+        } else {
             return false;
-        }
-        match key {
-            Key::j | Key::Down | Key::KP_Down => {
-                self.preview.archive_key(Key::Down);
-            }
-            Key::k | Key::Up | Key::KP_Up => {
-                self.preview.archive_key(Key::Up);
-            }
-            Key::l | Key::Right | Key::KP_Right | Key::Return | Key::KP_Enter => {
-                self.preview.archive_key(Key::Right);
-            }
-            Key::h | Key::Left | Key::KP_Left => {
-                if self.preview.archive_at_root() {
-                    self.return_from_preview(browser);
-                } else {
-                    self.preview.archive_key(Key::Left);
-                }
-            }
-            Key::Home | Key::KP_Home => {
-                self.preview.archive_edge(false);
-            }
-            Key::End | Key::KP_End | Key::G => {
-                self.preview.archive_edge(true);
-            }
-            _ => return false,
         }
         true
     }
 
-    fn preview_media_key(&self, browser: &Browser, key: Key, mods: Modifiers) -> bool {
-        // `<` and `>` need Shift on most layouts.
-        let track_key = matches!(key, Key::less | Key::greater);
-        if !(mods.is_empty() || track_key && mods == Modifiers::SHIFT_MASK) {
-            return false;
+    fn preview_media_key(&self, browser: &Browser, press: &KeyPress) -> bool {
+        if press.is(VIM_LEFT) {
+            self.return_from_preview(browser);
+            return true;
         }
-        let media_key = match key {
-            Key::h => {
-                self.return_from_preview(browser);
-                return true;
-            }
-            Key::KP_Left => Key::Left,
-            Key::KP_Right => Key::Right,
-            Key::KP_Up => Key::Up,
-            Key::KP_Down => Key::Down,
-            other => other,
+        let Some(command) = media_key_command(press) else {
+            return false;
         };
-        self.preview.media_key(media_key);
-        matches!(
-            media_key,
-            Key::space
-                | Key::Left
-                | Key::Right
-                | Key::Up
-                | Key::Down
-                | Key::m
-                | Key::less
-                | Key::greater
-        )
+        self.preview.media_key(command);
+        true
     }
 
     /// **g g** in an owning document or archive preview.
@@ -271,12 +236,11 @@ impl Dispatcher {
     }
 
     /// **J** / **K** scroll whatever the drawer shows without moving focus.
-    pub(super) fn scroll_open_preview(&self, key: Key) {
+    pub(super) fn scroll_open_preview(&self, lines: i32) {
         if !self.preview.is_open() {
             return;
         }
-        self.preview
-            .scroll_document(DocumentScroll::Line(if key == Key::J { 1 } else { -1 }));
+        self.preview.scroll_document(DocumentScroll::Line(lines));
     }
 
     /// **i** on a file opens or closes the preview and leaves focus in the
@@ -296,7 +260,8 @@ impl Dispatcher {
         } else if let Some(target) = preview_target(entry) {
             self.preview.show(target, browser.active_depth());
         } else {
-            self.shortcuts.show_feedback("Nothing to preview");
+            self.shortcuts
+                .show_feedback(&crate::i18n::tr("Nothing to preview"));
         }
         true
     }
@@ -320,7 +285,8 @@ impl Dispatcher {
             return;
         }
         let Some(target) = preview_target(entry) else {
-            self.shortcuts.show_feedback("Nothing to preview");
+            self.shortcuts
+                .show_feedback(&crate::i18n::tr("Nothing to preview"));
             return;
         };
         self.preview.show(target, browser.active_depth());
@@ -329,77 +295,84 @@ impl Dispatcher {
 }
 
 /// Window-level commands that neither read nor change the listing.
-fn passes_through_preview(key: Key, mods: Modifiers) -> bool {
-    let plain = mods.is_empty();
-    let control = mods == Modifiers::CONTROL_MASK;
-    let control_shift = mods == Modifiers::CONTROL_MASK | Modifiers::SHIFT_MASK;
-    match key {
-        Key::F1 | Key::F5 if plain => true,
-        Key::k | Key::K | Key::l | Key::comma | Key::h | Key::H | Key::period | Key::n | Key::N
-            if control =>
-        {
-            true
-        }
-        Key::_1 | Key::_2 | Key::_3 if control => true,
-        Key::plus | Key::minus | Key::equal | Key::_0 | Key::KP_Add | Key::KP_Subtract
-            if control =>
-        {
-            true
-        }
-        Key::b | Key::B | Key::m | Key::M if control_shift => true,
-        Key::z | Key::Z => control || control_shift,
-        Key::y | Key::Y if control => true,
+fn passes_through_preview(press: &KeyPress) -> bool {
+    press.is_any(&[
+        REFERENCE,
+        REFRESH,
+        SEARCH,
+        LOCATION,
+        SETTINGS,
+        HIDDEN_FILES,
+        HIDDEN_FILES_PERIOD,
+        TENXER_SIDEBAR,
+        VIEW_COLUMNS,
+        VIEW_ICONS,
+        VIEW_LIST,
+        TEXT_LARGER,
+        TEXT_LARGER_EQUAL,
+        TEXT_SMALLER,
+        TEXT_RESET,
+        SIDEBAR_FOCUS,
+        TENXER_MODE,
+        UNDO,
+        REDO,
+        REDO_Y,
         // Media controls reach the drawer's player from the window handler.
-        Key::space | Key::Left | Key::Right | Key::Up | Key::Down | Key::m | Key::M => {
-            mods == Modifiers::CONTROL_MASK | Modifiers::ALT_MASK
-        }
-        _ => false,
-    }
+        MEDIA_PLAY_PAUSE,
+        MEDIA_SEEK_BACK,
+        MEDIA_SEEK_FORWARD,
+        MEDIA_VOLUME_UP,
+        MEDIA_VOLUME_DOWN,
+        MEDIA_MUTE,
+    ])
 }
 
-fn reaches_listing(key: Key, mods: Modifiers) -> bool {
-    let plain = mods.is_empty();
-    let shift = mods == Modifiers::SHIFT_MASK;
-    let control = mods == Modifiers::CONTROL_MASK;
-    let alt = mods == Modifiers::ALT_MASK;
-    match key {
-        Key::g
-        | Key::z
-        | Key::f
-        | Key::s
-        | Key::n
-        | Key::slash
-        | Key::KP_Divide
-        | Key::BackSpace
-            if plain =>
-        {
-            true
-        }
-        Key::H | Key::L | Key::Z | Key::N | Key::question if shift => true,
-        Key::Left | Key::KP_Left | Key::Right | Key::KP_Right | Key::Up | Key::KP_Up if alt => true,
-        Key::o
-        | Key::y
-        | Key::x
-        | Key::p
-        | Key::d
-        | Key::a
-        | Key::c
-        | Key::r
-        | Key::F2
-        | Key::Menu
-            if plain =>
-        {
-            true
-        }
-        Key::Y | Key::X | Key::P | Key::D | Key::O | Key::M | Key::C | Key::R | Key::F10
-            if shift =>
-        {
-            true
-        }
-        Key::comma | Key::semicolon | Key::period | Key::Delete | Key::KP_Delete => plain || shift,
-        Key::Return | Key::KP_Enter => plain || alt,
-        Key::c | Key::x | Key::v if control => true,
-        Key::n | Key::N => mods == Modifiers::CONTROL_MASK | Modifiers::SHIFT_MASK,
-        _ => false,
-    }
+fn reaches_listing(press: &KeyPress) -> bool {
+    press.is_any(&[
+        GO,
+        JUMP_VISITED,
+        FILTER_LISTING,
+        SEARCH_SUBFOLDERS,
+        REPEAT_FIND,
+        FIND,
+        BACKSPACE,
+        TENXER_HISTORY_BACK,
+        TENXER_HISTORY_FORWARD,
+        JUMP_RECENT,
+        REPEAT_FIND_REVERSED,
+        FIND_BACKWARD,
+        HISTORY_BACK,
+        HISTORY_FORWARD,
+        PARENT_FOLDER,
+        OPEN,
+        YANK,
+        YANK_CUT,
+        PASTE_KEEP_BOTH,
+        TENXER_DELETE,
+        CREATE,
+        COPY_AS,
+        TENXER_RENAME,
+        RENAME,
+        CONTEXT_MENU,
+        UNYANK,
+        UNYANK_X,
+        PASTE_REPLACE,
+        TENXER_DELETE_PERMANENTLY,
+        OPEN_WITH,
+        MOVE_TO,
+        COPY_TO,
+        RESTORE,
+        CONTEXT_MENU_F10,
+        SORT_BY,
+        ACTIONS,
+        TENXER_HIDDEN_FILES,
+        DELETE,
+        DELETE_PERMANENTLY,
+        ENTER,
+        PROPERTIES,
+        COPY,
+        CUT,
+        PASTE,
+        NEW_FOLDER,
+    ])
 }

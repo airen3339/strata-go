@@ -3,7 +3,13 @@
 
 from __future__ import annotations
 
+import re
+import tempfile
+import time
+from pathlib import Path
+
 import pytest
+from gi.repository import Gio
 
 from harness.modes import ALL_MODES, COLUMNS_AND_ONE
 
@@ -77,6 +83,10 @@ def test_creating_an_existing_name_does_not_overwrite(strata, kind, name):
     assert dialog.name == "Unable to rename item"
     strata.pointer.click(strata.dialog_button("Close"))
     strata.wait(lambda: strata.dialog() is None, "the error to be dismissible")
+    strata.wait(
+        lambda: strata.focused_pane() is not None or strata.focused_name() is not None,
+        "focus returns to the listing",
+    )
     assert strata.fixture.listing() == original
     assert strata.fixture.path("todo.txt").read_text() == "todo\n"
     root = strata.fixture.root.name
@@ -210,6 +220,21 @@ def test_delete_moves_the_entry_to_trash(strata):
     )
 
 
+@pytest.mark.preferences(browser_mode="columns", list_folder_clicks=1)
+def test_trashing_an_open_folder_with_the_mouse_opens_the_folder_in_its_place(strata):
+    """#1497: the mirror follows a deletion even when the pointer made it."""
+    strata.fixture.populate({"aa-first": {"a.txt": "a\n"}, "aa-second": {"b.txt": "b\n"}})
+    root = strata.fixture.root.name
+    strata.pointer.click(strata.entry("aa-first"))
+    strata.wait(lambda: strata.pane_names()[-1] == "aa-first", "the clicked folder to open")
+
+    strata.open_context_menu("aa-first", root)
+    strata.choose_menu_item("Move to Trash")
+
+    strata.wait(lambda: not strata.fixture.path("aa-first").exists(), "the folder to move to the Trash")
+    strata.wait(lambda: strata.pane_names()[-1] == "aa-second", "the folder now in its place to open")
+
+
 @pytest.mark.parametrize("mode", COLUMNS_AND_ONE)
 def test_permanent_delete_requires_confirmation_and_can_be_cancelled(strata, mode):
     fixture = strata.fixture
@@ -271,6 +296,83 @@ def test_permanent_delete_through_a_symlinked_parent(strata, mode):
     strata.wait(lambda: strata.dialog() is None, "the confirmation dialog to close")
     assert alias.is_symlink()
     assert fixture.path("documents").is_dir()
+
+
+@pytest.fixture
+def trashless_volume(strata):
+    with tempfile.TemporaryDirectory(prefix="strata-no-trash-", dir="/dev/shm") as directory:
+        volume = Path(directory)
+        assert volume.stat().st_dev != strata.fixture.path("todo.txt").stat().st_dev
+        doomed = volume / "doomed.txt"
+        doomed.write_text("doomed")
+        info = Gio.File.new_for_path(str(doomed)).query_info(
+            Gio.FILE_ATTRIBUTE_ACCESS_CAN_TRASH, Gio.FileQueryInfoFlags.NONE, None
+        )
+        assert info.get_attribute_boolean(Gio.FILE_ATTRIBUTE_ACCESS_CAN_TRASH) is False, (
+            "precondition: /dev/shm must not support Trash (GIO refuses system-internal mounts)"
+        )
+        strata.fixture.path("no-trash").symlink_to(volume, target_is_directory=True)
+        yield doomed
+
+
+def explains_missing_trash(dialog):
+    return dialog.find(
+        predicate=lambda node: re.search(
+            r"doesn't\s+support\s+Trash", f"{node.name} {node.text}"
+        )
+        is not None
+    )
+
+
+def confirm_without_trash_support(strata, doomed, key):
+    dialog = strata.wait_for_dialog()
+    assert dialog.name == "Permanently delete 1 item?", f"unexpected dialog {dialog.name!r}"
+    strata.wait(lambda: explains_missing_trash(dialog), "the dialog to say Trash is unsupported")
+    strata.wait(lambda: strata.dialog_button("Cancel").has_state("focused"), "Cancel focused")
+    assert doomed.exists(), f"{key} must wait for confirmation"
+
+
+@pytest.mark.parametrize("mode", COLUMNS_AND_ONE)
+def test_delete_without_trash_support_explains_and_focuses_cancel(strata, trashless_volume, mode):
+    assert strata.view_mode() == mode
+    strata.open_directory("no-trash")
+    strata.select_entry("doomed.txt", directory="no-trash")
+    strata.keyboard.press("Delete")
+    confirm_without_trash_support(strata, trashless_volume, "Delete")
+
+    strata.keyboard.press("Return")
+    strata.wait(lambda: strata.dialog() is None, "Enter on Cancel to close the dialog")
+    assert trashless_volume.exists(), "Enter cancels"
+
+    strata.select_entry("doomed.txt", directory="no-trash")
+    strata.keyboard.press("Delete")
+    strata.wait_for_dialog()
+    strata.pointer.click(strata.dialog_button("Permanently delete 1 item"))
+    strata.wait(lambda: not trashless_volume.exists(), "the file to be deleted")
+    strata.wait_for_entry_gone("doomed.txt", directory="no-trash")
+    trashed = strata.environment.trash_files
+    assert not trashed.exists() or not any(trashed.iterdir()), (
+        "a location without Trash must not reach the user's Trash"
+    )
+
+
+@pytest.mark.preferences(browser_mode="list", tenxer_mode=True, type_to_search=False)
+def test_tenxer_d_without_trash_support_needs_an_explicit_confirmation(strata, trashless_volume):
+    strata.select_entry_with_keyboard("no-trash")
+    strata.keyboard.press("l")
+    strata.wait_for_directory("no-trash")
+    strata.select_entry_with_keyboard("doomed.txt")
+    strata.keyboard.press("d")
+    confirm_without_trash_support(strata, trashless_volume, "d")
+
+    strata.keyboard.press("d")
+    deadline = time.monotonic() + 1.0
+    while time.monotonic() < deadline:
+        assert strata.dialog() is not None and trashless_volume.exists(), "d never confirms it"
+        time.sleep(0.05)
+    strata.keyboard.press("Return")
+    strata.wait(lambda: strata.dialog() is None, "Enter on Cancel to close the dialog")
+    assert trashless_volume.exists(), "Enter cancels"
 
 
 def test_undo_restores_a_completed_move(strata):
@@ -371,7 +473,7 @@ def test_new_folder_with_selection_groups_items_and_names_it(strata, mode):
     assert not fixture.path("readme.md").exists()
     assert not fixture.path("todo.txt").exists()
     # The parent row's name is optimistic; the renamed child listing follows completion.
-    if mode == "columns":
+    if mode == "Columns":
         strata.entry("readme.md", "grouped")
         strata.entry("todo.txt", "grouped")
     strata.wait(
@@ -379,6 +481,13 @@ def test_new_folder_with_selection_groups_items_and_names_it(strata, mode):
         "the rename editor to release keyboard focus",
     )
     strata.click_entry("grouped", root)
+    if mode == "Columns":
+        # Clicking the open folder focuses its column; return to the parent.
+        strata.wait(
+            lambda: (pane := strata.focused_pane()) is not None and pane.name == "grouped",
+            "the open folder's column to take focus",
+        )
+        strata.keyboard.press("Left")
     strata.select_entry_with_keyboard("grouped")
 
     strata.keyboard.press("ctrl+z")

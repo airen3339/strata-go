@@ -7,6 +7,7 @@ import pytest
 from pathlib import Path
 import io
 import zipfile
+from gi.repository import Atspi
 from PIL import Image
 
 from harness.fixtures import FixtureTree
@@ -596,6 +597,11 @@ def test_preview_source_text_takes_pointer_focus_and_copies(strata):
     assert text is not None, strata.preview().dump()
     strata.pointer.click(text)
     strata.wait(lambda: text.has_state("focused"), "the preview text to take focus")
+    strata.keyboard.press("ctrl+Home")
+    strata.keyboard.press_repeatedly("shift+Right", 3)
+    strata.keyboard.press("ctrl+c")
+    assert table_clipboard_text(strata) == "the"
+    strata.pointer.click(text)
     bounds = text.screen_bounds()
     strata.pointer.drag_points(
         (bounds.x + 34, bounds.y + 14),
@@ -684,7 +690,7 @@ def test_sandboxed_office_files_use_the_shared_rendered_preview(strata, filename
 
 
 @pytest.mark.preferences(browser_mode="columns", single_click_previews=False)
-def test_column_preview_fills_free_space_and_remembers_a_dragged_session_width(strata):
+def test_column_preview_fills_free_space_and_keeps_a_dragged_session_minimum(strata):
     def adjacent():
         column = strata.containers()[-1].screen_bounds()
         preview = strata.preview().screen_bounds()
@@ -702,18 +708,17 @@ def test_column_preview_fills_free_space_and_remembers_a_dragged_session_width(s
     strata.select_entry_with_keyboard("inner.txt")
     strata.keyboard.press("space")
     strata.wait(lambda: strata.preview_shows("inner"), "the nested preview")
-    strata.wait(adjacent, "columns to scroll left beside the minimum-width preview")
-    minimum = strata.preview().screen_bounds().width
-    assert minimum < initial
-    assert strata.containers()[0].screen_bounds().x < strata.pane("folder").screen_bounds().x
+    strata.wait(adjacent, "the nested preview to meet the last column")
+    nested = strata.preview().screen_bounds().width
+    assert nested < initial
 
     bounds = strata.preview().screen_bounds()
-    start = (bounds.x - 1, bounds.y + bounds.height // 2)
+    start = (bounds.x + 2, bounds.y + bounds.height // 2)
     distance = bounds.width // 5
-    strata.pointer.drag_points(start, (start[0] + distance, start[1]))
+    strata.pointer.drag_points(start, (start[0] - distance, start[1]))
     strata.wait(
-        lambda: strata.preview().screen_bounds().width < minimum - distance // 2,
-        "the dragged width to override the automatic minimum",
+        lambda: strata.preview().screen_bounds().width > nested + distance // 2,
+        "the dragged width to widen the preview",
     )
     chosen = strata.preview().screen_bounds().width
     resized = strata.preview().screen_bounds()
@@ -723,13 +728,126 @@ def test_column_preview_fills_free_space_and_remembers_a_dragged_session_width(s
     strata.select_entry_with_keyboard("nested-notes.txt")
     strata.keyboard.press("space")
     strata.wait(lambda: strata.preview_shows("nested preview fixture"), "the reopened preview")
-    assert abs(strata.preview().screen_bounds().width - chosen) <= 2
+    assert abs(strata.preview().screen_bounds().width - chosen) <= 2, "the dragged width is the session minimum"
     strata.keyboard.press("space")
     strata.keyboard.press("alt+Left")
     strata.select_entry_with_keyboard("notes.txt")
     strata.keyboard.press("space")
     strata.wait(lambda: strata.preview_shows("the quick brown fox"), "the parent preview")
-    assert abs(strata.preview().screen_bounds().width - chosen) <= 2
+    strata.wait(adjacent, "the parent preview to fill the space beside the column")
+    assert strata.preview().screen_bounds().width > chosen + 2, "more room widens the preview past the minimum"
+
+
+@pytest.mark.preferences(browser_mode="columns", single_click_previews=False)
+def test_dragging_a_filled_column_preview_narrower_outlines_the_new_minimum(strata):
+    def outline():
+        return strata.window.find(role="label", name="Preview panel minimum width")
+
+    def adjacent():
+        column = strata.containers()[-1].screen_bounds()
+        preview = strata.preview().screen_bounds()
+        return abs(preview.x - (column.x + column.width)) <= 3
+
+    strata.select_entry_with_keyboard("notes.txt")
+    strata.keyboard.press("space")
+    strata.wait(lambda: strata.preview_shows("the quick brown fox"), "the first preview")
+    strata.wait(adjacent, "the preview to fill the space beside the column")
+    filled = strata.preview().screen_bounds()
+    start = (filled.x + 2, filled.y + filled.height // 2)
+    distance = filled.width // 3
+    strata.pointer.drag_points(start, (start[0] + distance, start[1]), release=False)
+    try:
+        strata.wait(lambda: outline() is not None, "the minimum width outline")
+        assert abs(strata.preview().screen_bounds().width - filled.width) <= 2, "the panel stays put"
+    finally:
+        strata.pointer.connection.button(1, False)
+    strata.wait(lambda: outline() is None, "the outline to go once the drag ends")
+    assert abs(strata.preview().screen_bounds().width - filled.width) <= 2
+
+    strata.keyboard.press("space")
+    strata.open_directory("folder")
+    strata.select_entry_with_keyboard("inner.txt")
+    strata.keyboard.press("space")
+    strata.wait(lambda: strata.preview_shows("inner"), "the nested preview")
+    strata.wait(
+        lambda: abs(strata.preview().screen_bounds().width - (filled.width - distance)) <= 4,
+        "the dragged minimum to hold where the columns need the space",
+    )
+
+
+@pytest.mark.preferences(browser_mode="columns", single_click_previews=False)
+@pytest.mark.parametrize(("side", "offset"), [("column", -3), ("preview", -1), ("preview", 3)])
+def test_the_column_preview_boundary_resizes_the_side_it_is_grabbed_from(strata, side, offset):
+    strata.select_entry_with_keyboard("notes.txt")
+    strata.keyboard.press("space")
+    strata.wait(lambda: strata.preview_shows("the quick brown fox"), "the first preview")
+    strata.settle(strata.preview())
+    column = strata.containers()[-1].screen_bounds()
+    preview = strata.preview().screen_bounds()
+    # -1 is the divider line itself, drawn over the column's last pixel.
+    start = (preview.x + offset, preview.y + preview.height // 2)
+    def caption(name):
+        return strata.window.find(role="label", name=name)
+
+    strata.pointer.move_to(*start)
+    hint = "Column width" if side == "column" else "Preview panel minimum width"
+    strata.wait(lambda: caption(hint) is not None, "a resize hint before the drag starts")
+    strata.pointer.drag_points(start, (start[0] + 40, start[1]), release=False)
+    try:
+        if side == "column":
+            strata.wait(
+                lambda: strata.containers()[-1].screen_bounds().width > column.width + 20,
+                "the column beside the preview to widen",
+            )
+            strata.wait(lambda: caption("Column width") is not None, "the column width caption")
+            assert caption("Preview panel minimum width") is None
+        else:
+            strata.wait(
+                lambda: caption("Preview panel minimum width") is not None,
+                "the preview divider to outline its minimum",
+            )
+            assert caption("Column width") is None
+            assert strata.containers()[-1].screen_bounds().width == column.width
+    finally:
+        strata.pointer.connection.button(1, False)
+    strata.wait(
+        lambda: caption("Column width") is None and caption("Preview panel minimum width") is None,
+        "the resize captions to go once the drag ends",
+    )
+
+
+@pytest.mark.preferences(browser_mode="columns", single_click_previews=False)
+@pytest.mark.parametrize("offset", [-5, -1, 4])
+def test_a_clipped_parent_column_resizes_from_either_side_of_its_edge(strata, root, offset):
+    strata.fixture.populate({"folder": {"Level 2": {"Level 3": {"Level 4": {"deep.txt": "deep\n"}}}}})
+    for name in ["folder", "Level 2", "Level 3", "Level 4"]:
+        strata.select_entry_with_keyboard(name)
+        strata.keyboard.press("Return")
+        strata.wait_for_directory(name)
+    scrollbar = next(
+        node for _, node in strata.window.walk()
+        if node.role == "scroll bar" and node.has_state("horizontal")
+    )
+    half_root = strata.pane(root).screen_bounds().width / 2
+    assert Atspi.Value.set_current_value(Atspi.Accessible.get_value_iface(scrollbar.accessible), half_root)
+    strata.wait(
+        lambda: strata.window.find(role="button", name=f"Reveal {root} column"),
+        "the root column to be partly scrolled out of view",
+    )
+    edge = strata.settle(strata.pane("folder")).screen_bounds().x
+    parent = strata.pane(root).screen_bounds()
+    # Below the rows, where a press on a clipped column otherwise reveals it.
+    start = (edge + offset, parent.y + parent.height * 4 // 5)
+    strata.pointer.move_to(*start)
+    strata.wait(lambda: strata.window.find(role="label", name="Column width"), "the column width hint")
+    strata.pointer.drag_points(start, (start[0] + 40, start[1]), release=False)
+    try:
+        strata.wait(
+            lambda: strata.pane(root).screen_bounds().width > parent.width + 20,
+            "the clipped parent column to widen",
+        )
+    finally:
+        strata.pointer.connection.button(1, False)
 
 
 @pytest.mark.preferences(browser_mode="columns", single_click_previews=False)
@@ -799,6 +917,111 @@ def test_narrow_window_prioritizes_the_last_column_and_restores_the_latest_previ
     strata.wait(last_column_visible, "the last column beside the resumed preview")
     resize(1200)
     strata.wait(lambda: strata.preview().screen_bounds().width == preferred, "the preferred preview width to return")
+
+
+@pytest.mark.parametrize("fixture_tree,filename,word", [
+    ({"selection.md": "alpha bravo charlie delta\n\nsecond paragraph\n"}, "selection.md", "alpha"),
+    ({"selection.docx": Path(__file__).resolve().parents[2] / "fixtures/documents/report.docx"}, "selection.docx", "Quarterly"),
+], indirect=["fixture_tree"])
+@pytest.mark.preferences(single_click_previews=False)
+def test_rendered_document_word_and_shift_selection(strata, filename, word):
+    strata.select_entry_with_keyboard(filename)
+    strata.keyboard.press("space")
+    strata.wait(lambda: strata.preview_shows(word), "rendered document text")
+    strata.keyboard.press("ctrl+l")
+    strata.keyboard.press("ctrl+a")
+    strata.keyboard.type_text("selection-cleared")
+    strata.keyboard.press("ctrl+a")
+    strata.keyboard.press("ctrl+c")
+    strata.keyboard.press("Escape")
+    row = strata.wait(lambda: strata.preview().find(role="list item"), "first prose row")
+    text = row.find_all(role="panel")[-1]
+    bounds = text.screen_bounds()
+    start = (bounds.x + 17, bounds.center[1])
+    end = (bounds.x + bounds.width * 3 // 4, bounds.center[1])
+    strata.pointer.double_click(text, at=start)
+    strata.keyboard.press("ctrl+c")
+    assert table_clipboard_text(strata) == word
+    strata.pointer.click(text, at=start)
+    strata.pointer.click(text, at=end, modifiers=["shift"])
+    strata.keyboard.press("ctrl+c")
+    copied = table_clipboard_text(strata)
+    assert copied.startswith(word) and len(copied) > len(word)
+    strata.keyboard.press("ctrl+Home")
+    strata.keyboard.press_repeatedly("shift+Right", 5)
+    strata.keyboard.press("ctrl+c")
+    assert table_clipboard_text(strata) == word[:5]
+    strata.keyboard.press_repeatedly("shift+Left", 2)
+    strata.keyboard.press("ctrl+c")
+    assert table_clipboard_text(strata) == word[:3]
+    assert strata.selected_names() == [filename]
+
+
+@pytest.mark.parametrize("fixture_tree,filename", [
+    ({"find.txt": "alpha needle omega\nsecond NEEDLE line\n", "after.txt": "unrelated text\n"}, "find.txt"),
+    ({"find.txt": "alpha needle omega\n" + "padding line\n" * 600 + "second NEEDLE line\n", "after.txt": "unrelated text\n"}, "find.txt"),
+    ({"find.py": "# alpha needle omega\n" + "# padding line\n" * 600 + "# second NEEDLE line\n", "after.txt": "unrelated text\n"}, "find.py"),
+    ({"find.md": "alpha needle omega\n\nsecond NEEDLE line\n", "after.txt": "unrelated text\n"}, "find.md"),
+], indirect=["fixture_tree"], ids=["source", "virtual-source", "incremental-source", "rendered"])
+@pytest.mark.parametrize("tenxer", [
+    pytest.param(False, marks=pytest.mark.preferences(tenxer_mode=False), id="default"),
+    pytest.param(True, marks=pytest.mark.preferences(tenxer_mode=True), id="tenxer"),
+])
+@pytest.mark.preferences(single_click_previews=False, type_to_search=False)
+def test_preview_find_navigates_content_without_filtering_files(strata, filename, tenxer):
+    strata.select_entry_with_keyboard(filename)
+    selected_before = strata.selected_names()
+    entries_before = strata.entry_names()
+    strata.keyboard.press("l" if tenxer else "space")
+    strata.wait(lambda: strata.preview_shows("alpha needle omega"), "preview text")
+    if not tenxer:
+        strata.keyboard.press("Right")
+    strata.wait(lambda: strata.focused_name() is None, "preview keyboard ownership")
+    find_key = "/" if tenxer else "ctrl+f"
+    strata.keyboard.press(find_key)
+    field = strata.wait(lambda: strata.preview().find(role="text", name="Find in preview"), "preview find field")
+    strata.keyboard.type_text("needle")
+    strata.wait(lambda: strata.preview_shows("Match 1 of 2"), "first match")
+    strata.keyboard.press("Return")
+    strata.wait(lambda: strata.preview_shows("Match 2 of 2"), "Enter to find the next match")
+    strata.keyboard.press("shift+Return")
+    strata.wait(lambda: strata.preview_shows("Match 1 of 2"), "Shift+Enter to find the previous match")
+    strata.pointer.click(strata.preview().find(role="button", name="Previous match"))
+    strata.wait(lambda: strata.preview_shows("Match 2 of 2"), "previous match to wrap")
+    strata.pointer.click(strata.preview().find(role="button", name="Next match"))
+    strata.wait(lambda: strata.preview_shows("Match 1 of 2"), "next match to wrap")
+    strata.pointer.click(strata.preview().find(role="button", name="Next match"))
+    strata.wait(lambda: strata.preview_shows("Match 2 of 2"), "next match")
+    strata.keyboard.press("Escape")
+    strata.wait(lambda: strata.preview().find(role="text", name="Find in preview") is None, "find dismissal")
+    strata.keyboard.press("ctrl+c")
+    assert table_clipboard_text(strata) == "NEEDLE"
+    assert strata.selected_names() == selected_before
+    assert strata.entry_names() == entries_before
+    strata.keyboard.press(find_key)
+    strata.wait(lambda: strata.preview().find(role="text", name="Find in preview"), "find to reopen")
+    if filename.endswith(".md"):
+        strata.pointer.click(strata.preview().find(role="button", name="View source"))
+        strata.wait(lambda: strata.preview_shows("Match 1 of 2"), "query to follow the source view")
+        strata.pointer.click(strata.preview().find(role="button", name="View rendered"))
+        strata.wait(lambda: strata.preview_shows("Match 1 of 2"), "query to follow the rendered view")
+        strata.pointer.click(strata.preview().find(role="text", name="Find in preview"))
+    strata.keyboard.press("ctrl+a")
+    strata.keyboard.type_text("missing passage")
+    strata.wait(lambda: strata.preview_shows("No matches"), "empty search results")
+    strata.keyboard.press("Escape")
+    strata.wait(lambda: strata.preview().find(role="text", name="Find in preview") is None, "find to dismiss without closing the document")
+    strata.pointer.click(strata.preview().find(role="button", name=f"Close preview ({'i' if tenxer else 'Space'})"))
+    strata.wait(lambda: strata.preview() is None, "preview to close")
+    strata.select_entry_with_keyboard("after.txt")
+    selected_after = strata.selected_names()
+    strata.keyboard.press("l" if tenxer else "space")
+    strata.wait(lambda: strata.preview_shows("unrelated text"), "a different file preview")
+    strata.pointer.click(strata.preview().find(role="button", name=f"Find in preview ({'/' if tenxer else 'Ctrl+F'})"))
+    field = strata.wait(lambda: strata.preview().find(role="text", name="Find in preview"), "find in the new preview")
+    assert field.text == ""
+    strata.keyboard.press("Escape")
+    assert strata.selected_names() == selected_after
 
 
 LONG_DOCUMENT = {

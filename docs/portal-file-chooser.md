@@ -20,9 +20,9 @@ Cancel or conversion failure leaves the chooser open without returning the incom
 
 Folder-only requests hide regular files in both directory listings and recursive results. File requests keep folders available for navigation. Changing a file-type filter refreshes the current results without clearing the search query; selection and acceptance follow the new filter.
 
-In Save dialogs, selecting a file copies its name into the name input without accepting the dialog. The automatic initial selection does not change the suggested name or destination. Selecting a folder changes the destination without changing the name. In Recent, select a file to save in its containing folder, or navigate to a local folder first.
+In Save dialogs, selecting a file copies its name into the name input without accepting the dialog. Names that are not valid UTF-8 display with replacement characters, but Save still targets the selected file's exact name while the name input shows it unchanged. The automatic initial selection does not change the suggested name or destination. Selecting a folder changes the destination without changing the name. In Recent, select a file to save in its containing folder, or navigate to a local folder first.
 
-Resizing a Miller column or a List heading in the chooser saves that width as the chooser default, so the next request opens with it. Regular Strata windows also remember widths, using separate browser defaults.
+Resizing a Miller column or a List heading in the chooser saves that width as the chooser default, so the next request opens with it. Dragging or double-clicking a Miller column edge stops at the dialog's file area beside the sidebar, and a saved width wider than that area opens narrowed to it. Regular Strata windows also remember widths, using separate browser defaults.
 
 Wayland applications can provide an exported parent handle. X11 parent handles are not attached; these requests appear as standalone windows.
 
@@ -158,12 +158,17 @@ On a desktop that does not manage the frontend as a systemd user unit, log out a
   and select the suggested filename. If focus is lost, an arrow restores it without
   requiring a click.
 - Tab/Shift+Tab traverse controls; arrows move between toolbar icons and options.
+  The file list is a single Tab stop (the whole strip in Columns), and Tab into
+  it lands on the keyboard cursor.
 - Up from the first file row reaches the pane toolbar; Down returns to files.
 - Icons arrows follow the visual rows and columns. List arrows follow the
   displayed order, including type grouping. Shift+arrows extend or shrink a range
   across groups; plain arrows select only the focused item.
 - Space/Enter activate focused buttons and toggles. Down or Enter opens a focused
   dropdown; its arrows and Enter select an option.
+- Enter on a focused file accepts the request. In a multiple-selection request
+  with files selected, it returns every selected file, the same as **Open**.
+  Enter on a folder opens it.
 - F2 renames a single selected file or folder. Escape cancels the name editor
   without closing the chooser. Right-click an item for Rename or Properties;
   right-click empty pane space for New Folder. Alt+Enter opens Properties from
@@ -247,6 +252,7 @@ Use `--folder /absolute/path` for your own files, `--theme classic-light` for a 
 Check these interactions:
 
 - Single-selection requests remain single-selection with Ctrl/Shift clicks, including grouped List sections. Multiple-selection requests return all selected files.
+- A plain click on blank space in a preview that is showing something keeps the selection; in multiple-selection requests, dragging from it into the file list starts a marquee. A plain click on blank sidebar space still clears the selection.
 - Ctrl+L edits the location; Ctrl+F opens the browser filter; F5 refreshes; Ctrl+H or Ctrl+. toggles hidden files. Remote locations in the address bar show an error. For file-open requests, paste a direct `http(s)` URL in Name and click Open to download and select a temporary local file.
 - Space opens/closes a preview. Escape dismisses a filter/menu/preview before cancelling the chooser.
 - Ctrl+Shift+N or the **New Folder** icon beside Refresh immediately creates `new folder` (or the first free `new folder (1)`, `(2)`, etc.) and selects its entire name for editing. Enter or clicking away commits a valid name. Escape or an empty/invalid name keeps the allocated default name; the directory is not deleted. Existing files and folders follow the same rename rules; files retain extension-aware name selection. In folder requests, Ctrl+Enter accepts the current folder when the file view has focus.

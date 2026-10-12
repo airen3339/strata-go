@@ -1,22 +1,23 @@
 // SPDX-License-Identifier: MIT
 
 use std::{
+    cell::RefCell,
     collections::{HashMap, HashSet},
     rc::Rc,
 };
 
 use crate::{
     model::Location,
-    services::{OperationEvent, OperationRequestId},
+    services::{OperationEvent, OperationRequestId, TrashedOriginal},
 };
 
 mod background;
 pub(super) use background::BackgroundOperation;
 
 use super::{
-    Browser, BrowserEvent, MAX_INCREMENTAL_OPERATION_UPDATES, MergeUndoState, UndoEntry,
-    completed_replay_items, finish_replay, mark_replay_item_completed, move_records,
-    push_pending_redo, push_pending_undo, push_regenerated_undo,
+    Browser, BrowserEvent, MergeUndoState, UndoEntry, completed_replay_items, finish_replay,
+    mark_replay_item_completed, move_records, push_pending_redo, push_pending_undo,
+    push_regenerated_undo,
 };
 
 struct OperationContext {
@@ -25,6 +26,16 @@ struct OperationContext {
     refresh_locations: HashSet<Location>,
     navigation_generation: u64,
     origin: Option<Location>,
+    location_changes: LocationChanges,
+}
+
+/// Per-request state for publishing path changes as each item lands, even
+/// after a later operation superseded this one.
+struct LocationChanges {
+    deleting: bool,
+    moving: bool,
+    removed: RefCell<HashSet<Location>>,
+    restored: RefCell<HashSet<Location>>,
 }
 
 struct OperationCompletion {
@@ -128,6 +139,12 @@ impl Browser {
             refresh_locations,
             navigation_generation: self.validation_generation.get(),
             origin: self.active_location(),
+            location_changes: LocationChanges {
+                deleting: self.deletion_operation.get(),
+                moving: self.transfer_operation.get() == Some(true),
+                removed: RefCell::default(),
+                restored: RefCell::default(),
+            },
         };
         let weak = Rc::downgrade(self);
         Rc::new(move |event| {
@@ -138,6 +155,7 @@ impl Browser {
             if event_id != context.request_id {
                 return;
             }
+            browser.track_location_changes(&context.location_changes, &event);
             let background = browser
                 .background_operations
                 .borrow()
@@ -156,15 +174,83 @@ impl Browser {
         })
     }
 
-    fn publish_operation_progress(&self, event: &OperationEvent) -> bool {
+    fn track_location_changes(&self, changes: &LocationChanges, event: &OperationEvent) {
+        match event {
+            OperationEvent::ItemMoved {
+                from, to, merged, ..
+            } => self.emit(BrowserEvent::ItemRelocated {
+                from: from.clone(),
+                to: to.clone(),
+                merged: *merged,
+            }),
+            OperationEvent::ItemTrashed {
+                location, identity, ..
+            } => self.publish_removal(changes, location, Some(*identity)),
+            // A merged move staged these overwritten destination items in Trash.
+            OperationEvent::Merged { overwritten, .. } if changes.moving => {
+                for location in overwritten {
+                    self.publish_removal(changes, location, None);
+                }
+            }
+            OperationEvent::DeleteProgress {
+                deleted_locations, ..
+            } => {
+                for location in deleted_locations {
+                    self.publish_removal(changes, location, None);
+                }
+            }
+            OperationEvent::RestoreProgress {
+                restored_location: Some(location),
+                ..
+            } => self.publish_restoration(changes, location),
+            OperationEvent::Restored { restored, .. }
+            | OperationEvent::RestoreCompletedWithErrors { restored, .. } => {
+                for location in restored {
+                    self.publish_restoration(changes, location);
+                }
+            }
+            // Restores also list completed items in these terminals, so only a
+            // deletion's terminal names removals its progress did not report.
+            _ if changes.deleting => {
+                for location in deleted_locations(event) {
+                    self.publish_removal(changes, &location, None);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn publish_removal(
+        &self,
+        changes: &LocationChanges,
+        location: &Location,
+        trash_identity: Option<TrashedOriginal>,
+    ) {
+        if changes.removed.borrow_mut().insert(location.clone()) {
+            self.emit(BrowserEvent::ItemRemoved {
+                location: location.clone(),
+                trash_identity,
+            });
+        }
+    }
+
+    fn publish_restoration(&self, changes: &LocationChanges, location: &Location) {
+        if changes.restored.borrow_mut().insert(location.clone()) {
+            self.emit(BrowserEvent::ItemRestored {
+                location: location.clone(),
+            });
+        }
+    }
+
+    fn publish_operation_progress(self: &Rc<Self>, event: &OperationEvent) -> bool {
         let progress = match event {
             OperationEvent::DeleteProgress {
                 completed,
                 total,
-                deleted_location,
+                deleted_locations,
                 ..
             } => {
-                if let Some(location) = deleted_location {
+                for location in deleted_locations {
                     self.mark_merged_undo_item_completed(location);
                 }
                 BrowserEvent::DeletionProgress {
@@ -219,6 +305,7 @@ impl Browser {
                 merged.overwritten.extend(overwritten.iter().cloned());
                 return true;
             }
+            OperationEvent::ItemMoved { .. } | OperationEvent::ItemTrashed { .. } => return true,
             OperationEvent::ArchiveStarted { total, .. } => {
                 BrowserEvent::ArchiveStarted { total: *total }
             }
@@ -230,6 +317,14 @@ impl Browser {
             },
             _ => return false,
         };
+        if matches!(
+            event,
+            OperationEvent::DeleteProgress { .. }
+                | OperationEvent::TransferProgress { .. }
+                | OperationEvent::RestoreProgress { .. }
+        ) {
+            self.flush_visible_operation_changes();
+        }
         self.emit(progress);
         true
     }
@@ -278,7 +373,14 @@ impl Browser {
             self.rename_operation.set(None);
         }
         let mut completion = OperationCompletion::take(self);
-        completion.file_operation_refreshed = self.flush_operation_changes(&completion, &event);
+        completion.file_operation_refreshed = self.flush_operation_changes(&completion);
+        let mut refresh_depths = self
+            .operation_rescan_depths
+            .take()
+            .into_iter()
+            .collect::<Vec<_>>();
+        refresh_depths.sort_unstable();
+        completion.file_operation_refreshed |= !refresh_depths.is_empty();
         // Flush observers run before the undo claim is consumed, as on the provider path.
         let undoing = self.undo_claim.take();
         if let Some((generation, entry)) = &undoing {
@@ -297,26 +399,26 @@ impl Browser {
             });
         }
         if completion.restoring {
-            self.emit(BrowserEvent::RestorationFinished);
+            self.emit(BrowserEvent::RestorationFinished {
+                succeeded: matches!(&event, OperationEvent::Restored { .. }),
+            });
         }
         let load = self.operation_load.take();
         drop(load);
         self.publish_operation_outcome(context, completion, event);
+        if !refresh_depths.is_empty() {
+            self.emit(BrowserEvent::OperationRefreshRequired {
+                depths: refresh_depths,
+            });
+        }
     }
 
-    fn flush_operation_changes(
-        self: &Rc<Self>,
-        completion: &OperationCompletion,
-        event: &OperationEvent,
-    ) -> bool {
-        if !completion.deleting && !completion.restoring {
+    fn flush_operation_changes(self: &Rc<Self>, completion: &OperationCompletion) -> bool {
+        if !completion.deleting && !completion.restoring && completion.moving.is_none() {
             return false;
         }
         let changes = self.deferred_file_operation_changes.take();
-        self.flush_deferred_file_operation_changes(
-            changes,
-            completed_change_count(event) > MAX_INCREMENTAL_OPERATION_UPDATES,
-        )
+        self.flush_deferred_file_operation_changes(changes, false)
     }
 
     fn finish_transfer(
@@ -377,12 +479,20 @@ impl Browser {
                     message,
                 });
             }
-            OperationEvent::Failed { message, .. } => {
-                self.emit(BrowserEvent::OperationFailed { message })
-            }
+            OperationEvent::Failed {
+                message,
+                password_failure,
+                ..
+            } => self.emit(BrowserEvent::OperationFailed {
+                message,
+                password_failure,
+            }),
             OperationEvent::TransferFailed { message, .. } => {
                 self.refresh_columns_at_many(&context.refresh_locations);
-                self.emit(BrowserEvent::OperationFailed { message });
+                self.emit(BrowserEvent::OperationFailed {
+                    message,
+                    password_failure: None,
+                });
             }
             OperationEvent::CompletedWithErrors {
                 deleted_locations,
@@ -457,7 +567,14 @@ impl Browser {
                     select_name: archive_name,
                 });
             }
-            OperationEvent::Extracted { first_name, .. } => {
+            OperationEvent::Extracted {
+                first_name,
+                created,
+                ..
+            } => {
+                if !completion.undoing {
+                    push_pending_undo(UndoEntry::Copy(created));
+                }
                 self.emit(BrowserEvent::ArchiveCompleted {
                     select_name: first_name.unwrap_or_default(),
                 });
@@ -477,6 +594,8 @@ impl Browser {
             | OperationEvent::DeleteProgress { .. }
             | OperationEvent::RestoreProgress { .. }
             | OperationEvent::Merged { .. }
+            | OperationEvent::ItemMoved { .. }
+            | OperationEvent::ItemTrashed { .. }
             | OperationEvent::ArchiveStarted { .. }
             | OperationEvent::ArchiveProgress { .. }
             | OperationEvent::FlushingToDevice { .. } => {}
@@ -573,6 +692,8 @@ fn operation_event_id(event: &OperationEvent) -> OperationRequestId {
         | OperationEvent::Created { request_id }
         | OperationEvent::EntryCreated { request_id, .. }
         | OperationEvent::Pasted { request_id, .. }
+        | OperationEvent::ItemMoved { request_id, .. }
+        | OperationEvent::ItemTrashed { request_id, .. }
         | OperationEvent::FlushingToDevice { request_id }
         | OperationEvent::Merged { request_id, .. }
         | OperationEvent::TransferFailed { request_id, .. }
@@ -589,22 +710,6 @@ fn operation_event_id(event: &OperationEvent) -> OperationRequestId {
         | OperationEvent::ArchiveStarted { request_id, .. }
         | OperationEvent::Cancelled { request_id, .. }
         | OperationEvent::ArchiveProgress { request_id, .. } => *request_id,
-    }
-}
-
-fn completed_change_count(event: &OperationEvent) -> usize {
-    match event {
-        OperationEvent::Deleted { locations, .. } | OperationEvent::Restored { locations, .. } => {
-            locations.len()
-        }
-        OperationEvent::CompletedWithErrors {
-            deleted_locations, ..
-        } => deleted_locations.len(),
-        OperationEvent::RestoreCompletedWithErrors {
-            restored_locations, ..
-        } => restored_locations.len(),
-        OperationEvent::Cancelled { result, .. } => result.completed.len(),
-        _ => 0,
     }
 }
 

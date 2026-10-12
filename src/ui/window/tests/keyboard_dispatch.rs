@@ -17,12 +17,18 @@ mod context_menus;
 mod escape_precedence;
 mod file_commands;
 mod file_verbs;
+mod filter_focus;
 mod folder_jump;
 mod footer_prompt;
 mod go_prompt;
 mod mode_exit;
+mod open_in_new;
+mod overlay_focus;
+mod pane_focus;
 mod place_chords;
 mod preview_ownership;
+mod reload_cursor;
+mod video_clips;
 
 use crate::ui::{
     preview::{DocumentScroll, PreviewDrawer},
@@ -116,7 +122,7 @@ impl KeyboardFixture {
         keyboard::install(
             &window,
             &sidebar,
-            keyboard::Bindings {
+            keyboard::DispatcherParts {
                 view: view.clone(),
                 top_bar,
                 preview: preview.clone(),
@@ -180,6 +186,20 @@ impl Drop for KeyboardFixture {
     }
 }
 
+/// A real Tab press reaches the dispatcher first and GTK's `move-focus` binding only when
+/// the dispatcher lets it through; `KeyboardFixture::press` emits just the former.
+fn tab(fixture: &KeyboardFixture, direction: gtk::DirectionType) {
+    let (key, modifiers) = if direction == gtk::DirectionType::TabBackward {
+        (Key::ISO_Left_Tab, ModifierType::SHIFT_MASK)
+    } else {
+        (Key::Tab, ModifierType::empty())
+    };
+    if !fixture.press(key, modifiers) {
+        fixture.window.emit_move_focus(direction);
+    }
+    pump(50);
+}
+
 fn focused_widget_shows(window: &gtk::ApplicationWindow, name: &str) -> bool {
     let Some(focused) = gtk::prelude::RootExt::focus(window) else {
         return false;
@@ -238,9 +258,14 @@ fn widget_with_class(widget: &gtk::Widget, class: &str) -> Option<gtk::Widget> {
 }
 
 fn wait_until(condition: impl Fn() -> bool) {
+    wait_until_or(condition, || "keyboard fixture did not settle".to_owned());
+}
+
+/// Like [`wait_until`], with `report` describing what was seen on a timeout.
+fn wait_until_or(condition: impl Fn() -> bool, report: impl Fn() -> String) {
     let deadline = Instant::now() + Duration::from_secs(5);
     while !condition() {
-        assert!(Instant::now() < deadline, "keyboard fixture did not settle");
+        assert!(Instant::now() < deadline, "{}", report());
         glib::MainContext::default().iteration(false);
         std::thread::sleep(Duration::from_millis(2));
     }
@@ -597,7 +622,7 @@ fn tenxer_space_selects_the_cursor_and_motion_keeps_the_fill() {
             preferences.set_group_by_type(false);
             let browser = fixture.view.browser();
             fixture.shortcuts.observe_browser(&browser);
-            fixture.view.set_icons_thumbnail_size(48);
+            PreferenceManager::shared().set_icons_thumbnail_size(48);
             for mode in [BrowserMode::List, BrowserMode::Icons, BrowserMode::Columns] {
                 fixture.view.set_view_mode(mode);
                 focus_files(&fixture);
@@ -804,7 +829,7 @@ fn tenxer_visual_ranges_select_unset_and_keep_the_fill() {
             preferences.set_group_by_type(false);
             let browser = fixture.view.browser();
             fixture.shortcuts.observe_browser(&browser);
-            fixture.view.set_icons_thumbnail_size(48);
+            PreferenceManager::shared().set_icons_thumbnail_size(48);
             for name in ["d.txt", "e.txt"] {
                 std::fs::write(fixture._directory.path().join(name), b"preview").expect("file");
             }
@@ -970,6 +995,7 @@ fn press_file_row(widget: &gtk::Widget, name: &str) -> bool {
         controllers
             .item(index)
             .and_then(|controller| controller.downcast::<gtk::GestureClick>().ok())
+            .filter(|click| click.button() == 1)
     }) else {
         return false;
     };
@@ -1269,6 +1295,100 @@ fn tenxer_file_list_skips_conflicting_defaults_and_keeps_bound_shortcuts() {
 }
 
 #[test]
+fn default_commands_ignore_near_miss_chords() {
+    crate::test_support::gtk_test(
+        "ui::window::tests::keyboard_dispatch::default_commands_ignore_near_miss_chords",
+        || {
+            use crate::ui::browser::{ClipboardMark, clipboard_mark};
+            let fixture = KeyboardFixture::new();
+            PreferenceManager::shared().set_type_to_search(true);
+            let browser = fixture.view.browser();
+            let none = ModifierType::empty();
+            let control = ModifierType::CONTROL_MASK;
+            let shift = ModifierType::SHIFT_MASK;
+            let alt = ModifierType::ALT_MASK;
+            // A plain letter opens the filter instead, which Escape closes.
+            let near_miss = |key: Key, modifiers: ModifierType| {
+                browser.select(0, 0);
+                focus_files(&fixture);
+                fixture.press(key, modifiers);
+                if fixture.view.filter_has_focus() {
+                    assert!(fixture.press(Key::Escape, none));
+                }
+                wait_loaded(&browser, 0);
+            };
+
+            for (key, modifiers) in [
+                (Key::r, none),
+                (Key::r, control | shift),
+                (Key::r, control | alt),
+                (Key::F2, control),
+                (Key::F5, none),
+                (Key::F5, control),
+            ] {
+                near_miss(key, modifiers);
+                assert!(
+                    !fixture.view.rename_is_active(),
+                    "{modifiers:?}+{key:?} must not rename"
+                );
+                // F2 waits out a refresh's row rebuild, so each near miss meets
+                // a pane that can rename.
+                wait_until(|| fixture.press(Key::F2, none));
+                assert!(fixture.view.rename_is_active());
+                assert!(fixture.press(Key::Escape, none));
+            }
+            browser.select(0, 0);
+            focus_files(&fixture);
+            assert!(fixture.press(Key::r, control));
+            assert!(fixture.view.rename_is_active(), "Ctrl+R renames");
+            assert!(fixture.press(Key::Escape, none));
+
+            let first = Location::local(fixture._directory.path().join("a.txt"));
+            browser.select(0, 0);
+            focus_files(&fixture);
+            fixture.press(Key::c, control | shift);
+            assert_eq!(clipboard_mark(&first), ClipboardMark::None, "Ctrl+Shift+C");
+            assert!(fixture.press(Key::c, control));
+            assert_eq!(clipboard_mark(&first), ClipboardMark::Copy);
+
+            let shows_hidden = browser.preferences().show_hidden;
+            for (key, modifiers) in [
+                (Key::h, none),
+                (Key::h, control | shift),
+                (Key::h, control | alt),
+                (Key::greater, control | shift),
+            ] {
+                near_miss(key, modifiers);
+                assert_eq!(
+                    browser.preferences().show_hidden,
+                    shows_hidden,
+                    "{modifiers:?}+{key:?} must not toggle hidden files"
+                );
+            }
+            for key in [Key::h, Key::period] {
+                focus_files(&fixture);
+                assert!(fixture.press(key, control), "Ctrl+{key:?}");
+                assert_eq!(browser.preferences().show_hidden, !shows_hidden);
+                assert!(fixture.press(key, control), "Ctrl+{key:?}");
+                assert_eq!(browser.preferences().show_hidden, shows_hidden);
+            }
+
+            focus_files(&fixture);
+            assert!(fixture.press(Key::b, control));
+            assert!(
+                !fixture.sidebar_toggle.is_active(),
+                "Ctrl+B hides the sidebar"
+            );
+            pump(50);
+            assert!(!sidebar_has_focus(&fixture), "Ctrl+B does not focus it");
+            focus_files(&fixture);
+            assert!(fixture.press(Key::B, control | shift), "Ctrl+Shift+B");
+            wait_until(|| sidebar_has_focus(&fixture));
+        },
+    );
+}
+
+#[test]
 fn appearance_menu_shows_i_preview_while_tenxer_is_on() {
     crate::test_support::gtk_test(
         "ui::window::tests::keyboard_dispatch::appearance_menu_shows_i_preview_while_tenxer_is_on",
@@ -1403,6 +1523,14 @@ fn tenxer_entries_menus_and_reference_keep_their_keys() {
             let preferences = PreferenceManager::shared();
             preferences.set_tenxer_mode(true);
             let names = directory_names(fixture._directory.path());
+            // Shift and the key left of 1 type Ё on a Russian layout; only the
+            // layout fallback reads it as ~.
+            let russian_tilde = || {
+                fixture.keys.emit_by_name::<bool>(
+                    "key-pressed",
+                    &[&Key::Cyrillic_IO, &49u32, &ModifierType::SHIFT_MASK],
+                )
+            };
             focus_files(&fixture);
             // F2 renames in the footer here; the context menu still renames inline.
             assert!(fixture.view.begin_rename());
@@ -1438,6 +1566,9 @@ fn tenxer_entries_menus_and_reference_keep_their_keys() {
                 assert_eq!(directory_names(fixture._directory.path()), names);
                 assert!(fixture.view.location_has_focus());
             }
+            assert!(!russian_tilde(), "Ё is typed into the location");
+            assert!(!fixture.shortcuts.reference_is_open());
+            assert!(fixture.view.location_has_focus());
             assert!(fixture.press(Key::a, ModifierType::CONTROL_MASK));
             assert_eq!(
                 location.selection_bounds(),
@@ -1462,6 +1593,8 @@ fn tenxer_entries_menus_and_reference_keep_their_keys() {
                 widget_with_class(fixture.window.upcast_ref(), "shortcut-reference-panel")
                     .is_some_and(|popover| popover.is_visible())
             });
+            assert!(!russian_tilde(), "Ё is typed into the reference search");
+            assert!(fixture.shortcuts.reference_is_open());
             fixture.press(Key::q, ModifierType::empty());
             assert!(preferences.tenxer_mode());
             assert_eq!(directory_names(fixture._directory.path()), names);
@@ -1477,6 +1610,14 @@ fn tenxer_entries_menus_and_reference_keep_their_keys() {
                 widget_with_class(fixture.window.upcast_ref(), "shortcut-reference-panel")
                     .is_none_or(|popover| !popover.is_visible())
             });
+            focus_files(&fixture);
+            assert!(russian_tilde(), "the file list reads Shift+ё as ~");
+            wait_until(|| {
+                widget_with_class(fixture.window.upcast_ref(), "shortcut-reference-panel")
+                    .is_some_and(|popover| popover.is_visible())
+            });
+            assert!(fixture.press(Key::Escape, ModifierType::empty()));
+            wait_until(|| !fixture.shortcuts.reference_is_open());
 
             focus_files(&fixture);
             assert!(fixture.press(Key::Menu, ModifierType::empty()));
@@ -1564,6 +1705,67 @@ fn tenxer_entries_menus_and_reference_keep_their_keys() {
 }
 
 #[test]
+fn layout_fallback_editing_keys_run_the_focused_text_fields_own_actions() {
+    crate::test_support::gtk_test(
+        "ui::window::tests::keyboard_dispatch::layout_fallback_editing_keys_run_the_focused_text_fields_own_actions",
+        || {
+            let fixture = KeyboardFixture::new();
+            let entry = gtk::Entry::new();
+            entry.set_text("draft");
+            fixture.overlay.add_overlay(&entry);
+            entry.grab_focus();
+            wait_until(|| {
+                gtk::prelude::RootExt::focus(&fixture.window)
+                    .is_some_and(|focus| focus.is_ancestor(&entry))
+            });
+            // A Russian-only keymap types Cyrillic on the US A, C, Z and Y keys.
+            let control = ModifierType::CONTROL_MASK;
+            let press = |key: Key, keycode: u32, modifiers: ModifierType| {
+                fixture
+                    .keys
+                    .emit_by_name::<bool>("key-pressed", &[&key, &keycode, &modifiers])
+            };
+            assert!(!press(Key::c, 0, control), "GTK's own Ctrl+C handles ASCII");
+            assert!(press(Key::Cyrillic_ef, 38, control));
+            assert_eq!(entry.selection_bounds(), Some((0, 5)));
+            assert!(press(Key::Cyrillic_es, 54, control));
+            let copied = fixture
+                .window
+                .clipboard()
+                .content()
+                .and_then(|content| content.value(glib::Type::STRING).ok())
+                .and_then(|value| value.get::<String>().ok());
+            assert_eq!(copied.as_deref(), Some("draft"));
+            assert_eq!(fixture.selected(), [0]);
+
+            assert!(fixture.press(Key::F1, ModifierType::empty()));
+            wait_until(|| fixture.shortcuts.reference_is_open());
+            let search = focused_entry(&fixture.window);
+            assert_ne!(search, entry, "the reference search has focus");
+            search.set_text("half");
+            search.set_position(-1);
+            // Typing makes an undoable edit; a programmatic insert does not.
+            search
+                .delegate()
+                .expect("search text")
+                .emit_by_name::<()>("insert-at-cursor", &[&" a page"]);
+            assert!(!press(Key::z, 0, control), "GTK's own Ctrl+Z handles ASCII");
+            assert!(press(Key::Cyrillic_ya, 52, control));
+            assert_eq!(search.text(), "half");
+            assert!(press(
+                Key::Cyrillic_YA,
+                52,
+                control | ModifierType::SHIFT_MASK
+            ));
+            assert_eq!(search.text(), "half a page");
+            assert!(press(Key::Cyrillic_ya, 52, control));
+            assert!(press(Key::Cyrillic_en, 29, control));
+            assert_eq!(search.text(), "half a page");
+        },
+    );
+}
+
+#[test]
 fn page_keys_extend_shift_selection_or_a_tenxer_range() {
     crate::test_support::gtk_test(
         "ui::window::tests::keyboard_dispatch::page_keys_extend_shift_selection_or_a_tenxer_range",
@@ -1604,6 +1806,16 @@ fn page_keys_extend_shift_selection_or_a_tenxer_range() {
                     fixture.selected(),
                     [focused_index(&browser)],
                     "{mode:?} a plain Page Down still replaces the selection"
+                );
+
+                let paged = focused_index(&browser);
+                assert!(fixture.press(Key::KP_Page_Up, none), "{mode:?}");
+                let back = focused_index(&browser);
+                assert!(back < paged, "{mode:?} keypad Page Up pages");
+                assert!(fixture.press(Key::KP_Page_Down, none), "{mode:?}");
+                assert!(
+                    focused_index(&browser) > back,
+                    "{mode:?} keypad Page Down pages"
                 );
             }
 
@@ -1672,6 +1884,185 @@ fn tenxer_columns_mirror_the_first_move_after_a_load() {
             assert_eq!(browser.focused_item().map(|(depth, _, _)| depth), Some(0));
         },
     );
+}
+
+#[test]
+fn columns_mirror_home_and_end_in_the_default_key_map() {
+    crate::test_support::gtk_test(
+        "ui::window::tests::keyboard_dispatch::columns_mirror_home_and_end_in_the_default_key_map",
+        || {
+            let fixture = KeyboardFixture::new();
+            let preferences = PreferenceManager::shared();
+            preferences.set_tenxer_mode(false);
+            preferences.set_columns_mirror_selection(true);
+            preferences.set_single_click_previews(false);
+            fixture.view.set_columns_mirror_selection(true);
+            fixture.view.set_single_click_previews(false);
+            let browser = fixture.view.browser();
+            let folder = fixture._directory.path().join("mixed");
+            for name in ["a-dir", "b-dir", "c-dir"] {
+                std::fs::create_dir_all(folder.join(name)).expect("fixture folder");
+            }
+            std::fs::write(folder.join("e.bin"), b"e").expect("fixture file");
+            browser.navigate(Location::local(&folder));
+            wait_loaded(&browser, 0);
+            wait_until(|| focused_name(&browser) == "a-dir");
+            focus_files(&fixture);
+            let none = ModifierType::empty();
+            for (end_key, home_key) in [(Key::End, Key::Home), (Key::KP_End, Key::KP_Home)] {
+                fixture.press(Key::Down, none);
+                assert_eq!(focused_name(&browser), "b-dir", "{end_key:?}");
+                wait_until(|| location_ends_with(browser.location_at(1), "b-dir"));
+                wait_loaded(&browser, 1);
+
+                assert!(fixture.press(end_key, none), "Strata handles {end_key:?}");
+                assert_eq!(focused_name(&browser), "e.bin", "{end_key:?}");
+                assert_eq!(fill_names(&browser), ["e.bin"], "{end_key:?}");
+                wait_until(|| browser.location_at(1).is_none());
+                assert!(fixture.view.item_view_has_focus(), "{end_key:?}");
+                assert_eq!(
+                    browser.focused_item().map(|(depth, _, _)| depth),
+                    Some(0),
+                    "{end_key:?}"
+                );
+
+                fixture.press(Key::Up, none);
+                assert_eq!(focused_name(&browser), "c-dir", "{end_key:?}");
+                wait_until(|| location_ends_with(browser.location_at(1), "c-dir"));
+                wait_loaded(&browser, 1);
+
+                assert!(fixture.press(home_key, none), "Strata handles {home_key:?}");
+                assert_eq!(focused_name(&browser), "a-dir", "{home_key:?}");
+                wait_until(|| location_ends_with(browser.location_at(1), "a-dir"));
+                wait_loaded(&browser, 1);
+            }
+
+            fixture.press(Key::Down, none);
+            wait_until(|| location_ends_with(browser.location_at(1), "b-dir"));
+            wait_loaded(&browser, 1);
+            fixture.view.record_pointer_hover((12.0, 24.0), Some(0));
+            assert!(!fixture.view.widget().has_css_class("keyboard-navigation"));
+            assert!(fixture.press(Key::Down, ModifierType::CONTROL_MASK));
+            assert_eq!(focused_name(&browser), "e.bin");
+            wait_until(|| browser.location_at(1).is_none());
+        },
+    );
+}
+
+#[test]
+fn home_and_end_jump_to_the_first_and_last_item_in_the_default_key_map() {
+    crate::test_support::gtk_test(
+        "ui::window::tests::keyboard_dispatch::home_and_end_jump_to_the_first_and_last_item_in_the_default_key_map",
+        || {
+            let fixture = KeyboardFixture::new();
+            PreferenceManager::shared().set_group_by_type(false);
+            let browser = fixture.view.browser();
+            let none = ModifierType::empty();
+            for mode in [BrowserMode::List, BrowserMode::Icons, BrowserMode::Columns] {
+                fixture.view.set_view_mode(mode);
+                focus_files(&fixture);
+                browser.select(0, 0);
+                browser.extend_selection(1);
+                focus_files(&fixture);
+                assert_eq!(focused_name(&browser), "b.txt", "{mode:?}");
+                assert_eq!(fill_names(&browser), ["a.txt", "b.txt"], "{mode:?}");
+
+                assert!(fixture.press(Key::End, none), "{mode:?} Strata handles End");
+                assert_eq!(focused_name(&browser), "c.txt", "{mode:?}");
+                assert_eq!(fill_names(&browser), ["c.txt"], "{mode:?}");
+                assert!(fixture.view.item_view_has_focus(), "{mode:?}");
+                if mode == BrowserMode::Columns {
+                    wait_until(|| focused_widget_shows(&fixture.window, "c.txt"));
+                }
+
+                assert!(
+                    fixture.press(Key::Home, none),
+                    "{mode:?} Strata handles Home"
+                );
+                assert_eq!(focused_name(&browser), "a.txt", "{mode:?}");
+                assert_eq!(fill_names(&browser), ["a.txt"], "{mode:?}");
+
+                assert!(
+                    !fixture.press(Key::End, ModifierType::SHIFT_MASK),
+                    "{mode:?} Shift+End stays with GTK"
+                );
+            }
+        },
+    );
+}
+
+#[test]
+fn jump_keys_move_the_cursor_when_focus_is_parked_on_the_column_list() {
+    crate::test_support::gtk_test(
+        "ui::window::tests::keyboard_dispatch::jump_keys_move_the_cursor_when_focus_is_parked_on_the_column_list",
+        || {
+            let fixture = KeyboardFixture::new();
+            PreferenceManager::shared().set_group_by_type(false);
+            let browser = fixture.view.browser();
+            for (forward, back) in [
+                (
+                    (Key::End, ModifierType::empty()),
+                    (Key::Home, ModifierType::empty()),
+                ),
+                (
+                    (Key::Down, ModifierType::CONTROL_MASK),
+                    (Key::Up, ModifierType::CONTROL_MASK),
+                ),
+            ] {
+                browser.select(0, 1);
+                park_focus_on_the_column(&fixture);
+
+                assert!(
+                    fixture.press(forward.0, forward.1),
+                    "{forward:?} while parked"
+                );
+                assert_eq!(focused_name(&browser), "c.txt", "{forward:?}");
+
+                park_focus_on_the_column(&fixture);
+                assert!(fixture.press(back.0, back.1), "{back:?} while parked");
+                assert_eq!(focused_name(&browser), "a.txt", "{back:?}");
+            }
+            for (key, modifiers) in [
+                (Key::Left, ModifierType::CONTROL_MASK),
+                (Key::Up, ModifierType::empty()),
+                (
+                    Key::Up,
+                    ModifierType::CONTROL_MASK | ModifierType::SHIFT_MASK,
+                ),
+                (Key::Up, ModifierType::CONTROL_MASK | ModifierType::ALT_MASK),
+                (
+                    Key::Up,
+                    ModifierType::CONTROL_MASK | ModifierType::SUPER_MASK,
+                ),
+            ] {
+                browser.select(0, 2);
+                park_focus_on_the_column(&fixture);
+                fixture.press(key, modifiers);
+                assert_ne!(
+                    focused_name(&browser),
+                    "a.txt",
+                    "{modifiers:?}+{key:?} must not jump"
+                );
+            }
+        },
+    );
+}
+
+fn park_focus_on_the_column(fixture: &KeyboardFixture) {
+    focus_files(fixture);
+    let focused = gtk::prelude::RootExt::focus(&fixture.window).expect("focused row");
+    let list = if focused.is::<gtk::ListView>() {
+        focused
+    } else {
+        focused
+            .ancestor(gtk::ListView::static_type())
+            .expect("column list")
+    };
+    // The column surface takes focus only off its content page, so park on the list
+    // widget itself, as GTK does when the list has no focused row to restore.
+    gtk::prelude::RootExt::set_focus(&fixture.window, Some(&list));
+    assert_eq!(gtk::prelude::RootExt::focus(&fixture.window), Some(list));
+    assert!(fixture.view.item_view_has_focus());
 }
 
 #[test]
@@ -2099,7 +2490,7 @@ fn tenxer_icons_move_spatially_open_explicitly_and_peek() {
             }
             fixture.view.refresh();
             wait_loaded(&browser, 0);
-            fixture.view.set_icons_thumbnail_size(48);
+            PreferenceManager::shared().set_icons_thumbnail_size(48);
             fixture.view.set_view_mode(BrowserMode::Icons);
             focus_files(&fixture);
             wait_until(|| {
@@ -2532,6 +2923,18 @@ fn default_recorder_app(mime_type: &str, output: &std::path::Path) {
 fn focus_files(fixture: &KeyboardFixture) {
     fixture.view.browser().focus_active();
     wait_until(|| fixture.view.item_view_has_focus());
+}
+
+fn open_empty_folder(fixture: &KeyboardFixture) {
+    let empty = fixture._directory.path().join("empty");
+    if !empty.exists() {
+        std::fs::create_dir(&empty).expect("empty folder");
+    }
+    let browser = fixture.view.browser();
+    browser.navigate(Location::local(&empty));
+    wait_until(|| browser.active_location() == Some(Location::local(&empty)));
+    wait_loaded(&browser, 0);
+    focus_files(fixture);
 }
 
 fn focus_icon(fixture: &KeyboardFixture, browser: &crate::app::Browser, name: &str) {

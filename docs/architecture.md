@@ -54,7 +54,10 @@ header alignment, icon bezels, body and action spacing, focus treatment, and sem
 danger states; dialog-specific code supplies only content and behavior. The search palette remains a
 specialized command interface because its query field and results are one continuous keyboard
 surface. Settings remains a specialized navigable workspace rather than an action dialog. Native
-platform choosers, such as GTK's color dialog, are also kept native.
+platform choosers, such as GTK's color dialog, are also kept native. `style.css` themes the color
+chooser's buttons and editor controls with selectors on GTK's `window.dialog.colorchooser` and
+`colorchooser` nodes that reuse the action-dialog and form-control rules, instead of wrapping the
+chooser in the modal shell.
 
 ### Browser presentation modes
 
@@ -72,8 +75,11 @@ receive incremental updates. Shared browser effects in `ui/browser/events.rs` st
 before alternate-mode dispatch. Browser notifications remain synchronous: pane/query
 updates must release `ModeViews` borrows before notifying observers. Load completion
 returns a selection-restoration action; the caller releases `ModeViews` before
-applying it, with the saved position already taken out of `ListNavigation`. Footer
+applying it, with the saved position already taken out of `PaneNavigation`. Footer
 and selection observers therefore see restored state without dropped events.
+`NavigationStarting` and `ColumnReloading` are the two pre-mutation capture events:
+the outgoing directory, or a column about to be cleared for a reload, is still
+readable when they arrive.
 
 Pane helpers share string-model splicing, but authoritative entry borrows end before GTK
 notifications. Reload detaches selection/filter models without detaching the collection
@@ -117,9 +123,15 @@ marquees claim the sequence only after that threshold, leaving simple clicks and
 modifier-clicks intact. Chrome-origin drags transfer focus to a visible item in the target
 collection after crossing the threshold, giving active selection feedback without scrolling
 to an old cursor. Sidebar origins also switch browser input ownership to the pointer, so
-keyboard actions use the selected pane rather than stale hover state. A completed plain
-click on background clears selections; returning to an inactive column then
-selects its first visible entry. Presses and marquee releases do not clear selections. Click
+keyboard actions use the selected pane rather than stale hover state. A plain press on pane
+background or on blank chrome beside the panes (sidebar, pane headers, the strip beside the
+last column) clears the selection immediately; Ctrl/Shift presses keep it so the marquee can
+union or range from it, and marquee releases never clear. Returning to an inactive column then
+selects its first visible entry. A preview that is showing something (content or its
+placeholder) is a drag-only origin: a plain click there leaves the selection alone and only a
+drag past the threshold changes it, while the empty reserved preview slot clears like the strip
+beside the columns. Presses on controls, including disabled ones and drag handles such as the
+preview header, never start a marquee. Click
 activation and automatic preview wait for release and reject cancelled gestures, drag motion,
 and recycled items. Marquees anchor and cache mapped item geometry in scroll-content
 coordinates, independent of native GtkScrollable or GtkViewport layout. Edge and wheel scrolling
@@ -233,7 +245,9 @@ Filesystem work for Trash lives in `adapters/trash.rs`. Measurement shares one e
 across root and descendant batches; depth truncation and unreadable descendants remain branch-local.
 Deleting Trash streams its own batches, independently of any incomplete measurement. Native path
 and GIO URI conversion lives in `adapters/gio_location.rs`, shared by files, operations, preview and
-browser presentation. It preserves native bytes and sanitizes credentials on inbound GIO locations.
+browser presentation. It preserves native bytes, keeps GLib's normalized percent-encoding (so names
+that are not valid UTF-8 and encoded slashes survive), and sanitizes credentials on inbound GIO
+locations.
 
 Local archive operations live under `adapters/local_operations/archive/`:
 
@@ -241,30 +255,50 @@ Local archive operations live under `adapters/local_operations/archive/`:
 | --- | --- |
 | Operation entry points, worker lifecycle and progress events | `archive.rs` in the parent directory |
 | Staged publication, source traversal and compression writers | `compression.rs` |
-| Per-operation extraction state, copying, cleanup, size preflight and outcomes | `extraction.rs` |
-| Confined destination writes, path validation and conflict naming | `destination.rs` |
+| Per-operation extraction state, copying, cleanup, size preflight, hard-link resolution, deferred directory metadata and outcomes | `extraction.rs` |
+| Confined destination writes, link creation, mode and time restoration, path validation, staging folder lifecycle, publication and conflict naming | `destination.rs` |
 | ZIP, TAR/gzip and 7z member enumeration, passwords and decoder errors | `decoders.rs` |
 
 Every decoder feeds one `ExtractionSession` per operation. The session has no codec or widget
-API dependencies; decoders lend it member streams and provide already-known pending names on
-cancellation. Member identity tracking stays inside each decoder rather than assuming unique names
-or matching header/callback order. The session validates pending names and applies established
-root renames without filesystem probes or name reservations; final leaf conflicts remain unknown
-until a member is attempted. Sequential formats do not scan unread content to complete that list.
+API dependencies; decoders lend it member streams and the archive name, and provide
+already-known pending names on cancellation. The session writes members into a hidden staging
+folder under the destination and publishes it in `finish` for every outcome: a single root moves
+up verbatim, several roots are renamed to the archive stem, and failed or cancelled output stays
+in the archive-named folder unless it holds only directories.
+A password failure instead discards the staging folder, since the retry extracts everything
+again. Decoders report it as `ArchiveError::PasswordRequired` or `IncorrectPassword`, and its kind
+travels as `PasswordFailure` on `OperationEvent::Failed` and `BrowserEvent::OperationFailed`;
+that kind alone decides the password retry, never the message text. Only a member that is
+encrypted and was given a password reports malformed data as a possible wrong password. Staging
+that cannot be discarded turns the failure into an ordinary one.
+A directory member repeated in the archive is restored once, each field from the last entry
+that stores it.
+Member identity tracking stays
+inside each decoder rather than assuming unique names or matching header/callback order. The
+session validates pending names and applies established root renames without filesystem probes
+or name reservations; final leaf conflicts remain unknown until a member is attempted. Sequential formats do not scan unread content to complete that list.
 Before writing, the session checks claimed uncompressed size against destination free space from
 `fstatvfs` on the pinned root, and it refuses a member whose extracted size does not match the
 size declared by the archive header. ZIP and 7z advertise a total up front, so an oversized
 archive is refused before any member is written; TAR streams check each member as it arrives, so
-extraction stops at the free-space boundary and members already written stay in place. The
+extraction stops at the free-space boundary and members already written stay inside the
+archive-named folder, which the failure message names. The
 guarantee is that extraction never exceeds the free space observed when the session opened;
 it does not model per-file overhead such as block rounding or inodes. Filesystems that report no
 capacity (`f_blocks == 0`, as FUSE mounts without `statfs` do) skip the free-space checks and
 keep only the declared-size match. The `zip` crate does not bound inflated output by the header
 size itself, so that match is the control that stops a ZIP member lying about its size.
 
-The private member boundary currently retains legacy lossy TAR-name conversion and regular-file
-output for non-directory entries, including links. It is not a complete archive-entry model;
-native names and entry-type semantics belong in the decoder compatibility evaluation. Format
+Decoders pass symlinks, TAR hard links and each member's mode and modification time through
+`MemberContent` and `MemberMetadata`, and refuse FIFOs and device nodes. Restoring metadata is
+best effort: `EPERM`, `EOPNOTSUPP` and `EINVAL` from filesystems without Unix permissions or times
+are ignored behind the `MetadataCalls` seam in `destination.rs`. TAR extraction preserves
+native path bytes, including hard-link target identity. The sandboxed RAR helper streams
+`STRRAR03` records carrying each member's mode and
+time (a RAR 5 FILETIME, or the DOS local time of older formats, which only the parent can
+convert in the user's zone); RAR links are not yet extracted as links. Error records and failed
+member trailers carry a failure kind, so a missing or incorrect password reaches the parent
+without parsing text. Format
 libraries remain behind the adapter boundary. See [archive creation](archives.md) for
 container-specific encoding, classification and cancellation behavior. Archive unit tests sit in each module's
 adjacent `tests.rs`; provider-level tests remain in `archive/tests.rs`, with shared test-only builders
@@ -297,6 +331,28 @@ never complete a sort; `MetadataFinished` retains that responsibility. Both modu
 state and routing borrows before synchronous observer dispatch, allowing observers to
 navigate safely. Sorting, metadata scheduling, and cancellation remain in the browser
 controller; event routing does not change those policies.
+
+A folder's own directory monitor reports its deletion, its rename, and its move alike, as
+the removal of the folder itself. A column whose parent column is its parent folder leaves
+that report to the parent column's monitor, which sees the departure as a change to one of
+its entries; any other column, including the depth-0 folder, is checked in
+`directory_changes.rs`. A folder that validates again (deleted and recreated) reloads in
+place, which renews its monitor. A missing depth-0 folder is looked up in its parent by
+the identity it had when it loaded: device, inode and, where the filesystem records it,
+birth time, queried off the main thread (`FileSource::query_location_identity`). The birth
+time keeps a new folder that reuses the inode from passing for a rename. Found there
+(`find_by_identity`), the folder was renamed in place: the search indexes are rebased and
+the open columns relocate (`ColumnsRelocated`), as for an in-app rename. Not found, with a
+parent that cannot be listed, or before its identity is known, it departed: the nearest
+existing ancestor that the source allows is restored without a history entry, or the
+folder shows its read error when there is none. Backends without identities treat every
+rename as a departure. A folder or ancestor that cannot be reached (unmounted, offline, or
+not permitted) stays as it is. A monitor can lose the removal report, when a burst of
+changes turns its batch into a rescan or when a reload supersedes the check, so a failed
+reload of a depth-0 folder that loaded before runs the same check; it leaves the read
+error in place unless the folder is confirmed gone. A departure that arrives during a
+deletion, restoration, or transfer waits with the operation's other changes, which apply
+first.
 
 ### Browser staged publication
 
@@ -346,15 +402,27 @@ other windows are refreshed on their next bookmark action, not by a live monitor
 
 ### Window keyboard routing
 
-`ui/window/keyboard.rs` owns the window's capture-phase keyboard dispatcher. Its ordered
-stages preserve shortcut precedence: modal and editing ownership, window/file commands,
+`ui/window/keyboard.rs` owns the window's capture-phase keyboard dispatcher. Like every key
+handler, it reads presses through `ui::keys` and matches catalog bindings (see
+[keyboard shortcuts](keyboard-shortcuts.md)). Its ordered stages preserve shortcut precedence: modal and editing ownership, window/file commands,
 focus traversal, transient dismissal, then item/directory navigation. The private
 `commands.rs`, `focus.rs`, and `items.rs` modules implement those responsibilities without
 introducing another browser controller. A stage returning `None` continues through Strata's
 handlers; `Some(Propagation::Proceed)` ends dispatch and leaves the event to GTK. In
 particular, editable controls and native single-pane selection must not fall through to
-browser commands. The file chooser retains its separate, restricted keyboard policy
-when 10xer mode is off.
+browser commands. Search, jump to folder, open terminal, refresh, and arrow scope
+(`WINDOW_ACTIONS`) are dispatcher bindings, not GTK accelerators: when dispatch yields,
+`Dispatcher::after_yield` activates the matching enabled `win.*` action and consumes the
+key even when the action's guard then declines. Dispatch also yields while a modal or an
+inline edit owns input, so `composition::add_guarded_window_action` installs those actions
+with a gate: they do nothing while a modal layer other than the action's own (the search
+palette) is on top and not already closing, or while an inline rename field or new entry
+is open. The dispatcher yields on the same `BrowserView::inline_edit_is_open` predicate.
+A key still unclaimed reaches `edit_focused_text`, which runs a focused text field's own
+copy, cut, paste, select-all, undo, or redo action for a key that only the layout
+fallback recognizes (see [keyboard shortcuts](keyboard-shortcuts.md#text-fields)). The
+file chooser retains its separate, restricted keyboard policy when 10xer mode is off; it
+has no window actions but applies `edit_focused_text` too.
 
 When [10xer mode](10xer-mode.md) is on, that dispatcher runs its 10xer stages
 (`tenxer_keys` and the `keyboard/` modules) ahead of the default pipeline. The
@@ -365,9 +433,9 @@ search, clipboard, and undo never see chooser keys, and `keyboard/chooser.rs`
 refuses commands the request does not allow: **Enter** / **o** confirm a file,
 **Esc** cancels after dismissing prompts or preview, and Open With, custom
 actions, and clipboard verbs stay unavailable. Window-local browse / visual / chord / prompt state
-lives in `ui/tenxer_mode.rs`, not on `Browser`. Per-window preference bindings
-update the shared `gtk::Application` accelerators idempotently; window destruction
-does not restore them while other windows still use 10xer mode.
+lives in `ui/tenxer_mode.rs`, not on `Browser`. `after_yield` reads the
+preference when a key arrives, so the jump to folder, open terminal, and arrow
+scope window actions stay unbound in every window without application-wide state.
 Chrome-visibility bindings hide pane Close/filter/refresh/sort in both
 interactive browsers and the chooser. Tab and arrow focus stay inside the
 Columns, List, and Icons panes; sidebar, header, and footer controls stay
@@ -387,7 +455,7 @@ shared Settings/F1 presentation; default F1 navigation remains view-specific.
 
 ### File source
 
-Enumerates locations, retrieves metadata, watches changes, and reports supported actions. Begin with local files. Avoid designing a universal remote filesystem API before a second backend exists.
+Enumerates locations, retrieves metadata, watches changes, identifies folders across renames, and reports supported actions. Begin with local files. Avoid designing a universal remote filesystem API before a second backend exists.
 
 ### Operation service
 

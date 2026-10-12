@@ -106,6 +106,62 @@ fn empty_markdown_has_no_blocks() {
 }
 
 #[test]
+fn release_notes_hide_html_comments_but_keep_other_html_inert() {
+    let paragraph = |markup: &str| DocumentBlock::Paragraph(markup.to_owned());
+    let item = |markup: &str| DocumentBlock::ListItem {
+        marker: "•".to_owned(),
+        depth: 0,
+        markup: markup.to_owned(),
+    };
+    let heading = |markup: &str| DocumentBlock::Heading {
+        level: 2,
+        markup: markup.to_owned(),
+    };
+    for (input, expected) in [
+        (
+            "<!-- Release notes generated using configuration in .github/release.yml at v0.21.0 -->\n\n## What's Changed\n* fix(a): b by @x in https://example.test/pull/1\n",
+            vec![
+                heading("What&apos;s Changed"),
+                item("fix(a): b by @x in https://example.test/pull/1"),
+            ],
+        ),
+        ("<!--\nmulti\nline\n-->\n\nAfter", vec![paragraph("After")]),
+        // Indented HTML blocks also emit synthesised whitespace text events.
+        (
+            "  <!-- indented\n  comment -->\n\nAfter",
+            vec![paragraph("After")],
+        ),
+        // CommonMark ends a comment block at the end of the line holding
+        // `-->`, so trailing text on that line belongs to the hidden block.
+        ("<!-- a --> tail\n\nAfter", vec![paragraph("After")]),
+        ("<!-- only a comment -->\n", Vec::new()),
+        // An unterminated comment runs to the end of the input.
+        ("<!-- never closed\n## Hidden", Vec::new()),
+        (
+            "Before <!-- inline --> after",
+            vec![paragraph("Before  after")],
+        ),
+        (
+            "## Title <!-- c -->\n\ntext",
+            vec![heading("Title "), paragraph("text")],
+        ),
+        (
+            "- item\n  <!-- c -->\n- next",
+            vec![item("item"), item("next")],
+        ),
+        (
+            "<b>x</b>\n\n<div>\nraw\n</div>",
+            vec![
+                paragraph("&lt;b&gt;x&lt;/b&gt;"),
+                paragraph("&lt;div&gt;\nraw\n&lt;/div&gt;"),
+            ],
+        ),
+    ] {
+        assert_eq!(parse_markdown(input).blocks, expected, "{input:?}");
+    }
+}
+
+#[test]
 fn classifies_supported_local_document_mimes_and_extensions_case_insensitively() {
     for mime in [
         "text/markdown",
@@ -166,15 +222,19 @@ fn markdown_supports_quotes_tables_tasks_strikethrough_and_safe_images() {
 
 #[test]
 fn markdown_raw_html_is_inert_and_warned() {
-    let parsed = parse_document(
-        DocumentKind::Markdown,
-        "before <b onclick=\"run()\">after</b>",
-        &Cancellation::default(),
-    )
-    .expect("raw HTML should remain inert text");
-    let debug = format!("{:?}", parsed.document.blocks);
-    assert!(debug.contains("&lt;b onclick=&quot;run()&quot;&gt;"));
-    assert_eq!(parsed.warnings.len(), 1);
+    for (source, inert) in [
+        (
+            "before <b onclick=\"run()\">after</b>",
+            "&lt;b onclick=&quot;run()&quot;&gt;",
+        ),
+        ("<!-- c -->\n\nbody", "&lt;!-- c --&gt;"),
+    ] {
+        let parsed = parse_document(DocumentKind::Markdown, source, &Cancellation::default())
+            .expect("raw HTML should remain inert text");
+        let debug = format!("{:?}", parsed.document.blocks);
+        assert!(debug.contains(inert), "{source:?}: {debug}");
+        assert_eq!(parsed.warnings.len(), 1, "{source:?}");
+    }
 }
 
 #[test]

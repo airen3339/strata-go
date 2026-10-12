@@ -5,10 +5,12 @@ from __future__ import annotations
 
 import shlex
 import shutil
+import time
 
 import pytest
 
-from harness.modes import ALL_MODES
+from harness.modes import ALL_MODES, NEXT_ENTRY_KEY, PREVIOUS_ENTRY_KEY
+from harness.tree import TreeTimeout
 
 ENTRY_MENU_ITEMS = {"Open", "Cut", "Copy", "Rename", "Move to Trash", "Properties"}
 
@@ -55,7 +57,7 @@ def test_the_entry_context_menu_offers_named_actions_and_accelerators(strata):
 
     strata.open_context_menu("documents")
     assert_menu_order(strata, [
-        "Open", "Open With…", "Open in Terminal", "Cut", "Copy", "Duplicate",
+        "Open", "Open With…", "Open in Terminal", "Open in…", "Cut", "Copy", "Duplicate",
         "Rename", "Move to…", "Copy to…", "Compress…", "Pin to sidebar",
         "Customize…", "Copy path", "Copy name", "Properties", "Move to Trash",
         "Permanently delete",
@@ -413,11 +415,176 @@ def test_renaming_onto_an_existing_name_is_rejected(strata):
     strata.keyboard.type_text("readme.md")
     strata.keyboard.press("Return")
 
+    dialog = strata.wait_for_dialog()
+    assert dialog.name == "Unable to rename item"
     assert fixture.path("todo.txt").exists(), "the rename must not silently succeed"
     assert fixture.path("readme.md").read_text() == "# Fixture\n", (
         "the existing file must keep its contents"
     )
     strata.keyboard.press("Escape")
+    strata.wait(lambda: strata.dialog() is None, "the rename error to close")
+    strata.wait_for_focused_entry("todo.txt")
+    strata.keyboard.press("Up")
+    strata.wait_for_focused_entry("readme.md")
+
+
+def _describe_focus(strata) -> str:
+    focused = strata.focused_node()
+    if focused is None:
+        return "nothing"
+    return f"{focused.role} {focused.name!r}"
+
+
+def _focus_returned(strata, name: str, failures: list[str], step: str) -> bool:
+    try:
+        strata.wait(lambda: strata.focused_name() == name, f"focus to return to {name!r}", timeout=4)
+        return True
+    except TreeTimeout:
+        failures.append(f"{step}: focus is on {_describe_focus(strata)}")
+        strata.select_entry(name)
+        strata.wait_for_focused_entry(name)
+        return False
+
+
+def _open_settings_and_close(strata, close):
+    strata.keyboard.press("ctrl+,")
+    strata.wait(
+        lambda: strata.window.find(role="button", name="Close settings"), "Settings to open"
+    )
+    if close == "Escape":
+        strata.keyboard.press("Escape")
+    else:
+        assert strata.window.find(role="button", name="Close settings").activate()
+    strata.wait(
+        lambda: strata.window.find(role="button", name="Close settings") is None,
+        "Settings to close",
+    )
+
+
+def _open_palette_and_close(strata, opener, close):
+    def fields():
+        return len(strata.window.find_all(role="text", states={"editable"}))
+
+    closed = fields()
+    strata.keyboard.press(opener)
+    strata.editable_field()
+    strata.keyboard.press(close)
+    strata.wait(lambda: fields() == closed, "the palette to close")
+
+
+def _open_compress_and_close(strata, close):
+    strata.open_context_menu("todo.txt")
+    strata.choose_menu_item("Compress…")
+    strata.wait_for_dialog()
+    strata.editable_field()
+    if close == "Escape":
+        strata.keyboard.press("Escape")
+    elif close == "backdrop":
+        bounds = strata.window.screen_bounds()
+        strata.pointer.click(strata.window, at=(bounds.x + 5, bounds.y + 5))
+    else:
+        strata.pointer.click(strata.dialog_button(close))
+    strata.wait(lambda: strata.dialog() is None, "Compress to close")
+
+
+@pytest.mark.parametrize("mode", ALL_MODES)
+@pytest.mark.preferences(single_click_previews=False)
+def test_dismissed_overlays_return_focus_to_the_file_list(strata, mode):
+    steps = [
+        ("Settings, Escape", lambda: _open_settings_and_close(strata, "Escape")),
+        ("Settings, Close settings", lambda: _open_settings_and_close(strata, "Close settings")),
+        ("Ctrl+K, Escape", lambda: _open_palette_and_close(strata, "ctrl+k", "Escape")),
+        ("Ctrl+K, Ctrl+K", lambda: _open_palette_and_close(strata, "ctrl+k", "ctrl+k")),
+        ("Ctrl+Shift+K, Escape", lambda: _open_palette_and_close(strata, "ctrl+shift+k", "Escape")),
+        ("Compress, Escape", lambda: _open_compress_and_close(strata, "Escape")),
+        ("Compress, Cancel", lambda: _open_compress_and_close(strata, "Cancel")),
+        ("Compress, backdrop", lambda: _open_compress_and_close(strata, "backdrop")),
+    ]
+    failures: list[str] = []
+    strata.select_entry("todo.txt")
+    strata.wait_for_focused_entry("todo.txt")
+    for step, run in steps:
+        run()
+        if not _focus_returned(strata, "todo.txt", failures, step):
+            continue
+        strata.keyboard.press(PREVIOUS_ENTRY_KEY[mode])
+        strata.wait_for_focused_entry("readme.md")
+        strata.keyboard.press(NEXT_ENTRY_KEY[mode])
+        strata.wait_for_focused_entry("todo.txt")
+    assert not failures, f"{mode}: dismissed overlays left focus elsewhere:\n" + "\n".join(failures)
+
+
+def _open_customize(strata, opener):
+    if opener == "item-menu":
+        strata.open_context_menu("todo.txt")
+    else:
+        root = strata.fixture.root.name
+        strata.pointer.right_click(strata.pane(root), at=strata.background_point(root))
+        strata.wait(strata.context_menu, "the pane context menu")
+    strata.choose_menu_item("Customize…")
+    return strata.wait_for_dialog()
+
+
+@pytest.mark.parametrize("opener", ["item-menu", "background-menu"])
+@pytest.mark.preferences(single_click_previews=False)
+def test_customize_takes_focus_and_a_single_escape_closes_it(strata, opener):
+    failures: list[str] = []
+    strata.select_entry("todo.txt")
+    strata.wait_for_focused_entry("todo.txt")
+    _open_customize(strata, opener)
+    try:
+        strata.wait(
+            lambda: strata.dialog_button("Done").has_state("focused"), "Done to take focus", timeout=4
+        )
+    except TreeTimeout:
+        failures.append(f"on open: focus is on {_describe_focus(strata)}, not Done")
+    strata.keyboard.press("Escape")
+    try:
+        strata.wait(lambda: strata.dialog() is None, "one Escape to close Customize", timeout=4)
+    except TreeTimeout:
+        failures.append("the first Escape left Customize open")
+        strata.keyboard.press("Escape")
+        strata.wait(lambda: strata.dialog() is None, "a second Escape to close Customize")
+    if opener == "item-menu":
+        if _focus_returned(strata, "todo.txt", failures, "after Escape"):
+            strata.keyboard.press("Up")
+            strata.wait_for_focused_entry("readme.md")
+            strata.keyboard.press("Down")
+    else:
+        try:
+            strata.wait(lambda: strata.focused_pane() is not None, "focus to return to the pane", timeout=4)
+        except TreeTimeout:
+            failures.append(f"after Escape: focus is on {_describe_focus(strata)}, not the pane")
+
+    if opener == "item-menu":
+        strata.wait_for_focused_entry("todo.txt")
+        dialog = _open_customize(strata, opener)
+        custom = dialog.find(role="button", name="Custom color…")
+        if custom is None:
+            failures.append("the custom color button has no accessible name")
+        else:
+            def custom_color_dialog():
+                return strata.window.find(role="dialog", name="Custom File Color")
+
+            strata.pointer.click(custom)
+            nested = strata.wait(custom_color_dialog, "the custom color dialog")
+            strata.pointer.click(nested.find(role="button", name="Cancel"))
+            strata.wait(
+                lambda: custom_color_dialog() is None and strata.dialog() is not None,
+                "Customize to remain open",
+            )
+            focused = strata.focused_node()
+            if focused is None or focused.name != "Custom color…":
+                failures.append(f"after Cancel: focus is on {_describe_focus(strata)}")
+        strata.keyboard.press("Escape")
+        try:
+            strata.wait(lambda: strata.dialog() is None, "one Escape to close Customize", timeout=4)
+        except TreeTimeout:
+            failures.append("reopened: the first Escape left Customize open")
+            strata.keyboard.press("Escape")
+            strata.wait(lambda: strata.dialog() is None, "a second Escape to close Customize")
+        _focus_returned(strata, "todo.txt", failures, "reopened, after Escape")
+    assert not failures, f"{opener}:\n" + "\n".join(failures)
 
 
 def test_the_shortcut_reference_opens_and_closes(strata):
@@ -506,3 +673,142 @@ def test_floating_destination_chooser_transfers_files(strata, action, accept_lab
     strata.confirm_destination(chooser, accept_label)
     strata.wait(lambda: (destination / "todo.txt").exists(), "transfer into the chosen destination")
     assert source.exists() == (action == "Copy to…")
+
+
+@pytest.mark.preferences(browser_mode="list")
+def test_list_transfer_reveal_into_a_visited_folder_selects_the_copy(strata):
+    destination = strata.fixture.path("documents")
+    strata.open_directory("documents")
+    strata.wait_for_focused_entry("notes.txt")
+    strata.keyboard.press("Down")
+    strata.wait_for_focused_entry("report.md")
+    strata.keyboard.press("alt+Left")
+    strata.wait_for_directory(strata.fixture.root.name)
+    strata.open_context_menu("todo.txt")
+    strata.choose_menu_item("Copy to…")
+    chooser = strata.destination_chooser("Copy to")
+    strata.navigate_destination(chooser, destination)
+    strata.confirm_destination(chooser, "Copy here")
+    strata.wait(lambda: (destination / "todo.txt").exists(), "transfer into the chosen destination")
+    strata.wait_for_directory("documents")
+    strata.wait_for_selection(["todo.txt"])
+
+
+@pytest.mark.preferences(arrow_navigation_scoped=True, single_click_previews=False)
+def test_window_shortcuts_stay_blocked_over_a_modal_dialog(strata):
+    default = "Permanently delete 1 item"
+    strata.select_entry("todo.txt")
+    strata.wait_for_focused_entry("todo.txt")
+    strata.keyboard.press("shift+Delete")
+    strata.wait_for_dialog()
+
+    def focused():
+        return strata.dialog_button(default).has_state("focused")
+
+    strata.wait(focused, "the default button to take focus")
+    for chord in ["ctrl+k", "ctrl+shift+k", "ctrl+\\"]:
+        strata.keyboard.press(chord)
+        # Give a misrouted accelerator time to act before asserting nothing changed.
+        time.sleep(0.5)
+        assert strata.dialog() is not None, chord
+        assert strata.window.find(role="text", states={"editable"}) is None, f"{chord} opened a palette"
+        assert focused(), f"{chord}: focus is on {_describe_focus(strata)}"
+        assert strata.environment.read_preferences().get("arrow_navigation_scoped") == "true", chord
+
+    strata.keyboard.press("Escape")
+    strata.wait(lambda: strata.dialog() is None, "Escape to close the dialog")
+    strata.wait_for_focused_entry("todo.txt")
+    assert strata.window.find(role="text", states={"editable"}) is None
+    assert strata.fixture.path("todo.txt").exists()
+
+
+def _settings_has_key(strata, relative):
+    try:
+        text = strata.environment.settings_path.read_text()
+    except OSError:
+        return False
+    return f'"{strata.fixture.path(relative)}"' in text
+
+
+def _customize_red_code(strata, name, directory=None):
+    strata.open_context_menu(name, directory=directory)
+    strata.choose_menu_item("Customize…")
+    dialog = strata.wait_for_dialog()
+    red = dialog.find(role="button", name="Red")
+    assert red is not None, f"no Red color button\n{dialog.dump()}"
+    strata.pointer.click(red)
+    strata.pointer.click(strata.dialog_button("Code"))
+    strata.pointer.click(strata.dialog_button("Done"))
+    strata.wait(lambda: strata.dialog() is None, "the customize dialog to close")
+    strata.wait(
+        lambda: _settings_has_key(strata, name if directory is None else f"{directory}/{name}"),
+        f"the {name!r} customization to be saved",
+    )
+
+
+def test_customization_follows_rename_and_a_new_folder_at_the_old_path_is_plain(strata):
+    _customize_red_code(strata, "documents")
+
+    strata.open_context_menu("documents")
+    strata.choose_menu_item("Rename")
+    field = strata.editable_field()
+    strata.keyboard.press("ctrl+a")
+    strata.keyboard.type_text("docs2")
+    strata.wait(lambda: field.text == "docs2", "the new name to be typed")
+    strata.keyboard.press("Return")
+    strata.entry("docs2")
+
+    strata.wait(
+        lambda: _settings_has_key(strata, "docs2") and not _settings_has_key(strata, "documents"),
+        "the customization to follow the rename to docs2",
+    )
+
+    strata.fixture.path("documents").mkdir()
+    strata.entry("documents")
+    strata.open_context_menu("documents")
+    strata.choose_menu_item("Customize…")
+    strata.wait_for_dialog()
+    assert not strata.dialog_button("Clear").has_state("sensitive"), (
+        "a new folder at the old path inherited the customization"
+    )
+    strata.pointer.click(strata.dialog_button("Done"))
+    strata.wait(lambda: strata.dialog() is None, "the customize dialog to close")
+
+
+# Columns would open `pictures` beside the root and scroll `archive` under the sidebar.
+@pytest.mark.preferences(browser_mode="list")
+def test_customization_follows_a_cut_and_paste_move_and_leaves_with_trash(strata):
+    _customize_red_code(strata, "pictures")
+
+    strata.select_entry("pictures")
+    strata.keyboard.press("ctrl+x")
+    strata.open_directory("archive")
+    strata.paste_into("archive")
+    strata.wait(
+        lambda: strata.fixture.path("archive/pictures").is_dir()
+        and not strata.fixture.path("pictures").exists(),
+        "pictures to move into archive",
+    )
+    strata.wait(
+        lambda: _settings_has_key(strata, "archive/pictures")
+        and not _settings_has_key(strata, "pictures"),
+        "the customization to follow the move into archive",
+    )
+
+    strata.select_entry("pictures", directory="archive")
+    strata.keyboard.press("Delete")
+    strata.wait(
+        lambda: not strata.fixture.path("archive/pictures").exists(), "pictures to be trashed"
+    )
+    strata.wait(
+        lambda: not _settings_has_key(strata, "archive/pictures"),
+        "the customization to leave settings.toml with the trashed folder",
+    )
+    strata.keyboard.press("ctrl+z")
+    strata.wait(
+        lambda: strata.fixture.path("archive/pictures").is_dir(), "pictures to be restored"
+    )
+    strata.wait(
+        lambda: _settings_has_key(strata, "archive/pictures"),
+        "the customization to come back with the restored folder",
+    )

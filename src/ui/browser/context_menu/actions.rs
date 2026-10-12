@@ -26,6 +26,9 @@ const SEND_TO_DEVICE_NAME_MAX_CHARS: i32 = 15;
 pub(super) struct ActionMenuSection {
     popover: gtk::PopoverMenu,
     model: gio::Menu,
+    provider_model: gio::Menu,
+    provider_group: gio::SimpleActionGroup,
+    provider_epoch: Rc<std::cell::Cell<u64>>,
     pub(super) transfer_sections: Option<[gio::Menu; 2]>,
     send_to_row_indices: RefCell<[Option<i32>; 2]>,
     root_model: gio::Menu,
@@ -112,6 +115,37 @@ impl ActionMenuSection {
             root.append_section(None, section);
         }
         root.append_section(None, &model);
+        let provider_model = gio::Menu::new();
+        let provider_group = gio::SimpleActionGroup::new();
+        let provider_epoch = Rc::new(std::cell::Cell::new(0));
+        let provider_start = root.n_items();
+        let provider_root = root.clone();
+        // An enclosing section would add a second separator above the titled groups.
+        provider_model.connect_items_changed(move |model, position, removed, added| {
+            for _ in 0..removed {
+                provider_root.remove(provider_start + position);
+            }
+            for index in position..position + added {
+                provider_root.insert_item(
+                    provider_start + index,
+                    &gio::MenuItem::from_model(model, index),
+                );
+            }
+        });
+        popover.insert_action_group("provider", Some(&provider_group));
+        let closed_epoch = provider_epoch.clone();
+        popover.connect_closed(move |popover| {
+            // GTK closes the popover before dispatching the chosen leaf action.
+            let epoch = closed_epoch.get();
+            let closed_epoch = closed_epoch.clone();
+            let popover = popover.downgrade();
+            gtk::glib::idle_add_local_once(move || {
+                if closed_epoch.get() == epoch && popover.upgrade().is_none_or(|p| !p.is_visible())
+                {
+                    closed_epoch.set(epoch + 1);
+                }
+            });
+        });
         for section in &commands.after {
             root.append_section(None, section);
         }
@@ -146,6 +180,9 @@ impl ActionMenuSection {
         let menu = Rc::new(Self {
             popover,
             model,
+            provider_model,
+            provider_group,
+            provider_epoch,
             transfer_sections,
             send_to_row_indices: RefCell::new([None, None]),
             root_model: root,
@@ -333,7 +370,7 @@ impl ActionMenuSection {
                 let section = &transfer_sections[transfer_index];
                 let row_index = section.n_items();
                 let devices = send_to.item_link(0, "submenu").expect("Send to submenu");
-                let item = gio::MenuItem::new_submenu(Some("Send to…"), &devices);
+                let item = gio::MenuItem::new_submenu(Some(&crate::i18n::tr("Send to…")), &devices);
                 item.set_icon(&gio::ThemedIcon::new(crate::assets::icons::SEND_HORIZONTAL));
                 section.append_item(&item);
                 self.send_to_row_indices.borrow_mut()[transfer_index] = Some(row_index);
@@ -346,6 +383,7 @@ impl ActionMenuSection {
             refresh_presentation(&self.popover, &self.navigation);
             return;
         };
+        self.watch_providers(paths.clone(), false);
         let catalog = crate::ui::actions::shared().catalog();
         self.rebuild_custom_actions(
             state,
@@ -363,6 +401,7 @@ impl ActionMenuSection {
             refresh_presentation(&self.popover, &self.navigation);
             return;
         };
+        self.watch_providers(vec![path.to_path_buf()], true);
         let catalog = crate::ui::actions::shared().catalog();
         self.rebuild_custom_actions(
             state,
@@ -373,7 +412,40 @@ impl ActionMenuSection {
         );
     }
 
+    fn watch_providers(&self, paths: Vec<PathBuf>, background: bool) {
+        let popover = self.popover.downgrade();
+        let navigation = self.navigation.clone();
+        crate::ui::file_providers::watch_menu(
+            self.provider_model.clone(),
+            self.provider_group.clone(),
+            (
+                self.owner
+                    .upgrade()
+                    .as_ref()
+                    .unwrap_or(self.popover.upcast_ref()),
+                &self.popover,
+            ),
+            paths,
+            background,
+            (self.provider_epoch.clone(), self.provider_epoch.get()),
+            move |preserve_navigation| {
+                if let Some(popover) = popover.upgrade() {
+                    if preserve_navigation {
+                        navigation.preserve_submenu_navigation();
+                    }
+                    refresh_presentation(&popover, &navigation);
+                    navigation.model_changed();
+                }
+            },
+        );
+    }
+
     fn clear(&self) {
+        self.provider_epoch.set(self.provider_epoch.get() + 1);
+        self.provider_model.remove_all();
+        for name in self.provider_group.list_actions() {
+            self.provider_group.remove_action(&name);
+        }
         if let Some(transfer_sections) = &self.transfer_sections {
             for (index, row_index) in self.send_to_row_indices.borrow_mut().iter_mut().enumerate() {
                 if let Some(row_index) = row_index.take() {
@@ -438,7 +510,7 @@ impl ActionMenuSection {
             model.append_item(&item);
         }
         if submenu.n_items() > 0 {
-            let item = gio::MenuItem::new_submenu(Some("Actions"), &submenu);
+            let item = gio::MenuItem::new_submenu(Some(&crate::i18n::tr("Actions")), &submenu);
             item.set_icon(&gio::ThemedIcon::new(icons::PLAY));
             self.model.append_item(&item);
         }
@@ -519,7 +591,7 @@ pub(super) fn append_send_to_menu(
         actions.add_action(&folder_action);
         let choose = gio::Menu::new();
         choose.append(
-            Some("Choose folder…"),
+            Some(&crate::i18n::tr("Choose folder…")),
             Some(&format!("custom.{folder_name}")),
         );
         let device = gio::Menu::new();
@@ -531,7 +603,7 @@ pub(super) fn append_send_to_menu(
         item.set_attribute_value("x-strata-description", Some(&destination.name.to_variant()));
         devices.append_item(&item);
     }
-    model.append_submenu(Some("Send to…"), &devices);
+    model.append_submenu(Some(&crate::i18n::tr("Send to…")), &devices);
 }
 
 fn valid_recent_destinations(root: &Path, persisted: &[PathBuf]) -> Vec<PathBuf> {
@@ -580,6 +652,7 @@ pub(super) fn refresh_presentation(
 struct ItemPresentation {
     label: String,
     description: String,
+    shortcut: String,
     submenu: Option<gio::MenuModel>,
     icon_size: i32,
     send_to_device: bool,
@@ -594,10 +667,13 @@ fn collect_presentations(model: &gio::MenuModel, items: &mut Vec<ItemPresentatio
                 .item_attribute_value(index, name, None)
                 .and_then(|value| value.get::<String>())
         };
-        if let Some(label) = string("label") {
+        if let Some(label) = string("label")
+            && model.item_link(index, "section").is_none()
+        {
             items.push(ItemPresentation {
                 label: label.replace("__", "_"),
                 description: string("x-strata-description").unwrap_or_default(),
+                shortcut: string("x-strata-shortcut").unwrap_or_default(),
                 submenu: model.item_link(index, "submenu"),
                 icon_size: model
                     .item_attribute_value(index, "x-strata-icon-size", None)
@@ -698,14 +774,14 @@ fn present_native_items(
             let is_root = scroll.ancestor(gtk::PopoverMenu::static_type()).as_ref()
                 == Some(root.upcast_ref());
             if is_root {
+                // A floor rather than a fixed width: translated rows may need more room,
+                // and a natural width would follow long header paths instead of ellipsizing.
+                scroll.set_hscrollbar_policy(gtk::PolicyType::Never);
+                scroll.set_propagate_natural_width(false);
                 crate::ui::preferences::PreferenceManager::shared().bind_interface_scale(
                     scroll,
                     |scroll, scale| {
-                        if let Some(scroll) = scroll.downcast_ref::<gtk::ScrolledWindow>() {
-                            let width = (310.0 * scale).round() as i32;
-                            scroll.set_min_content_width(width);
-                            scroll.set_max_content_width(width);
-                        }
+                        scroll.set_size_request((310.0 * scale).round() as i32, -1);
                     },
                 );
             }
@@ -779,6 +855,16 @@ fn label_menu_item(widget: &gtk::Widget, item: &ItemPresentation) {
         gtk::accessible::Property::Label(&item.label),
         gtk::accessible::Property::Description(&item.description),
     ]);
+    // GTK renders the `accel` attribute itself; the row shows Strata's label.
+    let mut child = widget.first_child();
+    while let Some(current) = child {
+        child = current.next_sibling();
+        if current.css_name() == "accelerator"
+            && let Some(accelerator) = current.downcast_ref::<gtk::Label>()
+        {
+            accelerator.set_label(&item.shortcut);
+        }
+    }
 }
 
 fn native_item_presentation(

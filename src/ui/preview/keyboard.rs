@@ -7,7 +7,18 @@
 //! unchanged.
 
 use super::*;
-use crate::ui::browser::{BrowserView, WeakBrowserView};
+use crate::ui::{
+    browser::{BrowserView, WeakBrowserView},
+    keys::{
+        Binding,
+        bindings::{
+            DOWN, FIRST_ITEM, LAST_ITEM, LEFT, MEDIA_SEEK_BACK_PAGE, MEDIA_SEEK_FORWARD_PAGE,
+            MEDIA_SEEK_START, MEDIA_VOLUME_STEP_DOWN, MEDIA_VOLUME_STEP_UP,
+            MEDIA_VOLUME_STEP_UP_EQUAL, PAGE_DOWN, PAGE_UP, RIGHT, SPACE, TENXER_LAST_ITEM,
+            TENXER_MEDIA_MUTE, TENXER_MEDIA_NEXT, TENXER_MEDIA_PREVIOUS, UP,
+        },
+    },
+};
 
 const OWNER_CLASS: &str = "preview-keyboard-owner";
 const MAX_CLAIM_FRAMES: u32 = 30;
@@ -30,11 +41,131 @@ pub(in crate::ui) enum DocumentScroll {
     End,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::ui) enum ArchiveMove {
+    Previous,
+    Next,
+    Parent,
+    Open,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::ui) enum MediaCommand {
+    PlayPause,
+    Seek(MediaSeek),
+    VolumeUp,
+    VolumeDown,
+    Mute,
+    Previous,
+    Next,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::ui) enum MediaSeek {
+    By(i64),
+    Start,
+    End,
+}
+
+impl MediaSeek {
+    pub(super) fn target(self, timestamp: i64, duration: i64) -> i64 {
+        let last = media_last_frame(duration);
+        match self {
+            Self::By(delta) => (timestamp + delta).clamp(0, last),
+            Self::Start => 0,
+            Self::End => last,
+        }
+    }
+}
+
+impl MediaCommand {
+    pub(super) fn volume_delta(self) -> Option<f64> {
+        match self {
+            Self::VolumeUp => Some(MEDIA_VOLUME_STEP),
+            Self::VolumeDown => Some(-MEDIA_VOLUME_STEP),
+            _ => None,
+        }
+    }
+}
+
+const SEEK_AND_VOLUME: [(Binding, MediaCommand); 13] = [
+    (LEFT, MediaCommand::Seek(MediaSeek::By(-MEDIA_SEEK_STEP_US))),
+    (RIGHT, MediaCommand::Seek(MediaSeek::By(MEDIA_SEEK_STEP_US))),
+    (
+        MEDIA_SEEK_BACK_PAGE,
+        MediaCommand::Seek(MediaSeek::By(-MEDIA_SEEK_PAGE_US)),
+    ),
+    (
+        MEDIA_SEEK_FORWARD_PAGE,
+        MediaCommand::Seek(MediaSeek::By(MEDIA_SEEK_PAGE_US)),
+    ),
+    (
+        PAGE_DOWN,
+        MediaCommand::Seek(MediaSeek::By(-MEDIA_SEEK_PAGE_US)),
+    ),
+    (
+        PAGE_UP,
+        MediaCommand::Seek(MediaSeek::By(MEDIA_SEEK_PAGE_US)),
+    ),
+    (MEDIA_SEEK_START, MediaCommand::Seek(MediaSeek::Start)),
+    (FIRST_ITEM, MediaCommand::Seek(MediaSeek::Start)),
+    (TENXER_LAST_ITEM, MediaCommand::Seek(MediaSeek::End)),
+    (LAST_ITEM, MediaCommand::Seek(MediaSeek::End)),
+    (MEDIA_VOLUME_STEP_UP, MediaCommand::VolumeUp),
+    (MEDIA_VOLUME_STEP_UP_EQUAL, MediaCommand::VolumeUp),
+    (MEDIA_VOLUME_STEP_DOWN, MediaCommand::VolumeDown),
+];
+
+const PLAYBACK: [(Binding, MediaCommand); 6] = [
+    (SPACE, MediaCommand::PlayPause),
+    (UP, MediaCommand::VolumeUp),
+    (DOWN, MediaCommand::VolumeDown),
+    (TENXER_MEDIA_MUTE, MediaCommand::Mute),
+    (TENXER_MEDIA_PREVIOUS, MediaCommand::Previous),
+    (TENXER_MEDIA_NEXT, MediaCommand::Next),
+];
+
+pub(super) fn seek_or_volume(press: &KeyPress) -> Option<MediaCommand> {
+    command_for(&SEEK_AND_VOLUME, press)
+}
+
+/// Keys a keyboard-owned media preview claims, even when the stream cannot
+/// act on them.
+pub(in crate::ui) fn media_key_command(press: &KeyPress) -> Option<MediaCommand> {
+    command_for(&PLAYBACK, press).or_else(|| seek_or_volume(press))
+}
+
+fn command_for(commands: &[(Binding, MediaCommand)], press: &KeyPress) -> Option<MediaCommand> {
+    commands
+        .iter()
+        .find(|(binding, _)| press.is(*binding))
+        .map(|(_, command)| *command)
+}
+
+/// Steps the shared preview volume; reaching zero mutes and keeps the volume
+/// to restore.
+pub(super) fn step_preview_volume(delta: f64) {
+    let preferences = crate::ui::preferences::PreferenceManager::shared();
+    let current = if preferences.preview_muted() {
+        0.0
+    } else {
+        preferences.preview_volume()
+    };
+    let volume = snapped_volume(current + delta);
+    preferences.set_preview_audio(volume, volume == 0.0);
+}
+
 impl PreviewDrawer {
     /// The browser whose Miller columns yield their keyboard-destination bar
     /// while the drawer owns the keys.
     pub(in crate::ui) fn bind_keyboard_view(&self, view: &BrowserView) {
         self.state.keyboard_view.replace(Some(view.downgrade()));
+        let weak = Rc::downgrade(&self.state);
+        view.set_playback_handoff(Rc::new(move |location| {
+            weak.upgrade()
+                .map(|state| PreviewDrawer { state })
+                .and_then(|drawer| drawer.prepare_handoff(location))
+        }));
     }
 
     /// Whether keyboard focus is anywhere inside the drawer.
@@ -59,8 +190,8 @@ impl PreviewDrawer {
 
     /// Plain media keys for a keyboard-owned media preview, plus `<` / `>` from
     /// the 10xer listing while an audio preview is open.
-    pub(in crate::ui) fn media_key(&self, key: gtk::gdk::Key) -> bool {
-        self.has_video() && self.state.media_command(key)
+    pub(in crate::ui) fn media_key(&self, command: MediaCommand) -> bool {
+        self.has_video() && self.state.media_command(command)
     }
 
     pub(in crate::ui) fn archive_at_root(&self) -> bool {
@@ -279,13 +410,13 @@ impl PreviewState {
         if self.archive_list_has_focus(Some(focused)) {
             return PreviewSurface::Archive;
         }
-        if accepts_typing(focused) {
+        if crate::ui::focus_navigation::accepts_typing(focused) {
             return PreviewSurface::Text;
         }
-        let media_view = (self.media.borrow().is_some() || self.audio.borrow().is_some())
+        let media_view = self.has_media_view()
             && (focused == self.content.upcast_ref::<gtk::Widget>()
                 || focused.is::<gtk::Overlay>()
-                || focused.is::<super::audio::Scrubber>());
+                || focused.is::<super::waveform::Waveform>());
         if media_view {
             return PreviewSurface::Media;
         }
@@ -354,21 +485,5 @@ impl PreviewState {
         };
         adjustment.set_value(target.clamp(lower, limit));
         true
-    }
-}
-
-/// Read-only source text is a document, not a text field.
-fn accepts_typing(focused: &gtk::Widget) -> bool {
-    let view = focused
-        .downcast_ref::<gtk::TextView>()
-        .cloned()
-        .or_else(|| {
-            focused
-                .ancestor(gtk::TextView::static_type())
-                .and_downcast::<gtk::TextView>()
-        });
-    match view {
-        Some(view) => view.is_editable(),
-        None => crate::ui::focus_navigation::editable(focused),
     }
 }

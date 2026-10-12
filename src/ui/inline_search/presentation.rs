@@ -58,7 +58,7 @@ impl ResultWidgets {
                 labels.append(&origin);
                 let field = gtk::Entry::new();
                 field.add_css_class("inline-rename");
-                accessibility::set_label(&field, "Rename");
+                accessibility::set_label(&field, &crate::i18n::tr("Rename"));
                 field.set_hexpand(true);
                 field.set_width_chars(1);
                 field.set_visible(false);
@@ -141,7 +141,7 @@ impl ResultWidgets {
             thumbnail::set_thumbnail_or_icon_for_path(
                 &self.icon,
                 &result.path,
-                crate::assets::icons::DOCUMENTS,
+                browser::icon_for_name(&result.name),
                 size,
                 size,
             );

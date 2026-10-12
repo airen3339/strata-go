@@ -1,9 +1,12 @@
 # SPDX-License-Identifier: MIT
 """Content drags, inert-space marquees, and release-only previews in every mode."""
 
+import time
+
 import pytest
 
 from harness.artifacts import ArtifactCollector
+from harness.interaction import SEPARATE_CLICK_GAP
 from harness.modes import ALL_MODES
 
 
@@ -40,11 +43,23 @@ def test_file_drag_does_not_open_preview(strata, mode, origin):
 
 @pytest.mark.preferences(single_click_previews=True)
 @pytest.mark.parametrize("mode", ALL_MODES)
-@pytest.mark.parametrize("origin", ["content", "inert"])
-def test_simple_click_still_opens_preview(strata, mode, origin):
+@pytest.mark.parametrize(
+    "origin,initial",
+    [("content", "none"), ("inert", "none"), ("content", "group")],
+    ids=["content", "inert", "content-group"],
+)
+def test_simple_click_still_opens_preview(strata, mode, origin, initial):
+    root = strata.fixture.root.name
+    if initial == "group":
+        strata.wait_for_selection(["archive"], root)
+        strata.click_entry_with("todo.txt", ["ctrl"], root)
+        strata.wait_for_selection(["archive", "todo.txt"], root)
+        time.sleep(SEPARATE_CLICK_GAP)
     at = _inert_point(strata, "todo.txt", mode) if origin == "inert" else None
-    strata.pointer.click(strata.entry("todo.txt"), at=at)
+    strata.pointer.click(strata.entry("todo.txt", root), at=at)
     strata.wait(lambda: strata.preview_shows("todo"), "preview after a simple click")
+    if initial == "group":
+        strata.wait_for_selection(["todo.txt"], root)
 
 
 def _full_directory(strata):
@@ -54,6 +69,17 @@ def _full_directory(strata):
         (folder / f"{index:03}.txt").write_text(f"{index}\n")
     strata.open_directory("full")
     return folder
+
+
+def _scroll_back_to(strata, name):
+    def on_screen():
+        entry = next((entry for entry in strata.entries() if entry.name == name), None)
+        if entry is not None and strata.on_screen(entry):
+            return entry
+        strata.pointer.scroll(strata.pane().screen_bounds().center, clicks=10, down=False)
+        return None
+
+    strata.settle(strata.wait(on_screen, f"{name} to scroll back into view"))
 
 
 def _inert_point(strata, name, mode):
@@ -72,12 +98,24 @@ def _inert_point(strata, name, mode):
 @pytest.mark.preferences(single_click_previews=True)
 @pytest.mark.parametrize("mode", ALL_MODES)
 @pytest.mark.parametrize(
-    "modifiers",
-    [pytest.param((), id="plain"), pytest.param(("ctrl",), id="ctrl")],
+    "modifiers,select_all",
+    [
+        pytest.param((), False, id="plain"),
+        pytest.param(("ctrl",), False, id="ctrl"),
+        # Every row is selected, so Alt starts the marquee over one.
+        pytest.param(("ctrl", "alt"), True, id="ctrl-over-select-all"),
+    ],
 )
-def test_marquee_begins_beside_content_in_a_full_pane(strata, mode, modifiers):
+def test_marquee_begins_beside_content_in_a_full_pane(strata, mode, modifiers, select_all):
     folder = _full_directory(strata)
     before = sorted(folder.iterdir())
+    if select_all:
+        strata.keyboard.press("ctrl+a")
+        strata.wait(
+            lambda: strata.window.find(role="label", name=f"{len(before)} files selected"),
+            "select all before the marquee",
+        )
+        _scroll_back_to(strata, "000.txt")
     initial = set(strata.selected_names())
     start = _inert_point(strata, "001.txt", mode)
     end = _inert_point(strata, "011.txt", mode)
@@ -85,14 +123,38 @@ def test_marquee_begins_beside_content_in_a_full_pane(strata, mode, modifiers):
         start, (end[0] + 3, end[1]), modifiers=modifiers
     )
 
+    def expected(name):
+        return name not in initial if "ctrl" in modifiers else True
+
     strata.wait(
-        lambda: len(strata.selected_names()) > 1,
+        lambda: len(strata.selected_names()) > 1
+        and all(
+            (name in strata.selected_names()) == expected(name)
+            for name in ("001.txt", "011.txt")
+        ),
         "marquee selection beside occupied rows",
     )
-    selected = set(strata.selected_names())
-    for name in ("001.txt", "011.txt"):
-        expected = name not in initial if "ctrl" in modifiers else True
-        assert (name in selected) == expected
+    if select_all:
+        # The description holds the count in every footer wording; cleared rows lie
+        # between the band's ends.
+        def footer_counts_the_remaining_fill():
+            entries = strata.entries()
+            ends = [entry for entry in entries if entry.name in ("001.txt", "011.txt")]
+            if len(ends) != 2 or any(
+                entry.has_state("selected") or not strata.on_screen(entry) for entry in ends
+            ):
+                return None
+            cleared = sum(not entry.has_state("selected") for entry in entries)
+            remaining = f"{len(before) - cleared} of {len(before)} items selected"
+            return strata.window.find(
+                role="label",
+                predicate=lambda node: node.description.startswith(remaining),
+            )
+
+        strata.wait(
+            footer_counts_the_remaining_fill,
+            "the footer to count the fill left by the marquee",
+        )
     assert strata.preview() is None
     assert sorted(folder.iterdir()) == before
 

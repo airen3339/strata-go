@@ -18,15 +18,21 @@ use crate::{
 
 use super::{FileProgressView, TransferProgressSnapshot};
 
+type DismissWaiters = Rc<RefCell<Vec<Box<dyn FnOnce()>>>>;
+
 pub(in crate::ui::browser) struct FileProgressState {
     pub(in crate::ui::browser) overlay: gtk::Overlay,
     pub(in crate::ui::browser) file_progress_view: RefCell<Option<FileProgressView>>,
+    pub(super) file_progress_dismissing: Rc<Cell<usize>>,
+    pub(super) file_progress_dismiss_waiters: DismissWaiters,
     pub(in crate::ui::browser) pending_file_progress: RefCell<Option<glib::SourceId>>,
+    pub(super) on_present: RefCell<Option<Box<dyn FnOnce()>>>,
     pub(in crate::ui::browser) file_operation_progress: Cell<(usize, usize)>,
     pub(in crate::ui::browser) archive_progress: Cell<Option<(usize, usize)>>,
     pub(in crate::ui::browser) archive_compressing: Cell<bool>,
     pub(in crate::ui::browser) deleting: Cell<bool>,
     pub(in crate::ui::browser) transfer_progress: Cell<Option<TransferProgressSnapshot>>,
+    pub(super) transfer_render_source: RefCell<Option<glib::SourceId>>,
     pub(in crate::ui::browser) transfer_current_file: RefCell<Option<String>>,
     pub(in crate::ui::browser) transfer_rate_sample: Cell<Option<(std::time::Instant, u64)>>,
     pub(in crate::ui::browser) transfer_rate_bytes_per_second: Cell<Option<f64>>,
@@ -37,6 +43,7 @@ pub(in crate::ui::browser) struct FileProgressState {
     pub(super) dock_only: Cell<bool>,
     pub(super) task_description: RefCell<String>,
     pub(super) destination_description: RefCell<String>,
+    pub(super) destination_label: RefCell<String>,
 }
 
 impl FileProgressState {
@@ -44,12 +51,16 @@ impl FileProgressState {
         Self {
             overlay: overlay.clone(),
             file_progress_view: RefCell::new(None),
+            file_progress_dismissing: Rc::new(Cell::new(0)),
+            file_progress_dismiss_waiters: Rc::new(RefCell::new(Vec::new())),
             pending_file_progress: RefCell::new(None),
+            on_present: RefCell::new(None),
             file_operation_progress: Cell::new((0, 0)),
             archive_progress: Cell::new(None),
             archive_compressing: Cell::new(false),
             deleting: Cell::new(false),
             transfer_progress: Cell::new(None),
+            transfer_render_source: RefCell::new(None),
             transfer_current_file: RefCell::new(None),
             transfer_rate_sample: Cell::new(None),
             transfer_rate_bytes_per_second: Cell::new(None),
@@ -60,6 +71,7 @@ impl FileProgressState {
             dock_only: Cell::new(false),
             task_description: RefCell::new(String::new()),
             destination_description: RefCell::new(String::new()),
+            destination_label: RefCell::new(String::new()),
         }
     }
 }
@@ -83,6 +95,7 @@ pub(in crate::ui::browser) struct BackgroundProgress {
     pub(in crate::ui::browser) progress: Rc<FileProgressState>,
     send_to: Option<PendingSendToCompletion>,
     delete_entries: Vec<crate::model::FileEntry>,
+    trash_animation: RefCell<Option<crate::ui::browser::fly_to_trash::PreparedFlight>>,
     archive_destination: Option<crate::model::Location>,
 }
 
@@ -131,6 +144,9 @@ impl ViewState {
             .destination_description
             .replace(self.browser.operation_destination_description());
         progress
+            .destination_label
+            .replace(self.browser.operation_destination_label());
+        progress
             .task_description
             .replace(self.browser.operation_description());
         progress.show_file_operation_progress(total, icon, title, subtitle, on_cancel);
@@ -149,16 +165,18 @@ impl ViewState {
             return;
         }
         let deleting = self.file_progress().deleting.get();
-        if deleting {
-            self.pending_delete_dissolve.take();
-            self.deferred_delete_empty_depth.set(None);
-        }
         if !self.browser.background_file_operation(request_id) {
             return;
         }
         let progress = self
             .progress_state
             .replace(Rc::new(FileProgressState::new(&self.overlay)));
+        if deleting
+            && self.delete_dissolve_request.get().is_none()
+            && self.pending_delete_dissolve.borrow().is_some()
+        {
+            self.delete_dissolve_request.set(Some(request_id));
+        }
         let archive_destination = self.pending_archive_destination.take();
         self.pending_navigate.take();
         self.suppress_scroll_after_drop.set(false);
@@ -174,8 +192,34 @@ impl ViewState {
                 } else {
                     Vec::new()
                 },
+                trash_animation: RefCell::new(if deleting {
+                    self.pending_file_operation_animation.take()
+                } else {
+                    None
+                }),
             }),
         );
+        if deleting {
+            if progress.file_progress_view.borrow().is_some() {
+                self.discard_background_delete_animation(request_id);
+            } else {
+                let weak = Rc::downgrade(self);
+                progress.on_present.replace(Some(Box::new(move || {
+                    if let Some(state) = weak.upgrade() {
+                        state.discard_background_delete_animation(request_id);
+                    }
+                })));
+            }
+        }
+    }
+
+    fn discard_background_delete_animation(&self, request_id: OperationRequestId) {
+        if let Some(background) = self.background_file_progress.borrow().get(&request_id) {
+            background.trash_animation.take();
+        }
+        if self.delete_dissolve_request.get() == Some(request_id) {
+            self.settle_pending_delete_dissolve();
+        }
     }
 
     pub(in crate::ui::browser) fn handle_background_file_operation(
@@ -227,8 +271,14 @@ impl ViewState {
                 progress.update_item_progress(*completed, *total);
                 false
             }
-            BrowserEvent::DeletionFinished { .. } => {
+            BrowserEvent::DeletionFinished { succeeded } => {
                 self.prune_stale_search_results();
+                if *succeeded && let Some(animation) = background.trash_animation.take() {
+                    animation.play(|| {});
+                }
+                if self.delete_dissolve_request.get() == Some(request_id) {
+                    self.play_pending_delete_dissolve(*succeeded);
+                }
                 true
             }
             BrowserEvent::OperationCompletedWithErrors {
@@ -240,8 +290,11 @@ impl ViewState {
                     background.delete_entries.clone(),
                     retryable_locations,
                 );
+                if self.delete_dissolve_request.get() == Some(request_id) {
+                    self.settle_pending_delete_dissolve();
+                }
                 if entries.is_empty() {
-                    show_error_dialog(&self.overlay, "Completed with errors", message);
+                    crate::ui::modal::show_partial_failure_dialog(&self.overlay, message);
                 } else if *has_non_retryable_failures || self.browser.has_foreground_operation() {
                     let weak = Rc::downgrade(self);
                     crate::ui::modal::show_delete_error_dialog(
@@ -279,8 +332,15 @@ impl ViewState {
                 }
                 true
             }
-            BrowserEvent::OperationFailed { message } => {
-                show_error_dialog(&self.overlay, "Unable to complete operation", message);
+            BrowserEvent::OperationFailed { message, .. } => {
+                if self.delete_dissolve_request.get() == Some(request_id) {
+                    self.settle_pending_delete_dissolve();
+                }
+                show_error_dialog(
+                    &self.overlay,
+                    &crate::i18n::tr("Unable to complete operation"),
+                    message,
+                );
                 true
             }
             BrowserEvent::OperationCancelled {
@@ -289,25 +349,29 @@ impl ViewState {
                 not_attempted,
                 affected_locations,
             } => {
+                if self.delete_dissolve_request.get() == Some(request_id) {
+                    self.settle_pending_delete_dissolve();
+                }
                 self.browser.refresh_after_cancellation(affected_locations);
-                let message = format!(
-                    "{completed} completed, {failed} failed, and {not_attempted} not attempted.\n\nCompleted changes were not reverted."
+                show_error_dialog(
+                    &self.overlay,
+                    &crate::i18n::tr("Operation cancelled"),
+                    &super::cancelled_operation_summary(*completed, *failed, *not_attempted),
                 );
-                show_error_dialog(&self.overlay, "Operation cancelled", &message);
                 true
             }
             _ => false,
         };
         if finished {
+            background.trash_animation.take();
             match event {
                 BrowserEvent::TransferCompleted => {
-                    progress.complete_file_operation_progress("Copy complete")
+                    progress.complete_file_operation_progress(&crate::i18n::tr("Copy complete"))
                 }
-                BrowserEvent::ArchiveCompleted { .. } => {
-                    progress.complete_file_operation_progress("Compression complete")
-                }
+                BrowserEvent::ArchiveCompleted { .. } => progress
+                    .complete_file_operation_progress(&crate::i18n::tr("Compression complete")),
                 BrowserEvent::DeletionFinished { succeeded: true } => {
-                    progress.complete_file_operation_progress("Deletion complete")
+                    progress.complete_file_operation_progress(&crate::i18n::tr("Deletion complete"))
                 }
                 _ => progress.dismiss_file_operation_progress(),
             }
@@ -325,12 +389,14 @@ impl ViewState {
         if self.browser.has_foreground_operation() {
             show_error_dialog(
                 &self.overlay,
-                "Another operation is active",
-                "Finish or minimize that operation before retrying deletion. The failed items have not been deleted.",
+                &crate::i18n::tr("Another operation is active"),
+                &crate::i18n::tr(
+                    "Finish or minimize that operation before retrying deletion. The failed items have not been deleted.",
+                ),
             );
             return;
         }
-        self.show_delete_confirmation(entries);
+        self.show_trash_unavailable_confirmation(entries);
     }
 
     pub(in crate::ui::browser) fn update_transfer_progress(

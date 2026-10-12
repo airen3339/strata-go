@@ -12,6 +12,7 @@ from __future__ import annotations
 import ctypes
 import ctypes.util
 from dataclasses import dataclass, field
+from typing import NamedTuple
 
 KeySym = ctypes.c_ulong
 Display = ctypes.c_void_p
@@ -20,6 +21,10 @@ CURRENT_SCREEN = -1
 NO_DELAY = 0
 IS_VIEWABLE = 2
 BAD_WINDOW = 3
+SUCCESS = 0
+XKB_USE_CORE_KBD = 0x0100
+LOCK_MASK = 1 << 1
+ALL_MODIFIERS = 0xFF
 
 
 class WindowAttributes(ctypes.Structure):
@@ -46,6 +51,24 @@ class XErrorEvent(ctypes.Structure):
         ("error_code", ctypes.c_ubyte), ("request_code", ctypes.c_ubyte),
         ("minor_code", ctypes.c_ubyte),
     ]
+
+
+class XkbStateRec(ctypes.Structure):
+    _fields_ = [
+        ("group", ctypes.c_ubyte), ("locked_group", ctypes.c_ubyte),
+        ("base_group", ctypes.c_ushort), ("latched_group", ctypes.c_ushort),
+        ("mods", ctypes.c_ubyte), ("base_mods", ctypes.c_ubyte),
+        ("latched_mods", ctypes.c_ubyte), ("locked_mods", ctypes.c_ubyte),
+        ("compat_state", ctypes.c_ubyte), ("grab_mods", ctypes.c_ubyte),
+        ("compat_grab_mods", ctypes.c_ubyte), ("lookup_mods", ctypes.c_ubyte),
+        ("compat_lookup_mods", ctypes.c_ubyte), ("ptr_buttons", ctypes.c_ushort),
+    ]
+
+
+class KeyboardState(NamedTuple):
+    group: int
+    locked_group: int
+    locked_modifiers: int
 
 
 class XTestError(RuntimeError):
@@ -123,6 +146,13 @@ class XTestConnection:
             ctypes.POINTER(ctypes.c_ulong),
             ctypes.POINTER(ctypes.c_ulong),
         ] + [ctypes.POINTER(ctypes.c_int)] * 4 + [ctypes.POINTER(ctypes.c_uint)]
+        self._x11.XkbLockGroup.argtypes = [Display, ctypes.c_uint, ctypes.c_uint]
+        self._x11.XkbLockModifiers.argtypes = [
+            Display, ctypes.c_uint, ctypes.c_uint, ctypes.c_uint,
+        ]
+        self._x11.XkbGetState.argtypes = [
+            Display, ctypes.c_uint, ctypes.POINTER(XkbStateRec),
+        ]
         self._xtst.XTestQueryExtension.argtypes = [Display] + [
             ctypes.POINTER(ctypes.c_int)
         ] * 4
@@ -198,6 +228,26 @@ class XTestConnection:
 
     def key_needs_shift(self, keysym: int) -> bool:
         return self.keycode_for(keysym)[1]
+
+    def lock_group(self, group: int) -> None:
+        """Select a layout of the keymap, as a layout switch shortcut does."""
+
+        if not self._x11.XkbLockGroup(self._display, XKB_USE_CORE_KBD, group):
+            raise XTestError(f"cannot lock keyboard group {group}")
+        self.flush()
+
+    def lock_modifiers(self, affect: int, values: int) -> None:
+        """Of the `affect` modifiers, lock those set in `values` and unlock the rest."""
+
+        if not self._x11.XkbLockModifiers(self._display, XKB_USE_CORE_KBD, affect, values):
+            raise XTestError(f"cannot lock keyboard modifiers 0x{affect:02x}")
+        self.flush()
+
+    def keyboard_state(self) -> KeyboardState:
+        state = XkbStateRec()
+        if self._x11.XkbGetState(self._display, XKB_USE_CORE_KBD, ctypes.byref(state)) != SUCCESS:
+            raise XTestError("cannot read the keyboard state")
+        return KeyboardState(state.group, state.locked_group, state.locked_mods)
 
     def motion(self, x: int, y: int) -> None:
         self._xtst.XTestFakeMotionEvent(

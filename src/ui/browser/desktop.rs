@@ -20,26 +20,37 @@ pub(in crate::ui) fn open_location(
     parent: &impl IsA<gtk::Widget>,
     browser: &Rc<Browser>,
 ) {
+    open_location_at(location, None, parent, browser);
+}
+
+pub(in crate::ui) fn open_location_at(
+    location: &Location,
+    position: Option<std::time::Duration>,
+    parent: &impl IsA<gtk::Widget>,
+    browser: &Rc<Browser>,
+) {
     if is_trash_location(location) {
         show_error_dialog(
             parent,
-            "Unable to open item",
-            "Items in Trash cannot be opened",
+            &crate::i18n::tr("Unable to open item"),
+            &crate::i18n::tr("Items in Trash cannot be opened"),
         );
         return;
     }
     let file = gio_file_for_location(location);
+    let context = parent.as_ref().display().app_launch_context();
     let parent = parent.as_ref().downgrade();
     let location = location.clone();
     let browser = Rc::downgrade(browser);
     glib::MainContext::default().spawn_local(async move {
         match resolve_default_application(&file).await {
             Ok((content_type, Some(app))) => {
-                let result = crate::ui::open_with::launch(
+                let result = crate::ui::open_with::launch_at(
                     &app,
-                    std::slice::from_ref(&file),
-                    std::slice::from_ref(&content_type),
-                    None::<&gio::AppLaunchContext>,
+                    &file,
+                    &content_type,
+                    position,
+                    Some(&context),
                 );
                 if let Some(parent) = parent.upgrade() {
                     report_open_result(&location, &parent, result);
@@ -77,7 +88,7 @@ async fn resolve_default_application(
     if info.file_type() == gio::FileType::SymbolicLink {
         return Err(glib::Error::new(
             gio::IOErrorEnum::Failed,
-            "Broken symbolic links cannot be opened with an application",
+            &crate::i18n::tr("Broken symbolic links cannot be opened with an application"),
         ));
     }
     let content_type = info
@@ -86,7 +97,7 @@ async fn resolve_default_application(
         .ok_or_else(|| {
             glib::Error::new(
                 gio::IOErrorEnum::Failed,
-                "Unable to determine the selected file type",
+                &crate::i18n::tr("Unable to determine the selected file type"),
             )
         })?;
     let requires_uris = crate::ui::open_with::requires_uri_handlers(std::slice::from_ref(file));
@@ -137,11 +148,11 @@ fn report_open_result(
         let detail = if error.matches(gio::IOErrorEnum::NotSupported)
             && gio_file_for_location(location).is_native()
         {
-            "No application is registered for this file"
+            crate::i18n::tr("No application is registered for this file")
         } else {
-            error.message()
+            error.message().to_owned()
         };
-        show_error_dialog(parent, "Unable to open file", detail);
+        show_error_dialog(parent, &crate::i18n::tr("Unable to open file"), &detail);
     }
 }
 
@@ -172,14 +183,17 @@ pub(super) fn confirm_run_program(location: &Location, parent: &impl IsA<gtk::Wi
     let name = location.display_name();
     let layout = message_dialog_layout(
         crate::assets::icons::TERMINAL,
-        "Run this program?",
+        &crate::i18n::tr("Run this program?"),
         &name,
-        "Run",
+        &crate::i18n::tr("Run"),
         ModalTone::Danger,
     );
-    layout.body.append(&message_dialog_description(&format!(
-        "\u{201c}{name}\u{201d} is an executable file. Only run programs you trust."
-    )));
+    layout
+        .body
+        .append(&message_dialog_description(&rust_i18n::t!(
+            "“%{name}” is an executable file. Only run programs you trust.",
+            name = name
+        )));
     let content = layout.content;
     let close = layout.close;
     let cancel = layout.cancel;
@@ -205,7 +219,11 @@ pub(super) fn confirm_run_program(location: &Location, parent: &impl IsA<gtk::Wi
         dismiss_modal_layer(&run_layer, &run_overlay, run_root.as_ref());
         if let Err(error) = launch_program(&run_location) {
             tracing::warn!(%error, "unable to run program");
-            show_error_dialog(&error_parent, "Unable to run program", &error.to_string());
+            show_error_dialog(
+                &error_parent,
+                &crate::i18n::tr("Unable to run program"),
+                &error.to_string(),
+            );
         }
     });
 }
@@ -217,13 +235,7 @@ fn launch_program(location: &Location) -> std::io::Result<()> {
             "program is not a local file",
         )
     })?;
-    let mut child = program_command(path, terminal::Terminal::resolve)?.spawn()?;
-    std::thread::spawn(move || {
-        if let Err(error) = child.wait() {
-            tracing::warn!(%error, "unable to reap program");
-        }
-    });
-    Ok(())
+    terminal::spawn_reaped(program_command(path, terminal::Terminal::resolve)?)
 }
 
 fn program_command(
@@ -242,11 +254,12 @@ fn program_command(
             std::ffi::OsStr::new("/bin/sh"),
             std::ffi::OsStr::new("-c"),
             std::ffi::OsStr::new(
-                "cd -- \"$2\" && \"$1\"; status=$?; printf '\\nProcess exited with status %s. Press Enter to close…' \"$status\"; IFS= read -r answer; exit \"$status\"",
+                "cd -- \"$2\" && \"$1\"; status=$?; printf '\\n'; printf \"$3\" \"$status\"; IFS= read -r answer; exit \"$status\"",
             ),
             std::ffi::OsStr::new("strata-run"),
             path.as_os_str(),
             path.parent().unwrap_or_else(|| Path::new(".")).as_os_str(),
+            std::ffi::OsStr::new(&exit_prompt_format()),
         ]);
         command.current_dir(path.parent().unwrap_or_else(|| Path::new(".")));
         return Ok(command);
@@ -258,6 +271,16 @@ fn program_command(
         .stdout(Stdio::null())
         .stderr(Stdio::null());
     Ok(command)
+}
+
+/// A printf format whose only conversion is the exit status.
+fn exit_prompt_format() -> String {
+    rust_i18n::t!(
+        "Process exited with status %{status}. Press Enter to close…",
+        status = "\u{1}"
+    )
+    .replace('%', "%%")
+    .replace('\u{1}', "%s")
 }
 
 pub(super) fn can_open_terminal(location: &Location) -> bool {
@@ -275,16 +298,16 @@ pub(in crate::ui) fn launch_terminal(location: &Location, parent: &impl IsA<gtk:
     let Some(path) = location.native_path() else {
         show_error_dialog(
             parent,
-            "Unable to open terminal",
-            "This location is not a local folder",
+            &crate::i18n::tr("Unable to open terminal"),
+            &crate::i18n::tr("This location is not a local folder"),
         );
         return;
     };
     if is_trash_location(location) {
         show_error_dialog(
             parent,
-            "Unable to open terminal",
-            "Terminal cannot be opened in Trash",
+            &crate::i18n::tr("Unable to open terminal"),
+            &crate::i18n::tr("Terminal cannot be opened in Trash"),
         );
         return;
     }
@@ -297,17 +320,17 @@ pub(in crate::ui) fn launch_terminal(location: &Location, parent: &impl IsA<gtk:
         tracing::warn!("no terminal emulator found on PATH");
         show_error_dialog(
             parent,
-            "Unable to open terminal",
+            &crate::i18n::tr("Unable to open terminal"),
             &terminal::no_terminal_message(),
         );
         return;
     };
     let program = terminal.program().to_string_lossy().into_owned();
-    if let Err(error) = terminal.directory_command(&path).spawn() {
+    if let Err(error) = terminal::spawn_reaped(terminal.directory_command(&path)) {
         tracing::warn!(%error, %program, "unable to launch terminal");
         show_error_dialog(
             parent,
-            "Unable to open terminal",
+            &crate::i18n::tr("Unable to open terminal"),
             &terminal.launch_failure(&error),
         );
     }

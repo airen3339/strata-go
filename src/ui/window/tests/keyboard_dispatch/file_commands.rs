@@ -125,16 +125,6 @@ fn leave_folder(fixture: &KeyboardFixture) {
     focus_files(fixture);
 }
 
-fn open_empty_folder(fixture: &KeyboardFixture) {
-    let empty = fixture._directory.path().join("empty");
-    std::fs::create_dir(&empty).expect("empty folder");
-    let browser = fixture.view.browser();
-    browser.navigate(Location::local(&empty));
-    wait_until(|| browser.active_location() == Some(Location::local(&empty)));
-    wait_loaded(&browser, 0);
-    focus_files(fixture);
-}
-
 #[test]
 fn tenxer_yank_cut_and_unyank_mark_the_fill_or_cursor() {
     crate::test_support::gtk_test(
@@ -378,20 +368,26 @@ fn tenxer_delete_confirms_trash_and_permanent_deletion() {
                 move_to_named(&fixture, &browser, "b.txt");
                 assert!(fixture.press(key, modifiers));
                 wait_until(|| modal_visible(&fixture.overlay));
-                let cancel = wait_focused_button(&fixture, "Cancel");
+                wait_until(|| {
+                    widget_with_class(fixture.overlay.upcast_ref(), "action-dialog-confirm")
+                        .is_some_and(|confirm| confirm.is_sensitive() && confirm.has_focus())
+                });
                 pump(300);
-                assert_eq!(
-                    focused_button(&fixture).and_then(|button| button.label()),
-                    Some("Cancel".into()),
-                    "the size summary must not move focus to Permanently delete"
+                assert!(
+                    widget_with_class(fixture.overlay.upcast_ref(), "action-dialog-confirm")
+                        .is_some_and(|confirm| confirm.has_focus()),
+                    "the size summary must keep focus on Permanently delete"
                 );
-                cancel.emit_clicked();
+                assert!(modal_key(&fixture, Key::Escape));
                 wait_until(|| !modal_visible(&fixture.overlay));
                 assert!(directory.join("b.txt").exists(), "{key:?} cancel keeps it");
             }
             move_to_named(&fixture, &browser, "b.txt");
             shifted(&fixture, Key::D);
-            wait_focused_button(&fixture, "Cancel");
+            wait_until(|| {
+                widget_with_class(fixture.overlay.upcast_ref(), "action-dialog-confirm")
+                    .is_some_and(|confirm| confirm.is_sensitive() && confirm.has_focus())
+            });
             assert!(!modal_key(&fixture, Key::d));
             pump(200);
             assert!(
@@ -404,9 +400,9 @@ fn tenxer_delete_confirms_trash_and_permanent_deletion() {
             shifted(&fixture, Key::D);
             wait_until(|| {
                 widget_with_class(fixture.overlay.upcast_ref(), "action-dialog-confirm")
-                    .is_some_and(|confirm| confirm.is_sensitive())
+                    .is_some_and(|confirm| confirm.is_sensitive() && confirm.has_focus())
             });
-            assert!(click_class(&fixture.overlay, "action-dialog-confirm"));
+            assert!(modal_key(&fixture, Key::Return));
             wait_until(|| !directory.join("b.txt").exists());
             assert_eq!(directory_names(&directory), ["a.txt", "c.txt"]);
 
@@ -414,6 +410,159 @@ fn tenxer_delete_confirms_trash_and_permanent_deletion() {
             plain(&fixture, Key::d);
             assert_eq!(feedback(&fixture), "Nothing to delete");
             assert!(!modal_visible(&fixture.overlay));
+        },
+    );
+}
+
+#[test]
+fn columns_shift_delete_deletes_the_cursor_when_the_fill_is_empty() {
+    crate::test_support::gtk_test(
+        "ui::window::tests::keyboard_dispatch::file_commands::columns_shift_delete_deletes_the_cursor_when_the_fill_is_empty",
+        || {
+            let fixture = KeyboardFixture::new();
+            let directory = fixture._directory.path().to_path_buf();
+            let browser = fixture.view.browser();
+
+            browser.select_first_on_load(0);
+            browser.reload_active();
+            wait_until(|| browser.selection_is_load_cursor());
+            browser.place_cursor(0, 2, None);
+            assert_eq!(focused_name(&browser), "c.txt");
+            focus_files(&fixture);
+
+            assert!(fixture.press(Key::Delete, ModifierType::SHIFT_MASK));
+            wait_until(|| modal_visible(&fixture.overlay));
+            wait_until(|| {
+                widget_with_class(fixture.overlay.upcast_ref(), "action-dialog-confirm")
+                    .is_some_and(|confirm| confirm.is_sensitive())
+            });
+            assert!(click_class(&fixture.overlay, "action-dialog-confirm"));
+            wait_until(|| !directory.join("c.txt").exists());
+            assert_eq!(directory_names(&directory), ["a.txt", "b.txt"]);
+        },
+    );
+}
+
+#[test]
+fn columns_shift_delete_targets_the_open_folder_when_the_child_selects_nothing() {
+    crate::test_support::gtk_test(
+        "ui::window::tests::keyboard_dispatch::file_commands::columns_shift_delete_targets_the_open_folder_when_the_child_selects_nothing",
+        || {
+            let fixture = KeyboardFixture::new();
+            let directory = fixture._directory.path().to_path_buf();
+            std::fs::create_dir(directory.join("folder")).expect("fixture folder");
+            let browser = fixture.view.browser();
+            browser.refresh_all();
+            wait_until(|| rendered_name(&fixture.view.widget(), "folder"));
+
+            let count = browser.column_snapshot(0).expect("column").count;
+            let folder_position = browser
+                .with_entries(0, 0..count, |entries| {
+                    entries
+                        .iter()
+                        .position(|entry| entry.display_name == "folder")
+                })
+                .flatten()
+                .expect("folder is listed");
+            browser.activate(0, folder_position);
+            wait_loaded(&browser, 1);
+            focus_files(&fixture);
+
+            assert!(fixture.press(Key::Delete, ModifierType::SHIFT_MASK));
+            wait_until(|| modal_visible(&fixture.overlay));
+            wait_until(|| {
+                widget_with_class(fixture.overlay.upcast_ref(), "action-dialog-confirm")
+                    .is_some_and(|confirm| confirm.is_sensitive())
+            });
+            assert!(click_class(&fixture.overlay, "action-dialog-confirm"));
+            wait_until(|| !directory.join("folder").exists());
+            assert_eq!(directory_names(&directory), ["a.txt", "b.txt", "c.txt"]);
+        },
+    );
+}
+
+#[test]
+fn tenxer_delete_targets_the_open_folder_when_the_child_selects_nothing() {
+    crate::test_support::gtk_test(
+        "ui::window::tests::keyboard_dispatch::file_commands::tenxer_delete_targets_the_open_folder_when_the_child_selects_nothing",
+        || {
+            let fixture = KeyboardFixture::new();
+            enable_tenxer(&fixture);
+            let directory = fixture._directory.path().to_path_buf();
+            std::fs::create_dir(directory.join("folder")).expect("fixture folder");
+            let browser = fixture.view.browser();
+            browser.refresh_all();
+            wait_until(|| rendered_name(&fixture.view.widget(), "folder"));
+
+            let count = browser.column_snapshot(0).expect("column").count;
+            let folder_position = browser
+                .with_entries(0, 0..count, |entries| {
+                    entries
+                        .iter()
+                        .position(|entry| entry.display_name == "folder")
+                })
+                .flatten()
+                .expect("folder is listed");
+            browser.activate(0, folder_position);
+            wait_loaded(&browser, 1);
+            focus_files(&fixture);
+
+            plain(&fixture, Key::d);
+            wait_until(|| modal_visible(&fixture.overlay));
+            wait_until(|| {
+                widget_with_class(fixture.overlay.upcast_ref(), "action-dialog-confirm")
+                    .is_some_and(|confirm| confirm.is_sensitive() && confirm.has_focus())
+            });
+            assert!(click_class(&fixture.overlay, "action-dialog-confirm"));
+            wait_until(|| !directory.join("folder").exists());
+            assert_eq!(directory_names(&directory), ["a.txt", "b.txt", "c.txt"]);
+        },
+    );
+}
+
+#[test]
+fn tenxer_delete_with_no_search_or_filter_hits_preserves_the_open_folder() {
+    crate::test_support::gtk_test(
+        "ui::window::tests::keyboard_dispatch::file_commands::tenxer_delete_with_no_search_or_filter_hits_preserves_the_open_folder",
+        || {
+            let fixture = KeyboardFixture::new();
+            enable_tenxer(&fixture);
+            let directory = fixture._directory.path().to_path_buf();
+            let folder = directory.join("folder");
+            std::fs::create_dir(&folder).expect("fixture folder");
+            let browser = fixture.view.browser();
+            browser.refresh_all();
+            wait_until(|| rendered_name(&fixture.view.widget(), "folder"));
+            enter_folder(&fixture, "folder");
+
+            for search in [false, true] {
+                if search {
+                    fixture.view.commit_listing_search("no-match");
+                } else {
+                    fixture.view.commit_listing_filter("no-match");
+                }
+                wait_until(|| fixture.view.selected_search_results() == Some(Vec::new()));
+                focus_files(&fixture);
+                for (key, modifiers) in [
+                    (Key::d, ModifierType::empty()),
+                    (Key::D, ModifierType::SHIFT_MASK),
+                ] {
+                    assert!(fixture.press(key, modifiers));
+                    assert_eq!(feedback(&fixture), "Nothing to delete");
+                    assert!(!modal_visible(&fixture.overlay));
+                    assert!(folder.is_dir());
+                    assert_eq!(
+                        directory_names(&directory),
+                        ["a.txt", "b.txt", "c.txt", "folder"]
+                    );
+                }
+                if search {
+                    assert!(fixture.view.dismiss_listing_search());
+                } else {
+                    assert!(fixture.view.clear_listing_filter());
+                }
+                focus_files(&fixture);
+            }
         },
     );
 }
@@ -596,6 +745,91 @@ fn ctrl_alt_n_groups_selected_items_into_a_named_folder() {
             wait_until(|| fixture.view.rename_is_active());
             assert_eq!(directory_names(&empty), ["new folder"]);
             plain(&fixture, Key::Escape);
+        },
+    );
+}
+
+#[test]
+fn undo_and_redo_run_only_on_their_exact_chords() {
+    crate::test_support::gtk_test(
+        "ui::window::tests::keyboard_dispatch::file_commands::undo_and_redo_run_only_on_their_exact_chords",
+        || {
+            let fixture = KeyboardFixture::new();
+            PreferenceManager::shared().set_type_to_search(false);
+            let directory = fixture._directory.path().to_path_buf();
+            let browser = fixture.view.browser();
+            let none = ModifierType::empty();
+            let control = ModifierType::CONTROL_MASK;
+            let shift = ModifierType::SHIFT_MASK;
+            let alt = ModifierType::ALT_MASK;
+            let renamed = || {
+                directory.join("renamed.txt").exists()
+                    && !directory.join("a.txt").exists()
+                    && browser.pending_undo_rename().is_some()
+            };
+            let restored = || {
+                directory.join("a.txt").exists()
+                    && !directory.join("renamed.txt").exists()
+                    && browser.pending_redo_rename().is_some()
+            };
+            focus_files(&fixture);
+            assert!(fixture.view.begin_rename());
+            let field = fixture.view.active_rename_field().expect("rename field");
+            field.set_text("renamed.txt");
+            field.emit_activate();
+            wait_until(renamed);
+
+            focus_files(&fixture);
+            assert!(fixture.press(Key::F1, none));
+            wait_until(|| fixture.shortcuts.reference_is_open());
+            assert!(
+                !fixture.press(Key::z, control),
+                "the F1 search takes Ctrl+Z"
+            );
+            pump(100);
+            assert!(
+                renamed(),
+                "Ctrl+Z in the F1 search must not undo the rename"
+            );
+            assert!(fixture.press(Key::Escape, none));
+            wait_until(|| !fixture.shortcuts.reference_is_open());
+
+            for (key, modifiers) in [
+                (Key::z, none),
+                (Key::z, control | shift),
+                (Key::z, control | alt),
+                (Key::z, control | ModifierType::SUPER_MASK),
+            ] {
+                focus_files(&fixture);
+                fixture.press(key, modifiers);
+                pump(100);
+                assert!(renamed(), "{modifiers:?}+{key:?} must not undo");
+            }
+            focus_files(&fixture);
+            assert!(fixture.press(Key::z, control));
+            wait_until(restored);
+
+            for (key, modifiers) in [
+                (Key::z, none),
+                (Key::z, shift),
+                (Key::z, control),
+                (Key::z, control | shift | alt),
+                (Key::y, control | shift),
+                (Key::y, control | alt),
+            ] {
+                focus_files(&fixture);
+                fixture.press(key, modifiers);
+                pump(100);
+                assert!(restored(), "{modifiers:?}+{key:?} must not redo");
+            }
+            for (key, modifiers) in [(Key::Z, control | shift), (Key::y, control)] {
+                focus_files(&fixture);
+                assert!(fixture.press(key, modifiers), "{modifiers:?}+{key:?}");
+                wait_until(renamed);
+                focus_files(&fixture);
+                assert!(fixture.press(Key::z, control));
+                wait_until(restored);
+            }
         },
     );
 }
@@ -910,8 +1144,13 @@ fn tenxer_action_chord_compresses_and_extracts_archives() {
             .expect("fixture archive");
             let destination = directory.join("dest");
             std::fs::create_dir(&destination).expect("destination");
+            std::fs::create_dir(directory.join("nested.zip"))
+                .expect("folder named like an archive");
             fixture.view.refresh();
-            wait_until(|| rendered_name(&fixture.view.widget(), "bundle.tar"));
+            wait_until(|| {
+                rendered_name(&fixture.view.widget(), "bundle.tar")
+                    && rendered_name(&fixture.view.widget(), "nested.zip")
+            });
             enable_tenxer(&fixture);
             let browser = fixture.view.browser();
             let origin = browser.active_location();
@@ -929,6 +1168,13 @@ fn tenxer_action_chord_compresses_and_extracts_archives() {
             wait_until(|| modal_visible(&fixture.overlay));
             close_modal(&fixture);
             assert_eq!(directory_names(&destination), Vec::<String>::new());
+
+            move_to_named(&fixture, &browser, "nested.zip");
+            action(Key::e, ModifierType::empty());
+            assert_eq!(feedback(&fixture), "Not an archive");
+            action(Key::E, ModifierType::SHIFT_MASK);
+            assert_eq!(fixture.shortcuts.open_prompt_kind(), None);
+            assert_eq!(feedback(&fixture), "Not an archive");
 
             move_to_named(&fixture, &browser, "bundle.tar");
             action(Key::e, ModifierType::empty());
@@ -985,6 +1231,214 @@ fn tenxer_action_chord_compresses_and_extracts_archives() {
             ] {
                 action(key, ModifierType::empty());
                 assert_eq!(feedback(&fixture), message, "; {key:?}");
+            }
+        },
+    );
+}
+
+/// Local browsing whose listings report that Trash is unsupported, like a
+/// tmpfs, or, when `read_only`, a folder the user cannot delete from either.
+struct TrashlessLocal {
+    read_only: bool,
+}
+
+impl crate::services::FileSource for TrashlessLocal {
+    fn allows_entry(&self, entry: &crate::model::FileEntry) -> bool {
+        crate::adapters::LocalFileSource.allows_entry(entry)
+    }
+
+    fn validate_location(
+        &self,
+        location: &Location,
+    ) -> Result<(), crate::services::LocationValidationError> {
+        crate::adapters::LocalFileSource.validate_location(location)
+    }
+
+    fn validate_location_async(
+        &self,
+        location: Location,
+        emit: Rc<dyn Fn(Result<(), crate::services::LocationValidationError>)>,
+    ) -> crate::services::LoadHandle {
+        crate::adapters::LocalFileSource.validate_location_async(location, emit)
+    }
+
+    fn enumerate(
+        &self,
+        request: crate::services::DirectoryRequest,
+        emit: Rc<dyn Fn(crate::services::DirectoryEvent)>,
+    ) -> crate::services::LoadHandle {
+        let read_only = self.read_only;
+        crate::adapters::LocalFileSource.enumerate(
+            request,
+            Rc::new(move |event| {
+                emit(match event {
+                    crate::services::DirectoryEvent::Finished {
+                        request_id,
+                        truncated,
+                        can_delete,
+                        ..
+                    } => crate::services::DirectoryEvent::Finished {
+                        request_id,
+                        truncated,
+                        can_trash: Some(false),
+                        can_delete: if read_only { Some(false) } else { can_delete },
+                    },
+                    event => event,
+                })
+            }),
+        )
+    }
+
+    fn supports_metadata_fill(&self, location: &Location) -> bool {
+        crate::adapters::LocalFileSource.supports_metadata_fill(location)
+    }
+
+    fn fill_metadata(
+        &self,
+        request: crate::services::MetadataRequest,
+        emit: Rc<dyn Fn(crate::services::DirectoryEvent)>,
+    ) -> crate::services::LoadHandle {
+        crate::adapters::LocalFileSource.fill_metadata(request, emit)
+    }
+
+    fn watch(
+        &self,
+        location: Location,
+        include_hidden: bool,
+        notify: Rc<dyn Fn(crate::services::DirectoryChange)>,
+    ) -> Option<crate::services::LoadHandle> {
+        crate::adapters::LocalFileSource.watch(location, include_hidden, notify)
+    }
+}
+
+fn modal_text_contains(fixture: &KeyboardFixture, text: &str) -> bool {
+    fn contains(widget: &gtk::Widget, text: &str) -> bool {
+        widget.downcast_ref::<gtk::Label>().is_some_and(|label| {
+            label
+                .text()
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ")
+                .contains(text)
+        }) || {
+            let mut child = widget.first_child();
+            let mut found = false;
+            while let Some(current) = child {
+                if contains(&current, text) {
+                    found = true;
+                    break;
+                }
+                child = current.next_sibling();
+            }
+            found
+        }
+    }
+    widget_with_class(fixture.overlay.upcast_ref(), "app-modal-layer")
+        .is_some_and(|layer| contains(&layer, text))
+}
+
+#[test]
+fn delete_without_trash_support_confirms_permanently_with_cancel_focused() {
+    crate::test_support::gtk_test(
+        "ui::window::tests::keyboard_dispatch::file_commands::delete_without_trash_support_confirms_permanently_with_cancel_focused",
+        || {
+            // `read_only`: the folder refuses deletion too, so a missing Trash
+            // is not the whole story and the trash attempt reports the error.
+            for (read_only, tenxer, key) in [
+                (false, false, Key::Delete),
+                (false, true, Key::d),
+                (false, true, Key::Delete),
+                (true, false, Key::Delete),
+            ] {
+                let held = Rc::new(crate::test_support::operations::HeldOperations::default());
+                let provider = held.clone();
+                let fixture = KeyboardFixture::with_parts(Rc::new(TextPreview), move || {
+                    let view = BrowserView::new(
+                        Rc::new(TrashlessLocal { read_only }),
+                        crate::ui::browser::PeekBehavior::default(),
+                    );
+                    view.set_operation_provider(provider);
+                    view
+                });
+                let directory = fixture._directory.path().to_path_buf();
+                let browser = fixture.view.browser();
+                assert_eq!(
+                    (browser.can_trash_at(0), browser.can_delete_at(0)),
+                    (Some(false), Some(!read_only)),
+                    "precondition"
+                );
+                if tenxer {
+                    enable_tenxer(&fixture);
+                }
+                focus_files(&fixture);
+                move_to_named(&fixture, &browser, "a.txt");
+                plain(&fixture, key);
+                pump(100);
+                if read_only {
+                    let id = browser.last_started_operation().expect("trash attempt");
+                    assert_eq!(
+                        (
+                            held.delete_requests.borrow().as_slice(),
+                            modal_visible(&fixture.overlay)
+                        ),
+                        ([(id, false, 1)].as_slice(), false),
+                        "a read-only folder keeps the trash attempt: (delete requests, dialog open)"
+                    );
+                    continue;
+                }
+                assert_eq!(
+                    (
+                        held.delete_requests.borrow().len(),
+                        modal_visible(&fixture.overlay),
+                        modal_text_contains(&fixture, "Move to Trash"),
+                        modal_text_contains(&fixture, "doesn't support Trash"),
+                    ),
+                    (0, true, false, true),
+                    "{:?} (tenxer: {tenxer}): (delete requests started, dialog open, \
+                     is the Move to Trash dialog, explains missing Trash)",
+                    key.name()
+                );
+                wait_focused_button(&fixture, "Cancel");
+                pump(300);
+                assert_eq!(
+                    focused_button(&fixture).and_then(|button| button.label()),
+                    Some("Cancel".into()),
+                    "the size summary must not move focus to Permanently delete"
+                );
+                if tenxer {
+                    modal_key(&fixture, Key::d);
+                    pump(100);
+                    assert!(modal_visible(&fixture.overlay), "d never confirms it");
+                    assert!(held.delete_requests.borrow().is_empty());
+                }
+                assert!(modal_key(&fixture, Key::Return));
+                wait_until(|| !modal_visible(&fixture.overlay));
+                assert!(directory.join("a.txt").exists(), "Enter cancels");
+                assert!(held.delete_requests.borrow().is_empty());
+
+                focus_files(&fixture);
+                move_to_named(&fixture, &browser, "a.txt");
+                plain(&fixture, key);
+                wait_until(|| {
+                    widget_with_class(fixture.overlay.upcast_ref(), "action-dialog-confirm")
+                        .is_some_and(|confirm| confirm.is_sensitive())
+                });
+                assert!(click_class(&fixture.overlay, "action-dialog-confirm"));
+                wait_until(|| !held.delete_requests.borrow().is_empty());
+                let (id, permanent, count) = held.delete_requests.borrow_mut().remove(0);
+                assert_eq!(
+                    (permanent, count),
+                    (true, 1),
+                    "{key:?} confirms permanently"
+                );
+                held.emit(
+                    id,
+                    crate::services::OperationEvent::Deleted {
+                        request_id: id,
+                        locations: vec![Location::local(directory.join("a.txt"))],
+                    },
+                );
+                wait_until(|| !modal_visible(&fixture.overlay));
             }
         },
     );

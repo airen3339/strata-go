@@ -5,6 +5,10 @@ use crate::model::Location;
 use crate::services::{filter_query_allows_typos, fold_for_search};
 use crate::ui::browser::entry::entry_matches;
 use crate::ui::entry_list_model::EntryListModel;
+use crate::ui::keys::{
+    KeyPress,
+    bindings::{ENTER, RIGHT},
+};
 use crate::ui::preferences::PreferenceManager;
 use crate::ui::search_session::SearchScope;
 use gtk::prelude::*;
@@ -256,12 +260,17 @@ pub(crate) fn restore_filter_controls(
     entry.set_text(&filter.query);
 }
 
+/// Returns focus to a field that already shows its query.
+pub(crate) fn refocus_filter_entry(entry: &gtk::Entry) {
+    // Regular grab_focus selects the query, so the next key would replace it.
+    entry.grab_focus_without_selecting();
+    entry.select_region(-1, -1);
+}
+
 pub(crate) fn focus_filter_entry(entry: &gtk::Entry, query: Option<&str>) {
     if let Some(query) = query {
         entry.set_text(query);
-        // Regular grab_focus selects the seed again, so the next key would replace it.
-        entry.grab_focus_without_selecting();
-        entry.select_region(-1, -1);
+        refocus_filter_entry(entry);
     } else {
         entry.grab_focus();
     }
@@ -518,8 +527,11 @@ pub(crate) fn filter_change_for(previous: &str, settled: &str) -> gtk::FilterCha
 }
 
 pub(crate) fn filter_placeholder(count: usize) -> String {
-    let noun = if count == 1 { "item" } else { "items" };
-    format!("Filter {count} {noun}…")
+    rust_i18n::t!(
+        "Filter %{items}…",
+        items = crate::i18n::count("items", count)
+    )
+    .into_owned()
 }
 
 pub(crate) fn notify_filter_query(
@@ -719,14 +731,12 @@ pub(crate) fn search_result_entry(item: &crate::services::SearchItem) -> crate::
         image_dimensions: MetadataValue::Unknown,
         child_count: MetadataValue::Unknown,
         duration_seconds: MetadataValue::Unknown,
+        recent_uri: None,
     }
 }
 
-pub(crate) fn recursive_search_activation_key(key: gtk::gdk::Key) -> bool {
-    matches!(
-        key,
-        gtk::gdk::Key::Return | gtk::gdk::Key::KP_Enter | gtk::gdk::Key::Right
-    )
+pub(crate) fn recursive_search_activation_key(press: &KeyPress) -> bool {
+    press.is_any(&[ENTER, RIGHT])
 }
 
 pub(crate) fn activate_recursive_search_result(

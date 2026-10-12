@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: MIT
 
+use gtk::glib;
+
 use super::*;
 
 #[test]

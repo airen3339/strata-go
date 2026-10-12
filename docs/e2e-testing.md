@@ -320,6 +320,7 @@ them on the host.
 | Accessibility bus and registry | `at-spi2-core` | `at-spi2-core` |
 | Python AT-SPI bindings | `python-gobject` | `python3-gi`, `gir1.2-atspi-2.0` |
 | Private session bus | `dbus` | `dbus-daemon`, `dbus-bin` |
+| Keyboard layouts | `xorg-setxkbmap` | `x11-xkb-utils` |
 | Screen capture | `imagemagick` | `imagemagick` |
 | Font | `cantarell-fonts` | `fonts-cantarell` |
 
@@ -386,6 +387,9 @@ Rules the suite holds itself to:
   not waits on application state.
 - **Assert on the filesystem as well as the window.** Every file operation
   checks the resulting tree, not only the listing.
+- **Read chosen states from AT-SPI.** Check, radio and toggle controls expose
+  `checked` or `pressed` (`node.has_state("checked")`); never infer them from
+  check-icon children.
 - **Run one scenario per presentation where it matters.** `harness.modes`
   supplies the `ALL_MODES` parameterization.
 
@@ -447,7 +451,9 @@ to new entries beyond the initial viewport in large directories.
 The harness finds an entry because Strata names it. Those names live in
 `src/ui/accessibility.rs` and exist for screen readers first: an entry row is
 labeled with its name and described as `Folder` or `File`, a pane is labeled
-with its directory and described with its presentation, menu items carry the
+with its directory and described with its presentation, the focusable surface
+of an empty, unreadable or loading pane is labeled with its directory and
+described with its status text, menu items carry the
 menu role with the accelerator in the description, and modal dialogs carry the
 dialog role and a name. When the harness cannot identify a control, the fix is
 to name it in the application, not to reach around the accessibility layer.
@@ -463,6 +469,32 @@ reports that native origin directly. Controls are still located only by
 accessibility semantics. AT-SPI's older `push button` spelling is normalized to
 `button`, and selection tests assert actual selected-state transitions instead
 of depending on optional `SELECTABLE` state exports for unselected rows.
+
+#### Keyboard layouts
+
+The `keyboard_layout` fixture switches the layout live, while the application
+runs, using the layouts in `harness/keyboard_layout.py`:
+
+```python
+from harness.keyboard_layout import RUSSIAN
+
+def test_search(strata, keyboard_layout):
+    with keyboard_layout(RUSSIAN):
+        strata.keyboard.press("ctrl+k")
+        strata.editable_field()
+```
+
+`setxkbmap -display` loads the layouts into the private Xvfb, and an XKB group
+lock selects the active one, as a layout switch shortcut does. Leaving the block
+unlocks the group and every modifier, restores the US layout, and fails the
+scenario if the keyboard is not back in that state. Never change the desktop's
+layout, and never run `setxkbmap` without `-display`.
+
+XTest reads the keymap once, from the first group of the default US layout, so
+key names mean US key positions: under `RUSSIAN`, `press("ctrl+c")` presses the
+key that types с, and `type_text` types what those keys produce. Wait for each
+key's effect inside the block. GDK may read the keymap only when it handles the
+event, and by then a finished block has restored US.
 
 ## Failure artifacts
 

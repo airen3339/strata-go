@@ -2,7 +2,7 @@
 
 use std::{
     cell::{Cell, RefCell},
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     ffi::CString,
     fs, io,
     os::unix::ffi::OsStrExt,
@@ -30,7 +30,10 @@ pub mod icons {
     pub const CLIPBOARD_PASTE: &str = "strata-clipboard-paste";
     pub const COPY: &str = "strata-copy";
     pub const COPY_PLUS: &str = "strata-copy-plus";
+    pub const COG: &str = "strata-cog";
     pub const CORNER_DOWN_LEFT: &str = "strata-corner-down-left";
+    pub const DISC: &str = "strata-disc";
+    pub const DATABASE: &str = "strata-database";
     pub const DOCUMENTS: &str = "strata-file-text";
     pub const DOWNLOADS: &str = "strata-download";
     pub const EJECT: &str = "strata-eject";
@@ -38,7 +41,53 @@ pub mod icons {
     pub const EYE_OFF: &str = "strata-eye-off";
     pub const EXTERNAL_LINK: &str = "strata-external-link";
     pub const FILE_ARCHIVE: &str = "strata-file-archive";
+    pub const FILE_AUDIO: &str = "strata-audio-lines";
+    pub const FILE_BRACES: &str = "strata-file-braces";
     pub const FILE_CODE: &str = "strata-file-code";
+    pub const LANG_ASTRO: &str = "strata-lang-astro";
+    pub const LANG_C: &str = "strata-lang-c";
+    pub const LANG_CLOJURE: &str = "strata-lang-clojure";
+    pub const LANG_CPP: &str = "strata-lang-cpp";
+    pub const LANG_CRYSTAL: &str = "strata-lang-crystal";
+    pub const LANG_CSHARP: &str = "strata-lang-csharp";
+    pub const LANG_CSS: &str = "strata-lang-css";
+    pub const LANG_DART: &str = "strata-lang-dart";
+    pub const LANG_ELIXIR: &str = "strata-lang-elixir";
+    pub const LANG_ELM: &str = "strata-lang-elm";
+    pub const LANG_ERLANG: &str = "strata-lang-erlang";
+    pub const LANG_FSHARP: &str = "strata-lang-fsharp";
+    pub const LANG_GO: &str = "strata-lang-go";
+    pub const LANG_GRAPHQL: &str = "strata-lang-graphql";
+    pub const LANG_GROOVY: &str = "strata-lang-groovy";
+    pub const LANG_HASKELL: &str = "strata-lang-haskell";
+    pub const LANG_HTML: &str = "strata-lang-html";
+    pub const LANG_JAVA: &str = "strata-lang-java";
+    pub const LANG_JS: &str = "strata-lang-js";
+    pub const LANG_JULIA: &str = "strata-lang-julia";
+    pub const LANG_JUPYTER: &str = "strata-lang-jupyter";
+    pub const LANG_KOTLIN: &str = "strata-lang-kotlin";
+    pub const LANG_LUA: &str = "strata-lang-lua";
+    pub const LANG_NIXOS: &str = "strata-lang-nixos";
+    pub const LANG_NIM: &str = "strata-lang-nim";
+    pub const LANG_OCAML: &str = "strata-lang-ocaml";
+    pub const LANG_PERL: &str = "strata-lang-perl";
+    pub const LANG_PHP: &str = "strata-lang-php";
+    pub const LANG_PYTHON: &str = "strata-lang-python";
+    pub const LANG_QT: &str = "strata-lang-qt";
+    pub const LANG_R: &str = "strata-lang-r";
+    pub const LANG_RACKET: &str = "strata-lang-racket";
+    pub const LANG_RUBY: &str = "strata-lang-ruby";
+    pub const LANG_RUST: &str = "strata-lang-rust";
+    pub const LANG_SCALA: &str = "strata-lang-scala";
+    pub const LANG_SOLIDITY: &str = "strata-lang-solidity";
+    pub const LANG_SVELTE: &str = "strata-lang-svelte";
+    pub const LANG_SWIFT: &str = "strata-lang-swift";
+    pub const LANG_TERRAFORM: &str = "strata-lang-terraform";
+    pub const LANG_TS: &str = "strata-lang-ts";
+    pub const LANG_VUE: &str = "strata-lang-vue";
+    pub const LANG_ZIG: &str = "strata-lang-zig";
+    pub const FILE_SPREADSHEET: &str = "strata-file-spreadsheet";
+    pub const FILE_TERMINAL: &str = "strata-file-terminal";
     pub const FILE_PLUS: &str = "strata-file-plus";
     pub const FILE_TYPE: &str = "strata-file-type";
     pub const FOLDER: &str = "strata-folder";
@@ -52,6 +101,7 @@ pub mod icons {
     pub const GLOBE: &str = "strata-globe";
     pub const CODE_XML: &str = "strata-code-xml";
     pub const BUG: &str = "strata-bug";
+    pub const BOX: &str = "strata-box";
     pub const SCALE: &str = "strata-scale";
     pub const CORNER_DOWN_RIGHT: &str = "strata-corner-down-right";
     pub const FUNNEL: &str = "strata-funnel";
@@ -64,6 +114,7 @@ pub mod icons {
     pub const LOCK: &str = "strata-lock";
     pub const LOCK_OPEN: &str = "strata-lock-open";
     pub const KEY: &str = "strata-key";
+    pub const KEY_ROUND: &str = "strata-key-round";
     pub const MONITOR: &str = "strata-monitor";
     pub const NETWORK: &str = "strata-network";
     pub const PALETTE: &str = "strata-palette";
@@ -75,11 +126,14 @@ pub mod icons {
     pub const PENCIL: &str = "strata-pencil";
     pub const PIN: &str = "strata-pin";
     pub const PLAY: &str = "strata-play";
+    pub const MAXIMIZE: &str = "strata-maximize";
+    pub const MINIMIZE: &str = "strata-minimize";
     pub const SKIP_BACK: &str = "strata-skip-back";
     pub const SKIP_FORWARD: &str = "strata-skip-forward";
     pub const MINUS: &str = "strata-minus";
     pub const MUSIC: &str = "strata-music-2";
     pub const PLUS: &str = "strata-plus";
+    pub const PRESENTATION: &str = "strata-presentation";
     pub const PRINTER: &str = "strata-printer";
     pub const PICTURES: &str = "strata-image";
     pub const ROWS: &str = "strata-rows";
@@ -139,6 +193,13 @@ pub mod icons {
 const FONT_VERSION: &str = "2.304";
 const ICON_TEXTURE_PX: i32 = 96;
 const ICON_TEXTURE_CACHE_LIMIT: usize = 256;
+
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) enum IconContext {
+    #[default]
+    Interface,
+    Grid,
+}
 const JETBRAINS_MONO: &[u8] = include_bytes!("../data/fonts/JetBrainsMono[wght].ttf");
 
 pub const CHROME_ICON_PX: i32 = 16;
@@ -157,8 +218,7 @@ thread_local! {
     static TEXT_ICONS: RefCell<Vec<PrimaryIcon>> = const { RefCell::new(Vec::new()) };
     static DANGER_ICON_COLOR: RefCell<String> = RefCell::new("#e5484d".to_owned());
     static DANGER_ICONS: RefCell<Vec<PrimaryIcon>> = const { RefCell::new(Vec::new()) };
-    static ICON_TEXTURES: RefCell<HashMap<(String, String, i32), gdk::Texture>> =
-        RefCell::new(HashMap::new());
+    static ICON_TEXTURES: RefCell<IconTextureCache> = RefCell::new(IconTextureCache::default());
 }
 
 pub fn prepare() -> Result<(), Box<dyn std::error::Error>> {
@@ -312,7 +372,13 @@ pub fn set_custom_colored_icon(image: &gtk::Image, name: &str, color: &str) {
 
 pub fn set_folder_decoration_icon(image: &gtk::Image, decoration: &str, color: &str) {
     remove_primary_icon(image);
-    if let Some(texture) = folder_decoration_texture(decoration, color) {
+    if let Some(texture) = sized_folder_decoration_paintable(
+        decoration,
+        color,
+        image.pixel_size(),
+        image.scale_factor(),
+        IconContext::Interface,
+    ) {
         image.set_paintable(Some(&texture));
     } else {
         apply_primary_icon(image, icons::FOLDER, color);
@@ -324,18 +390,6 @@ pub fn set_emoji_icon(image: &gtk::Image, emoji: &str) {
     if let Some(texture) = emoji_texture(emoji) {
         image.set_paintable(Some(&texture));
     }
-}
-
-pub fn primary_icon_paintable(name: &str) -> Option<gdk::Texture> {
-    primary_icon_texture(name, &primary_icon_color())
-}
-
-pub fn custom_colored_icon_paintable(name: &str, color: &str) -> Option<gdk::Texture> {
-    primary_icon_texture(name, color)
-}
-
-pub fn folder_decoration_paintable(decoration: &str, color: &str) -> Option<gdk::Texture> {
-    folder_decoration_texture(decoration, color)
 }
 
 pub fn emoji_icon_paintable(emoji: &str) -> Option<gdk::Texture> {
@@ -398,7 +452,13 @@ fn apply_primary_icon(image: &gtk::Image, name: &str, color: &str) {
             .max(image.pixel_size().saturating_mul(image.scale_factor()))
             .clamp(24, 768)
     };
-    if let Some(texture) = primary_icon_texture_at(name, color, texture_px) {
+    if let Some(texture) = primary_icon_texture_at(
+        name,
+        color,
+        texture_px,
+        image.pixel_size(),
+        IconContext::Interface,
+    ) {
         image.set_paintable(Some(&texture));
     } else {
         image.set_icon_name(Some(name));
@@ -414,11 +474,31 @@ fn texture_px_for_pixel_size(pixel_size: i32) -> i32 {
     }
 }
 
-fn primary_icon_texture(name: &str, color: &str) -> Option<gdk::Texture> {
-    primary_icon_texture_at(name, color, ICON_TEXTURE_PX)
+pub(crate) fn sized_icon_paintable(
+    name: &str,
+    color: &str,
+    logical_px: i32,
+    scale_factor: i32,
+    context: IconContext,
+) -> Option<gdk::Texture> {
+    let texture_px = ICON_TEXTURE_PX
+        .max(logical_px.saturating_mul(scale_factor))
+        .clamp(24, 768);
+    primary_icon_texture_at(name, color, texture_px, logical_px, context)
 }
 
-fn primary_icon_texture_at(name: &str, color: &str, texture_px: i32) -> Option<gdk::Texture> {
+pub(crate) fn drag_icon_texture(name: &str, color: &str, texture_px: i32) -> Option<gdk::Texture> {
+    let texture_px = texture_px.clamp(24, 768);
+    primary_icon_texture_at(name, color, texture_px, texture_px, IconContext::Interface)
+}
+
+fn primary_icon_texture_at(
+    name: &str,
+    color: &str,
+    texture_px: i32,
+    logical_px: i32,
+    context: IconContext,
+) -> Option<gdk::Texture> {
     let path = format!("/io/github/lgse/Strata/icons/scalable/actions/{name}.svg");
     let data = gio::resources_lookup_data(&path, gio::ResourceLookupFlags::NONE).ok()?;
     let source = std::str::from_utf8(data.as_ref()).ok()?;
@@ -430,29 +510,115 @@ fn primary_icon_texture_at(name: &str, color: &str, texture_px: i32) -> Option<g
             1,
         );
     }
+    let source =
+        if name.starts_with("strata-lang-") && source.contains(&format!("fill=\"{color}\"")) {
+            outlined_brand_icon(source, name, color, logical_px, context)
+        } else {
+            compensate_icon_strokes(source, logical_px, context)
+        };
     texture_from_svg(
-        name,
+        &stroke_cache_name(name, logical_px, context),
         color,
         texture_px,
         svg_at_texture_size(source, texture_px),
     )
 }
 
-fn folder_decoration_texture(decoration: &str, color: &str) -> Option<gdk::Texture> {
+fn outlined_brand_icon(
+    source: String,
+    name: &str,
+    color: &str,
+    logical_px: i32,
+    context: IconContext,
+) -> String {
+    // These upstream glyphs use 128-unit view boxes; all other brands use 24.
+    let units = if matches!(
+        name,
+        icons::LANG_JS | icons::LANG_TS | icons::LANG_CSHARP | icons::LANG_JAVA
+    ) {
+        128.0
+    } else {
+        24.0
+    };
+    let padding = units / 12.0;
+    let extent = units + 2.0 * padding;
+    // Compensate for the padded view box so visible strokes match Lucide's weight.
+    let stroke = extent / 12.0 * icon_stroke_factor(logical_px, context);
+    source
+        .replacen(
+            &format!("viewBox=\"0 0 {units} {units}\""),
+            &format!("viewBox=\"-{padding} -{padding} {extent} {extent}\""),
+            1,
+        )
+        .replace(
+            &format!("fill=\"{color}\""),
+            &format!(
+                "fill=\"none\" stroke=\"{color}\" stroke-width=\"{stroke}\" stroke-linecap=\"round\" stroke-linejoin=\"round\""
+            ),
+        )
+}
+
+fn stroke_cache_name(name: &str, logical_px: i32, context: IconContext) -> String {
+    let context = match context {
+        IconContext::Interface if logical_px <= 64 => return name.to_owned(),
+        IconContext::Interface => "interface",
+        IconContext::Grid => "grid",
+    };
+    format!("{name}:{context}:stroke-size:{logical_px}")
+}
+
+fn icon_stroke_factor(logical_px: i32, context: IconContext) -> f64 {
+    let weight = match context {
+        IconContext::Interface => 1.0,
+        IconContext::Grid => 0.5,
+    };
+    // Logical size controls perceived weight; raster resolution only controls sharpness.
+    weight * (64.0 / f64::from(logical_px.max(64))).powf(0.35)
+}
+
+fn compensate_icon_strokes(source: String, logical_px: i32, context: IconContext) -> String {
+    let factor = icon_stroke_factor(logical_px, context);
+    source
+        .replace(
+            "stroke-width=\"2\"",
+            &format!("stroke-width=\"{}\"", 2.0 * factor),
+        )
+        .replace(
+            "stroke-width=\"2.7\"",
+            &format!("stroke-width=\"{}\"", 2.7 * factor),
+        )
+}
+
+pub(crate) fn sized_folder_decoration_paintable(
+    decoration: &str,
+    color: &str,
+    logical_px: i32,
+    scale_factor: i32,
+    context: IconContext,
+) -> Option<gdk::Texture> {
+    let texture_px = ICON_TEXTURE_PX
+        .max(logical_px.saturating_mul(scale_factor))
+        .clamp(24, 768);
     let folder_data = gio::resources_lookup_data(
         "/io/github/lgse/Strata/icons/scalable/actions/strata-folder.svg",
         gio::ResourceLookupFlags::NONE,
     )
     .ok()?;
     let folder = std::str::from_utf8(folder_data.as_ref()).ok()?;
-    let mut source = svg_at_texture_size(recolor_icon_source(folder, color), ICON_TEXTURE_PX)
-        .replacen(
-            "fill=\"none\"",
-            &format!("fill=\"{color}\" fill-opacity=\"0.92\""),
-            1,
-        );
+    let mut source = svg_at_texture_size(recolor_icon_source(folder, color), texture_px).replacen(
+        "fill=\"none\"",
+        &format!("fill=\"{color}\" fill-opacity=\"0.92\""),
+        1,
+    );
     if let Some(emoji) = icons::custom_emoji(decoration) {
-        return folder_emoji_texture(&source, emoji, color);
+        return folder_emoji_texture(
+            &compensate_icon_strokes(source, logical_px, context),
+            emoji,
+            color,
+            logical_px,
+            texture_px,
+            context,
+        );
     }
 
     let foreground = contrasting_foreground(color);
@@ -465,23 +631,34 @@ fn folder_decoration_texture(decoration: &str, color: &str) -> Option<gdk::Textu
     );
     source = source.replacen("</svg>", &format!("{overlay}</svg>"), 1);
     texture_from_svg(
-        &format!("folder-decoration:{decoration}"),
+        &stroke_cache_name(
+            &format!("folder-decoration:{decoration}"),
+            logical_px,
+            context,
+        ),
         color,
-        ICON_TEXTURE_PX,
-        source,
+        texture_px,
+        compensate_icon_strokes(source, logical_px, context),
     )
 }
 
-fn folder_emoji_texture(folder_source: &str, emoji: &str, color: &str) -> Option<gdk::Texture> {
+fn folder_emoji_texture(
+    folder_source: &str,
+    emoji: &str,
+    color: &str,
+    logical_px: i32,
+    texture_px: i32,
+    context: IconContext,
+) -> Option<gdk::Texture> {
     let key = (
-        format!("folder-emoji:{emoji}"),
+        stroke_cache_name(&format!("folder-emoji:{emoji}"), logical_px, context),
         color.to_owned(),
-        ICON_TEXTURE_PX,
+        texture_px,
     );
     if let Some(texture) = cached_icon_texture(&key) {
         return Some(texture);
     }
-    let folder = vector::surface(folder_source, ICON_TEXTURE_PX)?;
+    let folder = vector::surface(folder_source, texture_px)?;
     render_emoji_texture(key, emoji, 52.0, (44.0, 44.0), (48.0, 56.0), Some(&folder))
 }
 
@@ -505,12 +682,14 @@ fn render_emoji_texture(
     center: (f64, f64),
     background: Option<&cairo::ImageSurface>,
 ) -> Option<gdk::Texture> {
-    let surface = cairo::ImageSurface::create(cairo::Format::ARgb32, 96, 96).ok()?;
+    let surface = cairo::ImageSurface::create(cairo::Format::ARgb32, key.2, key.2).ok()?;
     let context = cairo::Context::new(&surface).ok()?;
     if let Some(background) = background {
         context.set_source_surface(background, 0.0, 0.0).ok()?;
         context.paint().ok()?;
     }
+    let scale = f64::from(key.2) / f64::from(ICON_TEXTURE_PX);
+    context.scale(scale, scale);
 
     let (layout, ink) = fitted_emoji_layout(&context, emoji, preferred_size, bounds.0, bounds.1);
     context.set_source_rgb(1.0, 1.0, 1.0);
@@ -617,19 +796,82 @@ fn texture_from_surface(surface: &cairo::ImageSurface) -> Option<gdk::Texture> {
     )
 }
 
-fn cached_icon_texture(key: &(String, String, i32)) -> Option<gdk::Texture> {
-    ICON_TEXTURES.with(|textures| textures.borrow().get(key).cloned())
+type IconTextureKey = (String, String, i32);
+
+struct CachedIconTexture {
+    texture: gdk::Texture,
+    generation: u64,
 }
 
-fn cache_icon_texture(key: (String, String, i32), texture: gdk::Texture) -> gdk::Texture {
-    ICON_TEXTURES.with(|textures| {
-        let mut textures = textures.borrow_mut();
-        if textures.len() >= ICON_TEXTURE_CACHE_LIMIT {
-            textures.clear();
+#[derive(Default)]
+struct IconTextureCache {
+    entries: HashMap<IconTextureKey, CachedIconTexture>,
+    recent: VecDeque<(IconTextureKey, u64)>,
+    generation: u64,
+}
+
+impl IconTextureCache {
+    fn get(&mut self, key: &IconTextureKey) -> Option<gdk::Texture> {
+        let cached = self.entries.get_mut(key)?;
+        self.generation = self.generation.saturating_add(1);
+        cached.generation = self.generation;
+        self.recent.push_back((key.clone(), self.generation));
+        let texture = cached.texture.clone();
+        self.compact_recent();
+        Some(texture)
+    }
+
+    fn insert(&mut self, key: IconTextureKey, texture: gdk::Texture) -> gdk::Texture {
+        self.generation = self.generation.saturating_add(1);
+        let generation = self.generation;
+        self.entries.insert(
+            key.clone(),
+            CachedIconTexture {
+                texture: texture.clone(),
+                generation,
+            },
+        );
+        self.recent.push_back((key, generation));
+        while self.entries.len() > ICON_TEXTURE_CACHE_LIMIT {
+            let Some((oldest_key, oldest_generation)) = self.recent.pop_front() else {
+                break;
+            };
+            if self
+                .entries
+                .get(&oldest_key)
+                .is_some_and(|cached| cached.generation == oldest_generation)
+            {
+                self.entries.remove(&oldest_key);
+            }
         }
-        textures.insert(key, texture.clone());
-    });
-    texture
+        self.compact_recent();
+        texture
+    }
+
+    #[cfg(test)]
+    fn clear(&mut self) {
+        self.entries.clear();
+        self.recent.clear();
+        self.generation = 0;
+    }
+
+    fn compact_recent(&mut self) {
+        if self.recent.len() > ICON_TEXTURE_CACHE_LIMIT * 4 {
+            self.recent.retain(|(key, generation)| {
+                self.entries
+                    .get(key)
+                    .is_some_and(|cached| cached.generation == *generation)
+            });
+        }
+    }
+}
+
+fn cached_icon_texture(key: &IconTextureKey) -> Option<gdk::Texture> {
+    ICON_TEXTURES.with(|textures| textures.borrow_mut().get(key))
+}
+
+fn cache_icon_texture(key: IconTextureKey, texture: gdk::Texture) -> gdk::Texture {
+    ICON_TEXTURES.with(|textures| textures.borrow_mut().insert(key, texture))
 }
 
 fn recolor_icon_source(source: &str, color: &str) -> String {
@@ -689,3 +931,7 @@ fn register_application_fonts(
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+pub(crate) use tests::{
+    custom_colored_icon_paintable, folder_decoration_paintable, primary_icon_paintable,
+};

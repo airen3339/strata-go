@@ -106,6 +106,7 @@ fn background_completion_preserves_foreground_callbacks_and_ignores_late_events(
         OperationEvent::Failed {
             request_id: first,
             message: "Late failure".into(),
+            password_failure: None,
         },
     );
     assert_eq!(events.borrow().len(), count);
@@ -114,9 +115,10 @@ fn background_completion_preserves_foreground_callbacks_and_ignores_late_events(
         OperationEvent::Failed {
             request_id: second,
             message: "Foreground failure".into(),
+            password_failure: None,
         },
     );
-    assert!(events.borrow().iter().any(|event| matches!(event, BrowserEvent::OperationFailed { message } if message == "Foreground failure")));
+    assert!(events.borrow().iter().any(|event| matches!(event, BrowserEvent::OperationFailed { message, .. } if message == "Foreground failure")));
 }
 
 #[test]
@@ -253,13 +255,16 @@ fn parked_delete_finishes_without_cancelling_foreground_and_respects_permanent_u
         let id = browser.last_started_operation().expect("delete started");
         assert!(browser.background_file_operation(id));
         let foreground = copy(&browser, "other.txt");
+        let events = Rc::new(RefCell::new(Vec::new()));
+        let observed = events.clone();
+        browser.observe(move |event| observed.borrow_mut().push(event.clone()));
         operations.emit(
             id,
             OperationEvent::DeleteProgress {
                 request_id: id,
                 completed: 1,
                 total: 1,
-                deleted_location: Some(deleted.clone()),
+                deleted_locations: vec![deleted.clone()],
             },
         );
         operations.emit(
@@ -271,6 +276,7 @@ fn parked_delete_finishes_without_cancelling_foreground_and_respects_permanent_u
         );
         assert!(browser.is_current_operation(foreground));
         assert!(!operations.cancelled(foreground));
+        assert_eq!(location_changes(&events.borrow()), [removed(&deleted)]);
         assert_eq!(
             pending_undo_entry(),
             if permanent {

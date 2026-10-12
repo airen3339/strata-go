@@ -36,6 +36,26 @@ The font is distributed unmodified. Strata materializes the embedded font in its
 
 The SVGs retain Lucide geometry. The table sort caret uses the Lucide triangle with a filled foreground, rotated by GTK for descending order. Their foreground color was changed from `currentColor` to GTK's symbolic foreground color so GTK can recolor them according to the active theme.
 
+## Simple Icons
+
+- Project: <https://github.com/simple-icons/simple-icons>
+- License: CC0 1.0 Universal
+- Included assets: language glyphs under `data/icons/scalable/actions/strata-lang-*.svg` (Astro, C, Clojure, C++, Crystal, CSS, Dart, Elixir, Elm, Erlang, F#, Go, GraphQL, Groovy, Haskell, HTML, Jupyter, Lua, Julia, Kotlin, NixOS, Nim, OCaml, Perl, PHP, Python, Qt, R, Racket, Ruby, Rust, Scala, Solidity, Svelte, Swift, Terraform, Vue, Zig)
+- Full license: [`data/licenses/Simple-Icons-CC0-1.0.txt`](data/licenses/Simple-Icons-CC0-1.0.txt)
+
+Only the glyph outlines are used. Each SVG was rewritten to a single path filled with Strata's symbolic foreground placeholder so the existing recolor pipeline tints it with the theme accent; no brand colors are bundled.
+
+## Devicons
+
+- Project: <https://github.com/devicons/devicon>
+- License: MIT
+- Included assets: language glyphs under `data/icons/scalable/actions/strata-lang-{js,ts,csharp,java}.svg`
+- Full license: [`data/licenses/Devicons-MIT.txt`](data/licenses/Devicons-MIT.txt)
+
+Only the glyph outlines are used. Each SVG was rewritten to a single path filled with Strata's symbolic foreground placeholder so the existing recolor pipeline tints it with the theme accent; no brand colors are bundled.
+
+The Java glyph preserves the path from Devicon's `icons/java/java-plain.svg` (Git blob `8d3c663a4c1469fcf30e9b41e5cdfae7677aa1e4`), with its fill changed to the theme foreground placeholder. Language file icons are rendered as padded stroke contours; their upstream path geometry is retained.
+
 ## Tinted Theming schemes
 
 - Project: <https://github.com/tinted-theming/schemes>
@@ -45,7 +65,7 @@ The SVGs retain Lucide geometry. The table sort caret uses the Lucide triangle w
 - Derived asset: `data/themes/catalog.toml`
 - Full license: [`data/licenses/Tinted-Theming-MIT.txt`](data/licenses/Tinted-Theming-MIT.txt)
 
-The bundled catalog contains curated Base16 palettes derived from this project alongside Strata's original themes. The Base16 mapping to Strata's semantic UI tokens is documented in the catalog.
+The bundled catalog contains curated Base16 palettes derived from this project, with a few foreground values adjusted for readability (noted in the catalog), alongside Strata's original themes. The Base16 mapping to Strata's semantic UI tokens is documented in the catalog.
 
 ## GTK and GStreamer media-runtime patch kit
 

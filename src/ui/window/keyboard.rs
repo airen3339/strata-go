@@ -5,22 +5,22 @@ use std::{
     rc::Rc,
 };
 
-use gtk::{
-    gdk::{Key, ModifierType as Modifiers},
-    glib::Propagation,
-    prelude::*,
-};
+use gtk::{gdk::ModifierType as Modifiers, glib::Propagation, prelude::*};
 
 use crate::{
     app::Browser,
     services::NavigationHistory,
     ui::{
-        browser::BrowserView, preview::PreviewDrawer, shortcut_footer::ShortcutFooter,
+        browser::BrowserView,
+        keys::{self, Binding, KeyPress, SHORTCUT_MODIFIERS, TEXT_EDITING, bindings::*},
+        modal::is_closing_layer,
+        preview::PreviewDrawer,
+        shortcut_footer::ShortcutFooter,
         top_bar_navigation::TopBarNavigation,
     },
 };
 
-use super::{SidebarState, SidebarView, TypeToSearch, visible_modal_layer};
+use super::{SidebarState, SidebarView, TypeToSearch, topmost_modal_layer, visible_modal_layer};
 
 mod chooser;
 pub(super) mod chords;
@@ -38,7 +38,17 @@ use sidebar::{SidebarChord, activate_sidebar_focus, move_sidebar_focus, sidebar_
 // None tries the next Strata stage; Some(Proceed) gives the event to GTK instead.
 type KeyResult = Option<Propagation>;
 
-pub(super) struct Bindings {
+/// Window actions that run once every other stage yields the key. The flag
+/// marks those 10xer mode leaves unbound.
+const WINDOW_ACTIONS: [(Binding, &str, bool); 5] = [
+    (SEARCH, "search", false),
+    (JUMP_TO_FOLDER, "jump-folder", true),
+    (TERMINAL, "open-terminal", true),
+    (REFRESH, "refresh", false),
+    (ARROW_SCOPE, "toggle-arrow-scope", true),
+];
+
+pub(super) struct DispatcherParts {
     pub view: BrowserView,
     pub top_bar: TopBarNavigation,
     pub preview: PreviewDrawer,
@@ -47,18 +57,44 @@ pub(super) struct Bindings {
     pub history: Rc<NavigationHistory>,
 }
 
-pub(super) fn install(window: &impl IsA<gtk::Window>, sidebar: &SidebarView, bindings: Bindings) {
+#[cfg(test)]
+pub(super) fn install(
+    window: &impl IsA<gtk::Window>,
+    sidebar: &SidebarView,
+    parts: DispatcherParts,
+) {
+    let _ = install_on(window, window.upcast_ref::<gtk::Window>(), sidebar, parts);
+}
+
+pub(super) fn install_on(
+    window: &impl IsA<gtk::Window>,
+    root: &impl IsA<gtk::Widget>,
+    sidebar: &SidebarView,
+    parts: DispatcherParts,
+) -> Vec<gtk::EventController> {
     let window = window.upcast_ref::<gtk::Window>();
     let keys = gtk::EventControllerKey::new();
     keys.set_propagation_phase(gtk::PropagationPhase::Capture);
-    let weak_browser = Rc::downgrade(&bindings.view.browser());
-    let preferences = bindings.type_to_search.preferences.clone();
-    let dispatcher = Dispatcher::bind(window, sidebar, bindings, None);
-    keys.connect_key_pressed(move |_, key, _, modifiers| {
+    let weak_browser = Rc::downgrade(&parts.view.browser());
+    let preferences = parts.type_to_search.preferences.clone();
+    let dispatcher = Dispatcher::bind(window, sidebar, parts, None);
+    let key_root = root.as_ref().downgrade();
+    let tab_scoped = !root.as_ref().is::<gtk::Window>();
+    keys::on_press(&keys, move |_, press| {
+        if !key_root
+            .upgrade()
+            .is_some_and(|root| root.is_mapped() && root.can_target())
+            || (tab_scoped && super::composition::is_tab_shortcut(press))
+        {
+            return Propagation::Proceed;
+        }
         let Some(browser) = weak_browser.upgrade() else {
             return Propagation::Proceed;
         };
-        dispatcher.handle_key(&browser, key, modifiers)
+        match dispatcher.handle_key(&browser, press) {
+            Propagation::Proceed => dispatcher.after_yield(press),
+            handled => handled,
+        }
     });
     window.add_controller(keys.clone());
 
@@ -71,7 +107,14 @@ pub(super) fn install(window: &impl IsA<gtk::Window>, sidebar: &SidebarView, bin
     wheel.set_propagation_phase(gtk::PropagationPhase::Capture);
     let window_for_wheel = window.downgrade();
     let zoom = Rc::new(TextZoomScroll::default());
+    let wheel_root = root.as_ref().downgrade();
     wheel.connect_scroll(move |controller, _, dy| {
+        if !wheel_root
+            .upgrade()
+            .is_some_and(|root| root.is_mapped() && root.can_target())
+        {
+            return Propagation::Proceed;
+        }
         let Some(window) = window_for_wheel.upgrade() else {
             return Propagation::Proceed;
         };
@@ -88,15 +131,44 @@ pub(super) fn install(window: &impl IsA<gtk::Window>, sidebar: &SidebarView, bin
         )
     });
     window.add_controller(wheel.clone());
-    release_controllers_on_close(window, &[keys.upcast(), wheel.upcast()]);
+    let controllers = vec![keys.upcast(), wheel.upcast()];
+    release_controllers_on_close(window, root, &controllers);
+    controllers
+}
+
+/// GTK's own text bindings miss a key that only the layout fallback reads as an
+/// editing shortcut, so the focused text field runs the matching action itself.
+pub(in crate::ui) fn edit_focused_text(window: &gtk::Window, press: &KeyPress) -> Propagation {
+    if !press.used_fallback() {
+        return Propagation::Proceed;
+    }
+    let focused = gtk::prelude::RootExt::focus(window)
+        .filter(|focused| focused.is::<gtk::Text>() || focused.is::<gtk::TextView>());
+    let edit = TEXT_EDITING.iter().find(|(binding, _)| press.is(*binding));
+    let (Some(focused), Some((_, action))) = (focused, edit) else {
+        return Propagation::Proceed;
+    };
+    if let Err(error) = focused.activate_action(action, None) {
+        tracing::warn!(%error, action, "text field action unavailable");
+    }
+    Propagation::Stop
 }
 
 // Key controllers retain the dispatcher and its window; unrealize breaks the cycle.
-fn release_controllers_on_close(window: &gtk::Window, controllers: &[gtk::EventController]) {
+pub(super) fn release_controllers_on_close(
+    window: &gtk::Window,
+    root: &impl IsA<gtk::Widget>,
+    controllers: &[gtk::EventController],
+) {
     let controllers: Vec<_> = controllers.iter().map(ObjectExt::downgrade).collect();
-    window.connect_unrealize(move |window| {
-        for controller in controllers.iter().filter_map(glib::WeakRef::upgrade) {
-            window.remove_controller(&controller);
+    let window = window.downgrade();
+    root.connect_unrealize(move |_| {
+        if let Some(window) = window.upgrade() {
+            for controller in controllers.iter().filter_map(glib::WeakRef::upgrade) {
+                if controller.widget().is_some() {
+                    window.remove_controller(&controller);
+                }
+            }
         }
     });
 }
@@ -118,25 +190,32 @@ impl ChooserKeys {
     pub(super) fn new(
         window: &gtk::Window,
         sidebar: &SidebarView,
-        bindings: Bindings,
+        parts: DispatcherParts,
         policy: ChooserPolicy,
     ) -> Self {
-        let browser = Rc::downgrade(&bindings.view.browser());
+        let browser = Rc::downgrade(&parts.view.browser());
         Self {
-            dispatcher: Dispatcher::bind(window, sidebar, bindings, Some(policy)),
+            dispatcher: Dispatcher::bind(window, sidebar, parts, Some(policy)),
             browser,
         }
     }
 
-    pub(in crate::ui) fn handle(&self, key: Key, modifiers: Modifiers) -> KeyResult {
+    pub(in crate::ui) fn handle(&self, press: &KeyPress) -> KeyResult {
         let browser = self.browser.upgrade()?;
-        self.dispatcher.handle_chooser_key(&browser, key, modifiers)
+        self.dispatcher.handle_chooser_key(&browser, press)
+    }
+
+    /// Returns false for a folder or no entry so the caller can navigate instead.
+    pub(in crate::ui) fn confirm_focused(&self) -> bool {
+        self.browser
+            .upgrade()
+            .is_some_and(|browser| self.dispatcher.chooser_confirm(&browser))
     }
 }
 
 /// Leaving 10xer mode ends preview key ownership but keeps the drawer open.
 fn release_preview_keys_on_mode_exit(
-    window: &gtk::Window,
+    window: &gtk::Widget,
     preview: &PreviewDrawer,
     browser: &std::rc::Weak<Browser>,
 ) {
@@ -157,7 +236,7 @@ fn release_preview_keys_on_mode_exit(
 }
 
 /// The **f** and **s** prompts filter and search as they are typed, and the
-/// footer reports the focused listing's filter or search while the mode is on.
+/// footer reports the focused listing's filter or search in every key map.
 fn bind_footer_filter(dispatcher: &Dispatcher) {
     let view = dispatcher.view.downgrade();
     dispatcher
@@ -174,12 +253,19 @@ fn bind_footer_filter(dispatcher: &Dispatcher) {
         });
     let view = dispatcher.view.downgrade();
     dispatcher.shortcuts.observe_filter(move || {
-        if !crate::ui::tenxer_mode::chrome_suppressed() {
-            return Some(None);
-        }
         view.upgrade()
             .map_or(Some(None), |view| view.filter_status())
     });
+    let shortcuts = dispatcher.shortcuts.clone();
+    dispatcher.view.set_footer_filter_focus(Rc::new(move || {
+        shortcuts.prompt_has_focus()
+            && matches!(
+                shortcuts.open_prompt_kind(),
+                Some(
+                    crate::ui::tenxer_mode::Prompt::Filter | crate::ui::tenxer_mode::Prompt::Search
+                )
+            )
+    }));
     let shortcuts = dispatcher.shortcuts.clone();
     dispatcher
         .view
@@ -188,6 +274,21 @@ fn bind_footer_filter(dispatcher: &Dispatcher) {
     dispatcher
         .view
         .connect_search_selection_changed(Rc::new(move || shortcuts.schedule_filter_refresh()));
+    // Over a fill, motion and Space move the result cursor by focus alone, and
+    // GTK may land that focus after the selection change has been reported. In
+    // Columns the footer also follows the focused column.
+    let shortcuts = dispatcher.shortcuts.clone();
+    let handler = dispatcher
+        .window
+        .connect_focus_widget_notify(move |_| shortcuts.schedule_filter_refresh());
+    // A closed tab's view unrealizes while its window lives on.
+    let window = dispatcher.window.downgrade();
+    let handler = Cell::new(Some(handler));
+    dispatcher.view.widget().connect_unrealize(move |_| {
+        if let (Some(window), Some(handler)) = (window.upgrade(), handler.take()) {
+            window.disconnect(handler);
+        }
+    });
 }
 
 fn bind_prompt_hints(dispatcher: &Dispatcher) {
@@ -236,12 +337,15 @@ fn bind_candidate_prompts(dispatcher: &Dispatcher) {
         }
     });
     let shortcuts = dispatcher.shortcuts.clone();
-    let view = dispatcher.view.clone();
+    let view = dispatcher.view.downgrade();
     let targets = dispatcher.destination_targets.clone();
     let revision = dispatcher.destination_revision.clone();
     dispatcher
         .shortcuts
         .connect_candidate_activated(move |path| {
+            let Some(view) = view.upgrade() else {
+                return;
+            };
             let Some(kind) = shortcuts.open_prompt_kind() else {
                 return;
             };
@@ -260,7 +364,7 @@ fn bind_candidate_prompts(dispatcher: &Dispatcher) {
 }
 
 fn clear_find_on_mode_exit(
-    window: &gtk::Window,
+    window: &gtk::Widget,
     dispatcher: &Dispatcher,
     browser: &std::rc::Weak<Browser>,
 ) {
@@ -284,7 +388,8 @@ fn clear_find_on_mode_exit(
             let focus = window.root().and_then(|root| root.focus());
             let prompt_focused = shortcuts.prompt_has_focus();
             shortcuts.dismiss_prompt();
-            if (prompt_focused || focus.is_none())
+            if window.is_mapped()
+                && (prompt_focused || focus.is_none())
                 && let Some(browser) = browser.upgrade()
             {
                 browser.focus_active();
@@ -372,58 +477,21 @@ pub(super) fn handle_text_zoom_scroll(
     Propagation::Stop
 }
 
-fn command_modifiers(modifiers: Modifiers) -> Modifiers {
-    modifiers
-        & (Modifiers::CONTROL_MASK
-            | Modifiers::SHIFT_MASK
-            | Modifiers::ALT_MASK
-            | Modifiers::SUPER_MASK)
+/// Window commands that 10xer mode leaves unbound, so the file list swallows them.
+fn claims_unbound_command(press: &KeyPress) -> bool {
+    press.is_any(&[
+        DUPLICATE,
+        FILTER,
+        SIDEBAR,
+        RENAME_R,
+        TAB_NEW,
+        ARROW_SCOPE,
+        JUMP_TO_FOLDER,
+    ])
 }
 
-fn plain_control(modifiers: Modifiers) -> bool {
-    let modifiers = command_modifiers(modifiers);
-    modifiers.contains(Modifiers::CONTROL_MASK)
-        && !modifiers
-            .intersects(Modifiers::SHIFT_MASK | Modifiers::ALT_MASK | Modifiers::SUPER_MASK)
-}
-
-fn claims_unbound_command(key: Key, modifiers: Modifiers) -> bool {
-    let control_shift = {
-        let modifiers = command_modifiers(modifiers);
-        modifiers.contains(Modifiers::CONTROL_MASK | Modifiers::SHIFT_MASK)
-            && !modifiers.intersects(Modifiers::ALT_MASK | Modifiers::SUPER_MASK)
-    };
-    match key {
-        Key::d
-        | Key::D
-        | Key::f
-        | Key::F
-        | Key::b
-        | Key::B
-        | Key::r
-        | Key::R
-        | Key::t
-        | Key::T
-        | Key::backslash
-            if plain_control(modifiers) =>
-        {
-            true
-        }
-        Key::k | Key::K if control_shift => true,
-        _ => false,
-    }
-}
-
-fn claims_file_list_typing(key: Key, modifiers: Modifiers) -> bool {
-    if command_modifiers(modifiers)
-        .intersects(Modifiers::CONTROL_MASK | Modifiers::ALT_MASK | Modifiers::SUPER_MASK)
-    {
-        return false;
-    }
-    if key == Key::space {
-        return true;
-    }
-    super::type_to_search_query(key, modifiers).is_some()
+fn claims_file_list_typing(press: &KeyPress) -> bool {
+    press.is(SPACE.ignoring(Modifiers::SHIFT_MASK)) || super::type_to_search_query(press).is_some()
 }
 
 fn visible_popover_menu(widget: &gtk::Widget) -> bool {
@@ -471,28 +539,27 @@ struct Dispatcher {
 }
 
 struct KeyEvent {
-    key: Key,
-    modifiers: Modifiers,
+    /// **h j k l** already read as arrows where they navigate.
+    press: KeyPress,
     focused: Option<gtk::Widget>,
     vim_navigation: bool,
     header_left_boundary: bool,
 }
 
 impl KeyEvent {
-    fn control(&self) -> bool {
-        self.modifiers.contains(Modifiers::CONTROL_MASK)
-    }
-
     fn shift(&self) -> bool {
-        self.modifiers.contains(Modifiers::SHIFT_MASK)
-    }
-
-    fn alt(&self) -> bool {
-        self.modifiers.contains(Modifiers::ALT_MASK)
+        self.press.modifiers().contains(Modifiers::SHIFT_MASK)
     }
 
     fn without(&self, modifiers: Modifiers) -> bool {
-        !self.modifiers.intersects(modifiers)
+        !self.press.modifiers().intersects(modifiers)
+    }
+
+    fn vim_arrow(&self) -> Option<gtk::gdk::Key> {
+        self.vim_navigation
+            .then(|| crate::ui::focus_navigation::spatial_arrow(&self.press))
+            .flatten()
+            .map(keys::Binding::key)
     }
 
     fn text_has_focus(&self) -> bool {
@@ -506,18 +573,18 @@ impl Dispatcher {
     fn bind(
         window: &gtk::Window,
         sidebar: &SidebarView,
-        bindings: Bindings,
+        parts: DispatcherParts,
         chooser: Option<ChooserPolicy>,
     ) -> Self {
-        let weak_browser = Rc::downgrade(&bindings.view.browser());
+        let weak_browser = Rc::downgrade(&parts.view.browser());
         let dispatcher = Self {
             window: window.clone(),
-            view: bindings.view,
-            top_bar: bindings.top_bar,
-            preview: bindings.preview,
-            type_to_search: bindings.type_to_search,
-            shortcuts: bindings.shortcuts,
-            history: bindings.history,
+            view: parts.view,
+            top_bar: parts.top_bar,
+            preview: parts.preview,
+            type_to_search: parts.type_to_search,
+            shortcuts: parts.shortcuts,
+            history: parts.history,
             rename_target: Rc::default(),
             destination_targets: Rc::default(),
             destination_revision: Rc::default(),
@@ -541,7 +608,7 @@ impl Dispatcher {
         let cancel_on_destroy = dispatcher.shortcuts.clone();
         let destinations_on_destroy = dispatcher.destinations.clone();
         let open_with_on_destroy = dispatcher.open_with.clone();
-        window.connect_unrealize(move |_| {
+        dispatcher.view.widget().connect_unrealize(move |_| {
             cancel_on_destroy.cancel_chord();
             destinations_on_destroy.cancel();
             open_with_on_destroy.invalidate();
@@ -556,22 +623,21 @@ impl Dispatcher {
         });
         bind_prompt_hints(&dispatcher);
         bind_candidate_prompts(&dispatcher);
-        release_preview_keys_on_mode_exit(window, &dispatcher.preview, &weak_browser);
-        clear_find_on_mode_exit(window, &dispatcher, &weak_browser);
+        release_preview_keys_on_mode_exit(
+            &dispatcher.view.widget(),
+            &dispatcher.preview,
+            &weak_browser,
+        );
+        clear_find_on_mode_exit(&dispatcher.view.widget(), &dispatcher, &weak_browser);
         bind_footer_filter(&dispatcher);
         dispatcher
     }
 
-    fn handle_chooser_key(
-        &self,
-        browser: &Rc<Browser>,
-        key: Key,
-        modifiers: Modifiers,
-    ) -> KeyResult {
+    fn handle_chooser_key(&self, browser: &Rc<Browser>, press: &KeyPress) -> KeyResult {
         if !self.type_to_search.preferences.tenxer_mode() {
-            return self.tenxer_keys(browser, key, modifiers);
+            return self.tenxer_keys(browser, press);
         }
-        if !items::is_modifier_key(key) {
+        if !press.is_modifier() {
             self.open_with.invalidate();
         }
         if self.text_focused()
@@ -580,48 +646,49 @@ impl Dispatcher {
         {
             // The open reference's search entry counts as focused text; its
             // keys, Escape included, must reach the reference, not the request.
-            if key == Key::F1 || self.shortcuts.reference_is_open() {
-                return self.shortcuts.handle_key(key, modifiers);
+            if press.is(REFERENCE.ignoring(SHORTCUT_MODIFIERS))
+                || self.shortcuts.reference_is_open()
+            {
+                return self.shortcuts.handle_key(press);
             }
-            return self.tenxer_keys(browser, key, modifiers);
+            return self.tenxer_keys(browser, press);
         }
-        self.input_owner(browser, key, modifiers)
-            .or_else(|| self.tenxer_keys(browser, key, modifiers))
+        self.input_owner(browser, press)
+            .or_else(|| self.tenxer_keys(browser, press))
     }
 
-    fn handle_key(&self, browser: &Rc<Browser>, key: Key, modifiers: Modifiers) -> Propagation {
-        if !items::is_modifier_key(key) {
+    fn handle_key(&self, browser: &Rc<Browser>, press: &KeyPress) -> Propagation {
+        if !press.is_modifier() {
             self.open_with.invalidate();
         }
         let preferences = &self.type_to_search.preferences;
-        if let Some(size) = preferences.text_size().for_shortcut(key, modifiers) {
+        if let Some(size) = preferences.text_size().for_shortcut(press) {
             // Text-size shortcuts run before the chord consumer. Drop the mark
             // first, then resize, matching Ctrl+, opening Settings.
             self.shortcuts.cancel_chord();
             preferences.set_text_size(size);
             return Propagation::Stop;
         }
-        if let Some(result) = self.input_owner(browser, key, modifiers) {
+        if let Some(result) = self.input_owner(browser, press) {
             return result;
         }
-        if let Some(result) = self.tenxer_keys(browser, key, modifiers) {
+        if let Some(result) = self.tenxer_keys(browser, press) {
             return result;
         }
         let focused = gtk::prelude::RootExt::focus(&self.window);
-        let navigation_key = crate::ui::focus_navigation::navigation_key(
-            key,
-            modifiers,
-            self.type_to_search.preferences.type_to_search_active(),
+        let navigated = crate::ui::focus_navigation::navigation_key(
+            press,
+            preferences.type_to_search_active(),
             focused.as_ref(),
         );
         let mut event = KeyEvent {
-            key: navigation_key,
-            modifiers,
+            press: navigated,
             focused,
-            vim_navigation: navigation_key != key,
+            vim_navigation: navigated != *press,
             header_left_boundary: false,
         };
         self.window_commands(&event)
+            .or_else(|| self.default_tab_navigation(&event))
             .or_else(|| self.inline_editing(&event))
             .or_else(|| self.filter_and_location_commands(&event))
             .or_else(|| self.video_controls(&event))
@@ -632,15 +699,15 @@ impl Dispatcher {
                 // Search rows own navigation; directory commands must not act on hidden selections.
                 if self.view.selected_search_results().is_some()
                     && !event.text_has_focus()
-                    && event.key != Key::Delete
+                    && !event.press.is(DELETE.ignoring(SHORTCUT_MODIFIERS))
                 {
-                    if matches!(event.key, Key::c | Key::x | Key::v | Key::a)
+                    if event.press.is_any(&[COPY, CUT, PASTE, SELECT_ALL])
                         && let Some(result) = self.clipboard_command(&event)
                     {
                         return Some(result);
                     }
-                    if event.vim_navigation {
-                        crate::ui::focus_navigation::activate_native_arrow(&self.window, event.key);
+                    if let Some(arrow) = event.vim_arrow() {
+                        crate::ui::focus_navigation::activate_native_arrow(&self.window, arrow);
                         Some(Propagation::Stop)
                     } else {
                         Some(Propagation::Proceed)
@@ -650,10 +717,7 @@ impl Dispatcher {
                 }
             })
             .or_else(|| {
-                if event.key == Key::Escape
-                    && event.without(
-                        Modifiers::CONTROL_MASK | Modifiers::ALT_MASK | Modifiers::SUPER_MASK,
-                    )
+                if event.press.is(ESCAPE_ANY_SHIFT)
                     && self.preview.password_has_focus(event.focused.as_ref())
                 {
                     self.dismiss_preview_or_selection(browser)
@@ -670,8 +734,8 @@ impl Dispatcher {
             .unwrap_or(Propagation::Proceed)
     }
 
-    fn input_owner(&self, browser: &Browser, key: Key, modifiers: Modifiers) -> KeyResult {
-        if let Some(layer) = visible_modal_layer(&self.window) {
+    fn input_owner(&self, browser: &Browser, press: &KeyPress) -> KeyResult {
+        if let Some(layer) = topmost_modal_layer(&self.window, &is_closing_layer) {
             let focus_is_inside = gtk::prelude::RootExt::focus(&self.window)
                 .is_some_and(|focus| focus == layer || focus.is_ancestor(&layer));
             self.shortcuts.cancel_chord();
@@ -679,6 +743,12 @@ impl Dispatcher {
                 layer.grab_focus();
                 return Some(Propagation::Stop);
             }
+            return Some(Propagation::Proceed);
+        }
+        if visible_modal_layer(&self.window).is_some() {
+            // A layer animating out has dropped focus; only window actions, whose
+            // guard skips closing layers, may act until focus is restored.
+            self.shortcuts.cancel_chord();
             return Some(Propagation::Proceed);
         }
         if self.native_menu_owns_input() {
@@ -693,31 +763,66 @@ impl Dispatcher {
             focused = widget.parent();
         }
         if self.shortcuts.prompt_has_focus() {
-            if let Some(result) = self.footer_key(key, modifiers) {
+            if let Some(result) = self.footer_key(press) {
                 return Some(result);
             }
-            return Some(self.prompt_key(browser, key, modifiers));
+            return Some(self.prompt_key(browser, press));
         }
-        if let Some(result) = self.tenxer_preview_text(browser, key, modifiers) {
+        if self
+            .preview
+            .handle_find_key(press, self.type_to_search.preferences.tenxer_mode())
+        {
+            self.shortcuts.cancel_chord();
+            return Some(Propagation::Stop);
+        }
+        if let Some(result) = self.tenxer_preview_text(browser, press) {
             return Some(result);
         }
         if !self.inline_editing_active()
-            && let Some(result) = self.footer_key(key, modifiers)
+            && let Some(result) = self.footer_key(press)
         {
             return Some(result);
         }
-        if key == Key::Escape && crate::ui::scrolling::stop_autoscroll() {
+        if press.is(ESCAPE_ANY) && crate::ui::scrolling::stop_autoscroll() {
             self.shortcuts.cancel_chord();
             return Some(Propagation::Stop);
         }
         None
     }
 
+    /// Where GTK's accelerators ran: window actions, then a focused text
+    /// field's editing keys.
+    fn after_yield(&self, press: &KeyPress) -> Propagation {
+        match self.window_action(press) {
+            Propagation::Proceed => edit_focused_text(&self.window, press),
+            handled => handled,
+        }
+    }
+
+    /// Like a GTK accelerator, an enabled action consumes its key even when the
+    /// action's guard then declines to run.
+    fn window_action(&self, press: &KeyPress) -> Propagation {
+        let Some((_, name, unbound_in_tenxer)) = WINDOW_ACTIONS
+            .iter()
+            .find(|(binding, _, _)| press.is(*binding))
+        else {
+            return Propagation::Proceed;
+        };
+        let bound = !(*unbound_in_tenxer && self.type_to_search.preferences.tenxer_mode());
+        match self.window.downcast_ref::<gtk::ApplicationWindow>() {
+            Some(window) if bound && window.is_sensitive() && window.is_action_enabled(name) => {
+                gtk::gio::prelude::ActionGroupExt::activate_action(window, name, None);
+                Propagation::Stop
+            }
+            _ => Propagation::Proceed,
+        }
+    }
+
     /// Shortcut-reference keys run before the chord consumer. A visible prompt
     /// keeps its armed chord; every other claimed footer key cancels first.
-    fn footer_key(&self, key: Key, modifiers: Modifiers) -> KeyResult {
+    fn footer_key(&self, press: &KeyPress) -> KeyResult {
         let prompted = self.shortcuts.prompt_is_visible();
-        let result = self.shortcuts.handle_key(key, modifiers)?;
+        let result = self.shortcuts.handle_key(press)?;
         if !prompted {
             self.shortcuts.cancel_chord();
         }
@@ -725,7 +830,7 @@ impl Dispatcher {
     }
 
     fn inline_editing_active(&self) -> bool {
-        self.view.rename_is_active() || self.view.new_entry_is_active()
+        self.view.inline_edit_is_open()
     }
 
     fn native_menu_owns_input(&self) -> bool {
@@ -741,12 +846,12 @@ impl Dispatcher {
         visible_popover_menu(self.window.upcast_ref())
     }
 
-    fn tenxer_keys(&self, browser: &Rc<Browser>, key: Key, modifiers: Modifiers) -> KeyResult {
+    fn tenxer_keys(&self, browser: &Rc<Browser>, press: &KeyPress) -> KeyResult {
         if visible_modal_layer(&self.window).is_some() {
             return None;
         }
         let preferences = &self.type_to_search.preferences;
-        if crate::ui::tenxer_mode::is_toggle_shortcut(key, modifiers) {
+        if press.is(TENXER_MODE) {
             preferences.set_tenxer_mode(!preferences.tenxer_mode());
             return Some(Propagation::Stop);
         }
@@ -757,65 +862,62 @@ impl Dispatcher {
             self.shortcuts.cancel_chord();
             return None;
         }
-        if let Some(result) = self.tenxer_chord(browser, key, modifiers) {
+        if let Some(result) = self.tenxer_chord(browser, press) {
             return Some(result);
         }
-        let command = modifiers
-            .intersects(Modifiers::CONTROL_MASK | Modifiers::ALT_MASK | Modifiers::SUPER_MASK);
         if let Some(result) = self
-            .chooser_refusal(key, modifiers)
-            .or_else(|| self.chooser_save(key, modifiers))
+            .chooser_refusal(press)
+            .or_else(|| self.chooser_save(press))
         {
             return Some(result);
         }
-        if key == Key::Q && modifiers.contains(Modifiers::SHIFT_MASK) && !command {
+        if press.is(CLOSE_WINDOW) {
             self.window.close();
             return Some(Propagation::Stop);
         }
-        if let Some(result) = self.tenxer_preview(browser, key, modifiers) {
+        if let Some(result) = self.tenxer_preview(browser, press) {
             return Some(result);
         }
         let focus = gtk::prelude::RootExt::focus(&self.window);
         if self.sidebar.contains(&focus)
-            && let Some(result) = self.tenxer_sidebar(browser, key, modifiers)
+            && let Some(result) = self.tenxer_sidebar(browser, press)
         {
             return Some(result);
         }
         if self.tenxer_header_focused(&focus)
-            && let Some(result) = self.tenxer_header(browser, key, modifiers)
+            && let Some(result) = self.tenxer_header(browser, press)
         {
             return Some(result);
         }
-        if key == Key::Escape && !command && !self.inline_editing_active() {
+        if press.is(ESCAPE_ANY_SHIFT) && !self.inline_editing_active() {
             return self.tenxer_escape(browser);
         }
         // Unclaimed typing belongs to the listing in 10xer mode, even when
         // compositor focus restoration selected a header or footer control.
         // Text, menus, sidebar/header actions, and preview ownership run first.
-        if key != Key::space
-            && claims_file_list_typing(key, modifiers)
+        if super::type_to_search_query(press).is_some()
             && !self.view.item_view_has_focus()
             && !self.preview.owns_focus(focus.as_ref())
         {
             browser.focus_active();
         }
         if let Some(result) = self
-            .tenxer_prompt_keys(key, modifiers)
-            .or_else(|| self.tenxer_file_keys(key, modifiers))
+            .tenxer_prompt_keys(press)
+            .or_else(|| self.tenxer_file_keys(press))
         {
             return Some(result);
         }
         let icons = self.view.view_mode() == crate::ui::browser_modes::BrowserMode::Icons;
         let claimed = if icons {
-            self.tenxer_icons(browser, key, modifiers)
+            self.tenxer_icons(browser, press)
         } else {
-            self.tenxer_listing(browser, key, modifiers)
+            self.tenxer_listing(browser, press)
         };
         if claimed {
             return Some(Propagation::Stop);
         }
-        if claims_unbound_command(key, modifiers)
-            || (self.view.item_view_has_focus() && claims_file_list_typing(key, modifiers))
+        if claims_unbound_command(press)
+            || (self.view.item_view_has_focus() && claims_file_list_typing(press))
         {
             return Some(Propagation::Stop);
         }
@@ -849,14 +951,14 @@ impl Dispatcher {
         self.sidebar.enter(&previous);
     }
 
-    fn tenxer_sidebar(&self, browser: &Browser, key: Key, modifiers: Modifiers) -> KeyResult {
-        if super::is_context_menu_shortcut(key, modifiers)
+    fn tenxer_sidebar(&self, browser: &Browser, press: &KeyPress) -> KeyResult {
+        if press.is_any(&[CONTEXT_MENU, CONTEXT_MENU_F10])
             && sidebar::open_sidebar_context_menu(&self.sidebar.widget)
         {
             self.shortcuts.cancel_chord();
             return Some(Propagation::Stop);
         }
-        let chord = sidebar_chord(key, modifiers)?;
+        let chord = sidebar_chord(press)?;
         match chord {
             SidebarChord::Move(delta) => {
                 move_sidebar_focus(&self.sidebar.widget, delta);
@@ -890,28 +992,23 @@ impl Dispatcher {
             && !self.view.item_view_has_focus()
     }
 
-    fn tenxer_header(&self, browser: &Browser, key: Key, modifiers: Modifiers) -> KeyResult {
-        if modifiers
-            .intersects(Modifiers::CONTROL_MASK | Modifiers::ALT_MASK | Modifiers::SUPER_MASK)
-        {
+    fn tenxer_header(&self, browser: &Browser, press: &KeyPress) -> KeyResult {
+        let held = press.modifiers();
+        if held.intersects(Modifiers::CONTROL_MASK | Modifiers::ALT_MASK | Modifiers::SUPER_MASK) {
             return None;
         }
-        if modifiers.contains(Modifiers::SHIFT_MASK) && !matches!(key, Key::Tab | Key::ISO_Left_Tab)
-        {
+        // The held Shift, including one that typed a symbol, swallows the key.
+        if held.contains(Modifiers::SHIFT_MASK) && !press.is(FOCUS_PREVIOUS) {
             return Some(Propagation::Stop);
         }
-        match key {
-            Key::h | Key::j => {
-                self.return_from_header(browser);
-                Some(Propagation::Stop)
-            }
-            Key::Return | Key::KP_Enter | Key::space => {
-                crate::ui::focus_navigation::activate(self.window.upcast_ref());
-                Some(Propagation::Stop)
-            }
-            Key::Delete => Some(Propagation::Stop),
-            _ => None,
+        if press.is_any(&[VIM_LEFT, VIM_DOWN]) {
+            self.return_from_header(browser);
+        } else if press.is_any(&[ENTER, SPACE]) {
+            crate::ui::focus_navigation::activate(self.window.upcast_ref());
+        } else if !press.is(DELETE) {
+            return None;
         }
+        Some(Propagation::Stop)
     }
 
     fn return_from_header(&self, browser: &Browser) {

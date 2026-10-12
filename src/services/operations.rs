@@ -114,6 +114,18 @@ pub struct TrashedOriginal {
     pub inode: u64,
 }
 
+impl TrashedOriginal {
+    /// The identity of whatever is at `path` now, without following a final symlink.
+    pub fn at_path(path: &std::path::Path) -> Option<Self> {
+        use std::os::unix::fs::MetadataExt;
+        let metadata = std::fs::symlink_metadata(path).ok()?;
+        Some(Self {
+            device: metadata.dev(),
+            inode: metadata.ino(),
+        })
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct UndoMergeRequest {
     pub id: OperationRequestId,
@@ -206,6 +218,13 @@ impl ArchiveFormat {
             None
         }
     }
+
+    pub fn for_entry(entry: &FileEntry) -> Option<Self> {
+        if !entry.is_file() || entry.location.native_path().is_none() {
+            return None;
+        }
+        Self::from_extension(&entry.display_name)
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -237,6 +256,13 @@ pub struct CancelledOperation {
     pub affected_locations: HashSet<Location>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PasswordFailure {
+    Required,
+    /// Includes ambiguous decryption failures that may instead indicate damaged data.
+    Incorrect,
+}
+
 #[derive(Clone, Debug)]
 pub enum OperationEvent {
     Renamed {
@@ -252,6 +278,24 @@ pub enum OperationEvent {
     Pasted {
         request_id: OperationRequestId,
         locations: Vec<Location>,
+    },
+    /// One moved item landed at `to`, the destination the conflict policy
+    /// actually chose (Keep both and FAT names differ from the source name).
+    /// Reported per item, so a partial move still says what moved. `merged`
+    /// means `to` is an existing folder the item was merged into.
+    ItemMoved {
+        request_id: OperationRequestId,
+        from: Location,
+        to: Location,
+        merged: bool,
+    },
+    /// An operation moved the local item at `location` to Trash, including an
+    /// item a Replace or a cleanup displaced. `identity` survives the move, so
+    /// a restore can tell this item from another that left the same path.
+    ItemTrashed {
+        request_id: OperationRequestId,
+        location: Location,
+        identity: TrashedOriginal,
     },
     FlushingToDevice {
         request_id: OperationRequestId,
@@ -285,7 +329,7 @@ pub enum OperationEvent {
         request_id: OperationRequestId,
         completed: usize,
         total: usize,
-        deleted_location: Option<Location>,
+        deleted_locations: Vec<Location>,
     },
     RestoreProgress {
         request_id: OperationRequestId,
@@ -329,6 +373,7 @@ pub enum OperationEvent {
     Failed {
         request_id: OperationRequestId,
         message: String,
+        password_failure: Option<PasswordFailure>,
     },
     Compressed {
         request_id: OperationRequestId,
@@ -341,6 +386,7 @@ pub enum OperationEvent {
     Extracted {
         request_id: OperationRequestId,
         first_name: Option<String>,
+        created: Vec<Location>,
     },
     ArchiveStarted {
         request_id: OperationRequestId,

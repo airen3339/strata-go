@@ -3,11 +3,17 @@
 from __future__ import annotations
 
 import base64
+import time
 import zipfile
 
 import pytest
 
 from harness.fixtures import FixtureTree
+from harness.interaction import SEPARATE_CLICK_GAP
+
+# Hover and late release selection follow GTK's next event; give them time to land before asserting
+# that they did not happen.
+SETTLE_HOLD = 0.3
 
 
 # ZIP and header-encrypted 7z containing protected.txt; password: fixture-password.
@@ -24,7 +30,11 @@ def fixture_tree(request):
         tree = FixtureTree.create({"a.txt": "before", "bundle.zip": "", "z.txt": "after"})
         with zipfile.ZipFile(tree.path("bundle.zip"), "w") as archive:
             archive.writestr("docs/inside.txt", "inside")
+            archive.writestr("docs/inner/deep.txt", "deep")
+            archive.writestr("docs/more/a.txt", "a")
+            archive.writestr("docs/more/b.txt", "b")
             archive.writestr("top.txt", "top")
+            archive.writestr("zz.txt", "last")
     else:
         tree = FixtureTree.create({f"encrypted.{extension}": ""})
         tree.path(f"encrypted.{extension}").write_bytes(base64.b64decode(ENCRYPTED_ARCHIVES[extension]))
@@ -32,6 +42,16 @@ def fixture_tree(request):
         yield tree
     finally:
         tree.cleanup()
+
+
+def archive_row(strata, text):
+    preview = strata.preview()
+    if preview is None:
+        return None
+    for row in preview.find_all(role="list item"):
+        if any(label.name == text for label in row.find_all(role="label")):
+            return row
+    return None
 
 
 @pytest.mark.parametrize("fixture_tree", ["plain"], indirect=True)
@@ -49,6 +69,12 @@ def test_columns_archive_preview_waits_for_explicit_entry(strata, fixture_tree, 
     if automatic:
         strata.wait(lambda: strata.preview_shows("docs/"), "the passive archive contents")
         assert strata.preview().find(states={"selected"}) is None
+        member = strata.settle(archive_row(strata, "top.txt"))
+        strata.pointer.move_to(*member.screen_bounds().center)
+        strata.settle(member)
+        time.sleep(SETTLE_HOLD)
+        assert strata.preview().find(states={"selected"}) is None, "hovering selected a member"
+        assert strata.focused_name() == "bundle.zip"
     else:
         assert strata.preview() is None
 
@@ -68,6 +94,63 @@ def test_columns_archive_preview_waits_for_explicit_entry(strata, fixture_tree, 
     strata.keyboard.press("Down")
     strata.wait_for_focused_entry("z.txt")
     assert strata.current_directory() == root
+    assert sorted(path.name for path in fixture_tree.root.iterdir()) == ["a.txt", "bundle.zip", "z.txt"]
+
+
+@pytest.mark.parametrize("fixture_tree", ["plain"], indirect=True)
+@pytest.mark.preferences(browser_mode="list", type_to_search=False)
+def test_archive_rows_select_on_click_not_hover(strata, fixture_tree):
+    strata.select_entry("bundle.zip")
+    strata.keyboard.press("space")
+    strata.wait(lambda: strata.preview_shows("docs/"), "the archive contents")
+    strata.wait(
+        lambda: archive_row(strata, "docs/").has_state("selected"),
+        "the first member to be highlighted",
+    )
+
+    zz = strata.settle(archive_row(strata, "zz.txt"))
+    strata.pointer.move_to(*zz.screen_bounds().center)
+    strata.settle(zz)
+    time.sleep(SETTLE_HOLD)
+    assert not zz.has_state("selected"), "hovering selected a member"
+    assert archive_row(strata, "docs/").has_state("selected")
+    strata.keyboard.press("Down")
+    strata.wait(
+        lambda: archive_row(strata, "top.txt").has_state("selected"),
+        "Down to continue from the highlighted member, not the hovered one",
+    )
+
+    strata.pointer.click(archive_row(strata, "top.txt"))
+    strata.wait(lambda: archive_row(strata, "top.txt").has_state("selected"), "the clicked file")
+    assert strata.preview_shows("top.txt") and not strata.preview_shows("inside.txt")
+    strata.keyboard.press("Down")
+    strata.wait(lambda: archive_row(strata, "zz.txt").has_state("selected"), "Down from the clicked file")
+
+    strata.pointer.click(archive_row(strata, "docs/"), modifiers=["ctrl"])
+    strata.wait(lambda: strata.preview_shows("inside.txt"), "a Ctrl+click to open the folder")
+    strata.keyboard.press("Left")
+    strata.wait(lambda: strata.preview_shows("top.txt"), "Left to return to the archive root")
+
+    docs = archive_row(strata, "docs/").screen_bounds()
+    strata.pointer.click(archive_row(strata, "docs/"), at=(docs.center[0], docs.y + 1))
+    strata.wait(lambda: strata.preview_shows("inside.txt"), "a click on the row's edge to open the folder")
+    strata.keyboard.press("Left")
+    strata.wait(lambda: strata.preview_shows("top.txt"), "Left to return to the archive root")
+
+    time.sleep(SEPARATE_CLICK_GAP)
+    strata.pointer.double_click(archive_row(strata, "docs/"))
+    strata.wait(lambda: strata.preview_shows("inner/"), "a double-click to open the folder")
+    assert not strata.preview_shows("deep.txt"), "a double-click opened two levels"
+    assert archive_row(strata, "inner/").has_state("selected")
+
+    time.sleep(SEPARATE_CLICK_GAP)
+    strata.pointer.double_click(archive_row(strata, "more/"))
+    strata.wait(lambda: strata.preview_shows("b.txt"), "a double-click to open the second folder")
+    time.sleep(SETTLE_HOLD)
+    assert archive_row(strata, "a.txt").has_state("selected"), "the double-click's second release moved the highlight"
+
+    strata.keyboard.press("Escape")
+    strata.wait(lambda: strata.preview() is None, "Escape to close the archive preview")
     assert sorted(path.name for path in fixture_tree.root.iterdir()) == ["a.txt", "bundle.zip", "z.txt"]
 
 

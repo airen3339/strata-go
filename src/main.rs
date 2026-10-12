@@ -1,9 +1,17 @@
 // SPDX-License-Identifier: MIT
 
+// build.rs embeds data/locales; this path holds no catalogs, so the macro adds none itself.
+rust_i18n::i18n!(
+    "src/i18n/no-catalogs",
+    fallback = "en",
+    backend = crate::i18n::Catalogs::compiled()
+);
+
 mod adapters;
 mod app;
 mod assets;
 mod build_info;
+mod i18n;
 mod logging;
 mod media;
 mod metrics;
@@ -233,6 +241,8 @@ fn main() -> gtk::glib::ExitCode {
     application.connect_handle_local_options(|_, _| ControlFlow::Continue(()));
     application.connect_startup(|_| install_x11_program_class());
     application.connect_startup(export_file_manager_interface);
+    application.connect_startup(|_application| ui::schedule_rollback_cleanup());
+    application.connect_shutdown(|_| ui::preferences::flush_pending_folder_views());
     application.connect_activate(|application| {
         if let Err(error) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             ui::present(application);

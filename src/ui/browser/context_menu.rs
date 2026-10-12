@@ -28,6 +28,24 @@ mod presentation;
 
 const CONTEXT_MENU_EDGE_MARGIN: i32 = 16;
 
+/// `commands::collect` turns a box with this class into a native submenu
+/// instead of flattening its buttons into top-level rows.
+pub(super) const SUBMENU_ROW_CLASS: &str = "item-context-submenu";
+pub(super) const SUBMENU_ENTRIES_CLASS: &str = "item-context-submenu-entries";
+
+fn submenu_row(header: &gtk::Button, entries: [&gtk::Button; 2]) -> gtk::Box {
+    let wrapper = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    wrapper.add_css_class(SUBMENU_ROW_CLASS);
+    wrapper.append(header);
+    let entries_box = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    entries_box.add_css_class(SUBMENU_ENTRIES_CLASS);
+    for entry in entries {
+        entries_box.append(entry);
+    }
+    wrapper.append(&entries_box);
+    wrapper
+}
+
 fn context_menu_placement(anchor_height: i32, click_y: f64) -> (gtk::PositionType, i32) {
     let click_y = click_y.round() as i32;
     let above = click_y.clamp(0, anchor_height);
@@ -593,11 +611,11 @@ pub(in crate::ui) fn install_folder_context_menu(
         select_all.set_sensitive(has_entries());
         open_terminal.set_sensitive(can_open_terminal(&location_for_trigger));
         let hidden_files_shown = browser_for_trigger.preferences().show_hidden;
-        toggle_hidden_label.set_text(if hidden_files_shown {
+        toggle_hidden_label.set_text(&crate::i18n::tr(if hidden_files_shown {
             "Hide Hidden Files"
         } else {
             "Show Hidden Files"
-        });
+        }));
         crate::assets::set_primary_icon(
             &toggle_hidden_icon,
             if hidden_files_shown {
@@ -777,6 +795,11 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
         .location_at(depth)
         .as_ref()
         .is_some_and(is_trash_location);
+    let in_recent = state
+        .browser
+        .location_at(depth)
+        .as_ref()
+        .is_some_and(crate::model::Location::is_recent_location);
     let content = gtk::Box::new(gtk::Orientation::Vertical, 0);
     content.add_css_class("item-context-menu");
     let remaining = gtk::Box::new(gtk::Orientation::Vertical, 0);
@@ -807,6 +830,22 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
         "Open",
         ContextHint::Open,
     );
+    let open_in = item_context_option(
+        crate::assets::icons::EXTERNAL_LINK,
+        "Open in…",
+        ContextHint::None,
+    );
+    let open_in_tab = item_context_option(
+        crate::assets::icons::PLUS,
+        "New Tab",
+        ContextHint::OpenInNewTab,
+    );
+    let open_in_window = item_context_option(
+        crate::assets::icons::APP_WINDOW,
+        "New Window",
+        ContextHint::OpenInNewWindow,
+    );
+    let open_in_submenu = submenu_row(&open_in, [&open_in_tab, &open_in_window]);
     let open_with = item_context_option(
         crate::assets::icons::APP_WINDOW,
         "Open With…",
@@ -835,6 +874,12 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
         ContextHint::Restore,
     );
     restore.set_visible(in_trash);
+    let remove_from_recent = item_context_option(
+        crate::assets::icons::CLOCK,
+        "Remove from Recent",
+        ContextHint::RemoveFromRecent,
+    );
+    remove_from_recent.set_visible(in_recent);
     let pin = item_context_option(
         crate::assets::icons::PIN,
         "Pin to sidebar",
@@ -933,7 +978,9 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
     single_open.append(&open_file_location);
     single_open.append(&run);
     single_open.append(&open_terminal);
+    single_open.append(&open_in_submenu);
     single_open.append(&restore);
+    single_open.append(&remove_from_recent);
     single_open.append(&print);
     single_open.append(&extract);
     single_open.append(&extract_to);
@@ -967,7 +1014,26 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
     let open_multiple = item_context_option(
         crate::assets::icons::EXTERNAL_LINK,
         "Open",
-        ContextHint::OpenMultiple,
+        ContextHint::Open,
+    );
+    let open_in_multiple = item_context_option(
+        crate::assets::icons::EXTERNAL_LINK,
+        "Open in…",
+        ContextHint::None,
+    );
+    let open_in_tab_multiple = item_context_option(
+        crate::assets::icons::PLUS,
+        "New Tab",
+        ContextHint::OpenInNewTab,
+    );
+    let open_in_window_multiple = item_context_option(
+        crate::assets::icons::APP_WINDOW,
+        "New Window",
+        ContextHint::OpenInNewWindow,
+    );
+    let open_in_multiple_submenu = submenu_row(
+        &open_in_multiple,
+        [&open_in_tab_multiple, &open_in_window_multiple],
     );
     let open_with_multiple = item_context_option(
         crate::assets::icons::APP_WINDOW,
@@ -980,6 +1046,12 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
         ContextHint::Restore,
     );
     restore_multiple.set_visible(in_trash);
+    let remove_from_recent_multiple = item_context_option(
+        crate::assets::icons::CLOCK,
+        "Remove from Recent",
+        ContextHint::RemoveFromRecent,
+    );
+    remove_from_recent_multiple.set_visible(in_recent);
     let copy_multiple = item_context_option(crate::assets::icons::COPY, "Copy", ContextHint::Copy);
     let duplicate_multiple = item_context_option(
         crate::assets::icons::COPY_PLUS,
@@ -1048,7 +1120,9 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
     multiple_open.append(&group_multiple_separator);
     multiple_open.append(&open_multiple);
     multiple_open.append(&open_with_multiple);
+    multiple_open.append(&open_in_multiple_submenu);
     multiple_open.append(&restore_multiple);
+    multiple_open.append(&remove_from_recent_multiple);
     content.append(&multiple_open);
     multiple.append(&cut_multiple);
     multiple.append(&copy_multiple);
@@ -1098,7 +1172,7 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
         if let Some(state) = weak.upgrade() {
             if let Some(position) = current_context_position(&state, depth, position, &entry) {
                 if state.mode_views.borrow().mode() == BrowserMode::Columns {
-                    state.browser.activate(depth, position);
+                    state.activate_column_entry(depth, position);
                 } else {
                     state.browser.activate_in_place(depth, position);
                 }
@@ -1109,6 +1183,14 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
             }
         }
     });
+    for (button, action) in [
+        (&open_in_tab, "win.open-tab-at"),
+        (&open_in_window, "win.open-window-at"),
+        (&open_in_tab_multiple, "win.open-tab-at"),
+        (&open_in_window_multiple, "win.open-window-at"),
+    ] {
+        connect_open_in(button, &popover, state, &target, action);
+    }
     let open_file_location_target = target.clone();
     let open_file_location_state = Rc::downgrade(state);
     let open_file_location_popover = popover.downgrade();
@@ -1125,24 +1207,8 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
         let Some(parent) = entry.location.parent() else {
             return;
         };
-        let Some(state) = open_file_location_state.upgrade() else {
-            return;
-        };
-        if state.browser.location_at(depth).as_ref() == Some(&parent) {
-            if let Some(column) = state.columns.borrow().get(depth) {
-                column.filter_entry.set_text("");
-            }
-            state.mode_views.borrow().clear_filter(depth);
-            state
-                .browser
-                .select_entries_by_name_at(depth, &[entry.display_name]);
-            state.reveal_focused_entry();
-        } else {
-            state
-                .pending_select
-                .borrow_mut()
-                .push(entry.display_name.clone());
-            state.browser.navigate_location(parent, false);
+        if let Some(state) = open_file_location_state.upgrade() {
+            state.reveal_locations(parent, vec![entry.location], false);
         }
     });
     let run_target = target.clone();
@@ -1192,7 +1258,7 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
         ) {
             crate::ui::modal::show_error_dialog(
                 &state.overlay,
-                "Unable to open file",
+                &crate::i18n::tr("Unable to open file"),
                 error.message(),
             );
         }
@@ -1380,6 +1446,12 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
     for button in [&restore, &restore_multiple] {
         connect_selection_action(button, &popover, state, &target, |state, entries| {
             state.request_restore(entries);
+        });
+    }
+    for button in [&remove_from_recent, &remove_from_recent_multiple] {
+        connect_selection_action(button, &popover, state, &target, |state, entries| {
+            let uris = entries.into_iter().filter_map(|entry| entry.recent_uri);
+            crate::adapters::recent_remove_entries(&state.recent_removal, uris);
         });
     }
     for (button, moving) in [
@@ -1570,6 +1642,11 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
             let restorable = entries.iter().all(|entry| is_trash_item(&entry.location));
             restore.set_visible(restorable);
             restore_multiple.set_visible(restorable);
+            let recent_removable = in_recent
+                && !entries.is_empty()
+                && entries.iter().all(|entry| entry.recent_uri.is_some());
+            remove_from_recent.set_visible(recent_removable);
+            remove_from_recent_multiple.set_visible(recent_removable);
             for button in [&cut, &cut_multiple, &move_to, &move_multiple] {
                 button.set_visible(removable);
             }
@@ -1591,6 +1668,9 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
             compress_multiple.set_visible(can_compress);
             preview.set_visible(crate::ui::preview::entry_supports_quick_preview(&entry));
             print.set_visible(entry_supports_printing(&entry));
+            open_in_submenu.set_visible(entry.is_directory());
+            open_in_multiple_submenu
+                .set_visible(entries.len() > 1 && entries.iter().any(|entry| entry.is_directory()));
             open_terminal.set_visible(entry.is_directory() && can_open_terminal(&entry.location));
             let search_or_filter = context_filter_or_search_active(&state, depth);
             let in_different_folder =
@@ -1617,15 +1697,17 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
                     .as_ref()
                     .is_some_and(|handler| handler(&entry.location) == PinStatus::Available),
             );
-            let can_extract = entry.location.native_path().is_some()
-                && ArchiveFormat::from_extension(&entry.display_name).is_some();
+            let can_extract = ArchiveFormat::for_entry(&entry).is_some();
             extract.set_visible(can_extract);
             extract_to.set_visible(can_extract);
             customize.set_visible(
                 !in_trash && entries.len() == 1 && entry.location.native_path().is_some(),
             );
             if entries.len() > 1 {
-                heading.set_text(&format!("{} items selected", entries.len()));
+                heading.set_text(&rust_i18n::t!(
+                    "%{items} selected",
+                    items = crate::i18n::count("items", entries.len())
+                ));
                 summary.set_text(&selected_items_summary(&entries));
                 single.set_visible(false);
                 multiple.set_visible(true);
@@ -1659,6 +1741,42 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
     });
     widget.add_controller(click);
     open_at
+}
+
+fn connect_open_in(
+    button: &gtk::Button,
+    popover: &gtk::Popover,
+    state: &Rc<ViewState>,
+    target: &Rc<RefCell<Option<ContextTarget>>>,
+    action: &'static str,
+) {
+    let weak_state = Rc::downgrade(state);
+    let weak_popover = popover.downgrade();
+    let target = target.clone();
+    button.connect_clicked(move |_| {
+        if let Some(popover) = weak_popover.upgrade() {
+            popover.popdown();
+        }
+        if let Some(state) = weak_state.upgrade() {
+            open_selected_in_action(&state, &target, action);
+        }
+    });
+}
+
+fn open_selected_in_action(
+    state: &Rc<ViewState>,
+    target: &RefCell<Option<ContextTarget>>,
+    action: &str,
+) {
+    for entry in context_entries(state, target) {
+        if !entry.is_directory() {
+            continue;
+        }
+        let uri = gio_file_for_location(&entry.location).uri().to_variant();
+        if let Err(error) = state.overlay.activate_action(action, Some(&uri)) {
+            tracing::warn!(%error, action, "open-in-new location action unavailable");
+        }
+    }
 }
 
 fn current_context_position(
@@ -1730,13 +1848,7 @@ fn focus_search_result(state: &ViewState, depth: usize, entry: &FileEntry) {
     let Some(position) = position else {
         return;
     };
-    let row = column.bound_rows.borrow().iter().find_map(|bound| {
-        let item = bound.item.upgrade()?;
-        (item.position() == position as u32)
-            .then(|| bound.row.upgrade())
-            .flatten()
-    });
-    if let Some(row) = row.filter(|row| row.is_mapped()) {
+    if let Some((row, _)) = column.shown_row_at(position as u32) {
         if !column.selection.is_selected(position as u32) {
             column.selection.select_item(position as u32, true);
         }
@@ -1879,6 +1991,8 @@ fn item_context_danger_option(icon: &str, label: &str, hint: ContextHint) -> gtk
 }
 
 fn item_context_option_with_icon(icon: gtk::Image, label: &str, hint: ContextHint) -> gtk::Button {
+    let translated = crate::i18n::tr(label);
+    let label = translated.as_str();
     let button = presentation::menu_item_button();
     button.add_css_class("item-context-option");
     let row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
@@ -1902,6 +2016,8 @@ fn context_menu_row(
     hint: ContextHint,
     button: &gtk::Button,
 ) -> (gtk::Box, gtk::Image, gtk::Label) {
+    let translated = crate::i18n::tr(label);
+    let label = translated.as_str();
     let row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
     let icon = crate::assets::primary_icon(icon, 15);
     icon.add_css_class("folder-context-icon");
@@ -1934,7 +2050,9 @@ pub(super) fn context_menu_danger_option(
     label: &str,
     hint: ContextHint,
 ) -> gtk::Button {
-    let button = crate::ui::accessibility::menu_item_button();
+    let translated = crate::i18n::tr(label);
+    let label = translated.as_str();
+    let button = presentation::menu_item_button();
     let row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
     let icon = crate::assets::danger_icon(icon, 15);
     icon.add_css_class("folder-context-icon");
@@ -1958,27 +2076,44 @@ fn context_menu_toggle_option(
     label: &str,
     hint: ContextHint,
 ) -> (gtk::Button, gtk::Image, gtk::Label) {
-    let button = crate::ui::accessibility::menu_item_button();
+    let button = presentation::menu_item_button();
     let (row, icon, title) = context_menu_row(icon, label, hint, &button);
     button.add_css_class("folder-context-option");
     button.set_child(Some(&row));
     (button, icon, title)
 }
 
+/// The accelerator is set before the hint text, whose change rebuilds the
+/// native menu row that reads both.
 fn bind_context_hint(button: &gtk::Button, shortcut: &gtk::Label, label: &str, hint: ContextHint) {
     let button = button.downgrade();
     let label = label.to_owned();
     PreferenceManager::shared().bind_preference(
         shortcut,
         move |preferences| shortcut_reference::context_hint_for(hint, preferences),
-        move |widget, text| {
+        move |widget, hinted| {
             let shown = widget
                 .downcast_ref::<gtk::Label>()
                 .expect("context hint label");
-            shown.set_text(text);
+            let text = hinted
+                .map(|keys| crate::ui::keys::label(&keys))
+                .unwrap_or_default();
+            let button = button.upgrade();
+            if let Some(option) = button
+                .as_ref()
+                .and_then(|button| button.downcast_ref::<presentation::MenuOption>())
+            {
+                option.set_accelerator(
+                    hinted
+                        .and_then(shortcut_reference::menu_accelerator)
+                        .map(|binding| binding.accelerator())
+                        .unwrap_or_default(),
+                );
+            }
+            shown.set_text(&text);
             shown.set_visible(!text.is_empty());
-            if let Some(button) = button.upgrade() {
-                crate::ui::accessibility::describe_menu_item(&button, &label, text);
+            if let Some(button) = button {
+                crate::ui::accessibility::describe_menu_item(&button, &label, &text);
             }
         },
     );
@@ -2018,13 +2153,13 @@ impl OpenWithSelection {
     }
 }
 
+/// `explanation` is an untranslated source message.
 fn set_open_with_explanation(button: &gtk::Button, explanation: Option<&str>) {
+    let explanation = explanation.map(crate::i18n::tr).unwrap_or_default();
     if let Some(option) = button.downcast_ref::<presentation::MenuOption>() {
-        option.set_menu_description(explanation.unwrap_or(""));
+        option.set_menu_description(explanation.as_str());
     }
-    button.update_property(&[gtk::accessible::Property::Description(
-        explanation.unwrap_or(""),
-    )]);
+    button.update_property(&[gtk::accessible::Property::Description(&explanation)]);
 }
 
 fn prepare_open_with(

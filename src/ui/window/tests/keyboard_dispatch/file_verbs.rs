@@ -87,16 +87,6 @@ fn submit_rename(fixture: &KeyboardFixture, text: &str) {
     plain(fixture, Key::Return);
 }
 
-fn open_empty_folder(fixture: &KeyboardFixture) {
-    let empty = fixture._directory.path().join("empty");
-    std::fs::create_dir(&empty).expect("empty folder");
-    let browser = fixture.view.browser();
-    browser.navigate(Location::local(&empty));
-    wait_until(|| browser.active_location() == Some(Location::local(&empty)));
-    wait_loaded(&browser, 0);
-    focus_files(fixture);
-}
-
 fn button_labeled(widget: &gtk::Widget, label: &str) -> Option<gtk::Button> {
     if let Some(button) = widget.downcast_ref::<gtk::Button>()
         && button.is_visible()
@@ -322,14 +312,13 @@ fn sort(fixture: &KeyboardFixture, key: Key, shift: bool) {
 }
 
 fn sorting_of(browser: &crate::app::Browser, depth: usize) -> (SortKey, SortDirection) {
-    let preferences = browser.column_preferences(depth).expect("column");
-    (preferences.sort_key, preferences.sort_direction)
+    browser.column_preferences(depth).expect("column").sort()
 }
 
 #[test]
-fn tenxer_sort_chord_sorts_the_focused_pane_and_saves_the_default() {
+fn tenxer_sort_chord_sorts_the_focused_pane_and_remembers_it_for_the_folder() {
     crate::test_support::gtk_test(
-        "ui::window::tests::keyboard_dispatch::file_verbs::tenxer_sort_chord_sorts_the_focused_pane_and_saves_the_default",
+        "ui::window::tests::keyboard_dispatch::file_verbs::tenxer_sort_chord_sorts_the_focused_pane_and_remembers_it_for_the_folder",
         || {
             let fixture = KeyboardFixture::new();
             let directory = fixture._directory.path().to_path_buf();
@@ -362,9 +351,14 @@ fn tenxer_sort_chord_sorts_the_focused_pane_and_saves_the_default() {
             );
             plain(&fixture, Key::Escape);
 
-            let saved = || {
-                let saved = PreferenceManager::shared().sort_preferences();
-                (saved.sort_key, saved.sort_direction)
+            PreferenceManager::shared().set_remember_folder_views(true);
+            let folder = browser.location_at(1).expect("sorted folder");
+            let default = PreferenceManager::shared().default_sort();
+            let saved = || match PreferenceManager::shared().resolve_folder_sort(&folder, false) {
+                crate::model::FolderSort::Saved(sort_key, sort_direction) => {
+                    (sort_key, sort_direction)
+                }
+                _ => PreferenceManager::shared().default_sort(),
             };
             for (key, shift, sorting, order) in [
                 (
@@ -407,7 +401,12 @@ fn tenxer_sort_chord_sorts_the_focused_pane_and_saves_the_default() {
                 sort(&fixture, key, shift);
                 wait_until(|| sorting_of(&browser, 1) == sorting && names_at(&browser, 1) == order);
                 wait_until(|| fixture.view.item_view_has_focus());
-                assert_eq!(saved(), sorting, "{key:?} saves the default");
+                assert_eq!(saved(), sorting, "{key:?} is remembered for the folder");
+                assert_eq!(
+                    PreferenceManager::shared().default_sort(),
+                    default,
+                    "{key:?} leaves the default"
+                );
                 assert_eq!(
                     focused_name(&browser),
                     "gamma.md",
@@ -918,7 +917,13 @@ fn tenxer_numbered_actions_run_the_listed_match_on_the_current_targets() {
             wait_until(|| fixture.shortcuts.chord_options().is_some());
             assert_eq!(
                 fixture.shortcuts.chord_options().expect("options"),
-                owned_rows(&[&[("1\u{2013}0", "No matching actions")], LETTERED_ACTIONS].concat())
+                owned_rows(
+                    &[
+                        &[("1\u{2013}9 / 0", "No matching actions")],
+                        LETTERED_ACTIONS
+                    ]
+                    .concat()
+                )
             );
             plain(&fixture, Key::_1);
             assert_eq!(feedback(&fixture), "No action 1");

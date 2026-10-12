@@ -2,6 +2,46 @@
 
 use super::*;
 
+/// Hyper, Meta and Caps Lock are not shortcut modifiers.
+const OPENS: [(Key, ModifierType); 8] = [
+    (Key::F10, ModifierType::SHIFT_MASK),
+    (Key::Menu, ModifierType::empty()),
+    (
+        Key::F10,
+        ModifierType::SHIFT_MASK.union(ModifierType::HYPER_MASK),
+    ),
+    (Key::Menu, ModifierType::HYPER_MASK),
+    (
+        Key::F10,
+        ModifierType::SHIFT_MASK.union(ModifierType::META_MASK),
+    ),
+    (Key::Menu, ModifierType::META_MASK),
+    (
+        Key::F10,
+        ModifierType::SHIFT_MASK.union(ModifierType::LOCK_MASK),
+    ),
+    (Key::Menu, ModifierType::LOCK_MASK),
+];
+
+const NEAR_MISSES: [(Key, ModifierType); 7] = [
+    (Key::F10, ModifierType::empty()),
+    (
+        Key::F10,
+        ModifierType::SHIFT_MASK.union(ModifierType::CONTROL_MASK),
+    ),
+    (
+        Key::F10,
+        ModifierType::SHIFT_MASK.union(ModifierType::ALT_MASK),
+    ),
+    (
+        Key::F10,
+        ModifierType::SHIFT_MASK.union(ModifierType::SUPER_MASK),
+    ),
+    (Key::Menu, ModifierType::SHIFT_MASK),
+    (Key::Menu, ModifierType::CONTROL_MASK),
+    (Key::Menu, ModifierType::SUPER_MASK),
+];
+
 #[test]
 fn sidebar_context_shortcuts_open_place_trash_and_device_menus() {
     crate::test_support::gtk_test(
@@ -44,22 +84,18 @@ fn sidebar_context_shortcuts_open_place_trash_and_device_menus() {
                         .expect("row context menu")
                         .downcast::<gtk::Popover>()
                         .expect("popover");
-                    for (key, modifiers) in [
-                        (Key::F10, ModifierType::SHIFT_MASK),
-                        (Key::Menu, ModifierType::empty()),
-                    ] {
+                    for (key, modifiers) in OPENS {
                         assert!(row.grab_focus());
-                        assert!(fixture.press(key, modifiers));
+                        assert!(fixture.press(key, modifiers), "{modifiers:?}+{key:?}");
                         wait_until(|| popover.is_visible());
                         popover.popdown();
                         wait_until(|| !popover.is_visible());
                     }
-                    row.grab_focus();
-                    fixture.press(
-                        Key::F10,
-                        ModifierType::SHIFT_MASK | ModifierType::CONTROL_MASK,
-                    );
-                    assert!(!popover.is_visible());
+                    for (key, modifiers) in NEAR_MISSES {
+                        row.grab_focus();
+                        fixture.press(key, modifiers);
+                        assert!(!popover.is_visible(), "{modifiers:?}+{key:?}");
+                    }
                 }
             }
         },

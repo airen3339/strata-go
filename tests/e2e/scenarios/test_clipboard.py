@@ -5,7 +5,21 @@ from __future__ import annotations
 
 import pytest
 
+from harness.keyboard_layout import CAPS_LOCK, RUSSIAN, US
 from harness.modes import ALL_MODES, SINGLE_PANE_MODES
+
+# Shortcuts are read before a view acts on them, so other layouts need one view.
+COPY_CASES = [
+    pytest.param(mode.values[0], US, marks=mode.marks, id=mode.id) for mode in ALL_MODES
+] + [
+    pytest.param(
+        "Columns",
+        layout,
+        marks=pytest.mark.preferences(browser_mode="columns"),
+        id=f"columns-{layout.name}",
+    )
+    for layout in (RUSSIAN, CAPS_LOCK)
+]
 
 
 @pytest.mark.parametrize(
@@ -34,20 +48,20 @@ def test_same_folder_copy_creates_a_numbered_duplicate(strata, source, duplicate
     )
 
 
-@pytest.mark.parametrize("mode", ALL_MODES)
-def test_copy_leaves_the_source_in_place(strata, mode):
+@pytest.mark.parametrize("mode, layout", COPY_CASES)
+def test_copy_leaves_the_source_in_place(strata, keyboard_layout, mode, layout):
     assert strata.view_mode() == mode
     fixture = strata.fixture
 
     strata.select_entry("todo.txt")
-    strata.keyboard.press("ctrl+c")
-    strata.open_directory("archive")
-    strata.paste_into("archive")
-
-    strata.wait(
-        lambda: (fixture.path("archive/todo.txt")).exists(),
-        "the copy to land in archive",
-    )
+    with keyboard_layout(layout):
+        strata.keyboard.press("ctrl+c")
+        strata.open_directory("archive")
+        strata.paste_into("archive")
+        strata.wait(
+            lambda: (fixture.path("archive/todo.txt")).exists(),
+            "the copy to land in archive",
+        )
     assert fixture.path("todo.txt").exists(), "copying must not remove the source"
     assert fixture.path("archive/todo.txt").read_text() == "todo\n"
     strata.entry("todo.txt", directory="archive")
@@ -80,7 +94,7 @@ def test_paste_into_parent_uses_the_current_directory(strata, mode):
     strata.keyboard.press("alt+Up")
     strata.wait_for_directory(root)
     if mode != "Columns":
-        strata.wait_for_selection(["documents" if mode == "List" else "archive"])
+        strata.wait_for_selection(["documents"])
     strata.keyboard.press("ctrl+v")
 
     strata.wait(
@@ -105,17 +119,12 @@ def test_paste_into_explicit_selection_after_returning_to_parent(strata, mode, s
     strata.keyboard.press("ctrl+c")
     strata.keyboard.press("alt+Up")
     strata.wait_for_directory(fixture.root.name)
-    restored = "documents" if mode == "List" else "archive"
-    strata.wait_for_selection([restored])
+    strata.wait_for_selection(["documents"])
     if selection == "click":
-        strata.click_entry(restored)
+        strata.click_entry("documents")
     else:
         strata.keyboard.press(selection)
-    destination = (
-        "documents/notes (1).txt"
-        if mode == "List" and selection == "click"
-        else "archive/notes.txt"
-    )
+    destination = "documents/notes (1).txt" if selection == "click" else "archive/notes.txt"
     strata.keyboard.press("ctrl+v")
     strata.wait(
         lambda: fixture.path(destination).exists(),

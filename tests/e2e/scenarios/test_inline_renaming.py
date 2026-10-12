@@ -6,6 +6,7 @@ import time
 import pytest
 
 from harness.artifacts import ArtifactCollector
+from harness.keyboard_layout import RUSSIAN_ONLY, US
 from harness.modes import ALL_MODES, COLUMNS_AND_ONE
 from harness.screenshots import capture
 from harness.tree import Atspi
@@ -227,8 +228,18 @@ def wait_for_edit_closed(strata):
     assert "Gtk-CRITICAL" not in strata.application.log()
 
 
-@pytest.mark.parametrize("kind,via_menu", [("folder", False), ("folder", True), ("file", True)])
-def test_new_item_exists_before_typing_and_backspace_clears_its_selected_name(strata, kind, via_menu):
+# The rename handler owns Ctrl+A. Ctrl+X and Ctrl+V reach the text field, where
+# a Russian-only keymap leaves GTK's own bindings no Latin key to match.
+NEW_ITEM_CASES = [
+    pytest.param(kind, via_menu, US, id=f"{kind}-{via_menu}")
+    for kind, via_menu in [("folder", False), ("folder", True), ("file", True)]
+] + [pytest.param("file", True, RUSSIAN_ONLY, id="file-True-ru-only")]
+
+
+@pytest.mark.parametrize("kind,via_menu,layout", NEW_ITEM_CASES)
+def test_new_item_exists_before_typing_and_backspace_clears_its_selected_name(
+    strata, keyboard_layout, kind, via_menu, layout
+):
     strata.select_entry("readme.md")
     field = start_creation(strata, kind, via_menu)
     original = "new " + kind
@@ -238,9 +249,15 @@ def test_new_item_exists_before_typing_and_backspace_clears_its_selected_name(st
     if kind == "file":
         assert path.read_bytes() == b""
     strata.keyboard.press("End")
-    strata.keyboard.press("ctrl+a")
-    strata.keyboard.press("BackSpace")
-    strata.wait(lambda: field.text == "", "Ctrl+A and Backspace to clear the entire default name")
+    with keyboard_layout(layout):
+        strata.keyboard.press("ctrl+a")
+        strata.keyboard.press("ctrl+x")
+        strata.wait(lambda: field.text == "", "Ctrl+A and Ctrl+X to cut the entire default name")
+        strata.keyboard.press("ctrl+v")
+        strata.wait(lambda: field.text == original, "Ctrl+V to paste the default name back")
+        strata.keyboard.press("ctrl+a")
+        strata.keyboard.press("BackSpace")
+        strata.wait(lambda: field.text == "", "Ctrl+A and Backspace to clear the entire default name")
     strata.keyboard.press("Return")
     wait_for_edit_closed(strata)
     strata.entry(original)
@@ -316,7 +333,7 @@ def test_rename_and_undo_restores_the_original_item(strata, kind):
     renamed_path = strata.fixture.path("undo-target")
     strata.wait(renamed_path.exists, "the renamed item")
     # The filesystem changes before the UI callback publishes rename undo.
-    strata.wait_for_selection(["undo-target"])
+    strata.wait_for_selection(["undo-target"], strata.fixture.root.name)
     strata.wait(lambda: strata.focused_name() == "undo-target", "the committed rename cursor")
 
     strata.keyboard.press("ctrl+z")
@@ -401,3 +418,33 @@ def test_repeated_renames_select_the_folder_name_or_file_stem(strata, mode, kind
         if kind == "file":
             assert strata.fixture.path(replacement).read_text() == "todo\n"
         original = replacement
+
+
+# F5 reloads the rows each mode leases differently; the other shortcuts never
+# touch the listing, so one mode covers them.
+WINDOW_ACCELERATOR_CASES = [
+    pytest.param("F5", mode.values[0], marks=mode.marks, id=f"f5-{mode.id}") for mode in ALL_MODES
+] + [
+    pytest.param(chord, "Columns", marks=pytest.mark.preferences(browser_mode="columns"), id=f"{name}-columns")
+    for chord, name in [("ctrl+\\", "ctrl-backslash"), ("ctrl+k", "ctrl-k")]
+]
+
+
+@pytest.mark.preferences(arrow_navigation_scoped=True, single_click_previews=False)
+@pytest.mark.parametrize("chord,mode", WINDOW_ACCELERATOR_CASES)
+def test_window_accelerators_leave_an_open_rename_alone(strata, chord, mode):
+    field, original = begin_edit(strata, "file", False)
+    strata.keyboard.type_text("abc")
+    strata.wait(lambda: field.text == "abc", "typing to replace the selection")
+    strata.keyboard.press(chord)
+    # Give a misrouted accelerator time to act before asserting nothing changed.
+    time.sleep(0.5)
+    editor = strata.window.find(role="text", name="Rename", states={"editable", "focused"})
+    assert editor is not None and editor.text == "abc", f"{chord} closed the rename or took its focus"
+    assert len(strata.window.find_all(role="text", states={"editable"})) == 1
+    assert strata.environment.read_preferences().get("arrow_navigation_scoped") == "true"
+    assert strata.fixture.path(original).exists()
+
+    strata.keyboard.press("Return")
+    strata.wait(lambda: strata.fixture.path("abc").exists(), "the typed name to be committed")
+    wait_for_edit_closed(strata)

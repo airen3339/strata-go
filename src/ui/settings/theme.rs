@@ -11,7 +11,7 @@ use crate::{
     assets::icons,
     ui::{
         controls::segmented_control,
-        preferences::{InterfaceRenderer, PreferenceManager, TextSize},
+        preferences::{InterfaceRenderer, OmarchyVariant, PreferenceManager, TextSize},
         theme::{Theme, ThemeManager, ThemeTokens},
     },
 };
@@ -23,11 +23,15 @@ use super::{
 };
 
 mod editor;
+#[cfg(test)]
+mod tests;
 use editor::theme_editor;
 
 pub(super) struct ThemePage {
     pub(super) widget: gtk::Widget,
     pub(super) flows: Vec<(gtk::FlowBox, u32)>,
+    /// Discards an unsaved theme preview when Settings closes.
+    pub(super) dismiss: Rc<dyn Fn()>,
 }
 
 pub(super) fn theme_page(
@@ -39,6 +43,7 @@ pub(super) fn theme_page(
 
     let system = super::settings_group(&content, "THEME");
     let follow = append_follow_omarchy_option(&system, &themes);
+    append_omarchy_variant_option(&system, &preferences, &themes);
     let current = gtk::Box::new(gtk::Orientation::Horizontal, 12);
     current.set_valign(gtk::Align::Center);
     current.set_halign(gtk::Align::Start);
@@ -68,11 +73,11 @@ pub(super) fn theme_page(
             current.append(&name);
             if let Some(description) = weak_description.upgrade() {
                 description.set_visible(true);
-                description.set_text(if following {
+                description.set_text(&crate::i18n::tr(if following {
                     "Managed by Omarchy. Turn off Follow Omarchy to pick a theme manually."
                 } else {
                     "Choose a theme from the library below."
-                });
+                }));
             }
         },
     );
@@ -92,7 +97,7 @@ pub(super) fn theme_page(
         catalog.clear,
         catalog.appearance_buttons,
     );
-    let editor_fields = append_custom_theme_editor(&catalog.container, &custom, &themes);
+    let (editor_fields, dismiss) = append_custom_theme_editor(&catalog.container, &custom, &themes);
     themes.bind_theme_preference(
         &library,
         ThemeManager::follows_omarchy,
@@ -114,11 +119,14 @@ pub(super) fn theme_page(
     renderer.set_hexpand(true);
     renderer.set_halign(gtk::Align::Fill);
     renderer_controls.append(&renderer);
-    let restart = gtk::Button::with_label("Restart now");
+    let restart = gtk::Button::with_label(&crate::i18n::tr("Restart now"));
     restart.set_hexpand(true);
     restart.set_halign(gtk::Align::Fill);
     restart.add_css_class("settings-action-button");
-    crate::ui::accessibility::set_label(&restart, "Restart to apply interface renderer");
+    crate::ui::accessibility::set_label(
+        &restart,
+        &crate::i18n::tr("Restart to apply interface renderer"),
+    );
     preferences.bind_preference(
         &restart,
         PreferenceManager::interface_renderer_restart_required,
@@ -176,6 +184,7 @@ pub(super) fn theme_page(
     ThemePage {
         widget: scroller,
         flows: vec![(catalog.packaged, 1), (custom, 1), (editor_fields, 4)],
+        dismiss,
     }
 }
 
@@ -250,11 +259,13 @@ fn append_custom_theme_editor(
     content: &gtk::Box,
     custom: &gtk::FlowBox,
     themes: &Rc<ThemeManager>,
-) -> gtk::FlowBox {
+) -> (gtk::FlowBox, Rc<dyn Fn()>) {
     let add = add_theme_card_button();
     let footer = gtk::Box::new(gtk::Orientation::Horizontal, 12);
     footer.add_css_class("theme-library-footer");
-    let location = gtk::Label::new(Some("Custom themes live in ~/.config/strata/themes"));
+    let location = gtk::Label::new(Some(&crate::i18n::tr(
+        "Custom themes live in ~/.config/strata/themes",
+    )));
     location.set_xalign(0.0);
     location.set_hexpand(true);
     location.set_wrap(true);
@@ -262,12 +273,12 @@ fn append_custom_theme_editor(
     footer.append(&add);
     content.append(&footer);
     bind_new_custom_themes(custom, themes);
-    let (editor, editor_fields) = theme_editor(themes.clone());
-    editor.set_reveal_child(false);
-    content.append(&editor);
-    let shown_editor = editor.clone();
-    add.connect_clicked(move |_| shown_editor.set_reveal_child(true));
-    editor_fields
+    let editor = theme_editor(themes.clone());
+    editor.revealer.set_reveal_child(false);
+    content.append(&editor.revealer);
+    let reveal = editor.reveal;
+    add.connect_clicked(move |_| reveal());
+    (editor.fields, editor.dismiss)
 }
 
 fn append_follow_omarchy_option(content: &gtk::Box, themes: &Rc<ThemeManager>) -> gtk::Switch {
@@ -283,6 +294,39 @@ fn append_follow_omarchy_option(content: &gtk::Box, themes: &Rc<ThemeManager>) -
         super::search::set_available,
     );
     follow
+}
+
+fn append_omarchy_variant_option(
+    content: &gtk::Box,
+    preferences: &Rc<PreferenceManager>,
+    themes: &Rc<ThemeManager>,
+) {
+    let choice = super::bindings::choice_menu(
+        preferences,
+        "Omarchy variant",
+        &[
+            ("Original", OmarchyVariant::Original),
+            ("Darker", OmarchyVariant::Darker),
+            ("High contrast", OmarchyVariant::HighContrast),
+        ],
+        PreferenceManager::omarchy_variant,
+        PreferenceManager::set_omarchy_variant,
+    );
+    let row = super::control_row(
+        "Omarchy variant",
+        "Original palette mapping, darker surfaces, or stronger contrast. Keeps following your system theme.",
+        &choice,
+    );
+    super::indent_row(&row);
+    themes.bind_theme_preference(
+        &row,
+        |manager| (manager.is_omarchy_available(), manager.follows_omarchy()),
+        |widget, (available, following)| {
+            super::search::set_available(widget, available);
+            widget.set_sensitive(following);
+        },
+    );
+    content.append(&row);
 }
 
 fn append_text_size_option(content: &gtk::Box, preferences: &Rc<PreferenceManager>) {
@@ -304,7 +348,10 @@ fn append_text_size_option(content: &gtk::Box, preferences: &Rc<PreferenceManage
     text_size_control.set_update_policy(gtk::SpinButtonUpdatePolicy::IfValid);
     text_size_control.add_css_class("form-control");
     text_size_control.add_css_class("text-size-control");
-    crate::ui::accessibility::set_label(&text_size_control, "Text size in pixels");
+    crate::ui::accessibility::set_label(
+        &text_size_control,
+        &crate::i18n::tr("Text size in pixels"),
+    );
     bind_number(
         preferences,
         &text_size_control,
@@ -321,12 +368,12 @@ fn append_text_size_option(content: &gtk::Box, preferences: &Rc<PreferenceManage
     super::search::tag(&text_size_row, "Text size");
     let text_size_copy = gtk::Box::new(gtk::Orientation::Vertical, 2);
     text_size_copy.set_hexpand(true);
-    let text_size_title = gtk::Label::new(Some("Text size"));
+    let text_size_title = gtk::Label::new(Some(&crate::i18n::tr("Text size")));
     text_size_title.set_xalign(0.0);
     text_size_title.add_css_class("settings-option-title");
-    let text_size_description = gtk::Label::new(Some(
+    let text_size_description = gtk::Label::new(Some(&crate::i18n::tr(
         "Logical pixels, 8–48. Display scaling applies on top.",
-    ));
+    )));
     text_size_description.set_xalign(0.0);
     text_size_description.set_wrap(true);
     text_size_description.set_wrap_mode(gtk::pango::WrapMode::WordChar);
@@ -337,15 +384,34 @@ fn append_text_size_option(content: &gtk::Box, preferences: &Rc<PreferenceManage
     keys.set_halign(gtk::Align::Start);
     keys.set_hexpand(false);
     keys.set_valign(gtk::Align::Center);
-    for key in ["Ctrl", "+", "/", "−", "/", "0"] {
-        let label = gtk::Label::new(Some(key));
-        label.add_css_class("settings-nowrap");
-        label.add_css_class(if key == "/" {
-            "keycap-separator"
-        } else {
-            "settings-keycap"
-        });
-        keys.append(&label);
+    {
+        use crate::ui::keys::{
+            self as shortcuts, Binding, Keys,
+            bindings::{TEXT_LARGER, TEXT_RESET, TEXT_SMALLER},
+        };
+        let keycap = |text: &str, class| {
+            let label = gtk::Label::new(Some(text));
+            label.add_css_class("settings-nowrap");
+            label.add_css_class(class);
+            keys.append(&label);
+        };
+        // The three bindings share their modifiers, shown once.
+        keycap(
+            &shortcuts::modifiers_label(TEXT_LARGER.modifiers()),
+            "settings-keycap",
+        );
+        for (index, binding) in [TEXT_LARGER, TEXT_SMALLER, TEXT_RESET]
+            .into_iter()
+            .enumerate()
+        {
+            if index > 0 {
+                keycap("/", "keycap-separator");
+            }
+            keycap(
+                &shortcuts::label(&Keys::One(Binding::plain(binding.key()))),
+                "settings-keycap",
+            );
+        }
     }
     description.append(&keys);
     text_size_copy.append(&text_size_title);
@@ -435,7 +501,7 @@ fn add_theme_card_button() -> gtk::Button {
     add_content.set_halign(gtk::Align::Center);
     add_content.set_valign(gtk::Align::Center);
     let plus = crate::assets::primary_icon(icons::PLUS, 16);
-    let add_label = gtk::Label::new(Some("Add theme"));
+    let add_label = gtk::Label::new(Some(&crate::i18n::tr("Add theme")));
     add_label.set_wrap(true);
     add_label.set_wrap_mode(gtk::pango::WrapMode::WordChar);
     add_content.append(&plus);
@@ -530,12 +596,15 @@ fn append_theme_card(
     label.set_xalign(0.0);
     label.set_hexpand(true);
     label.set_ellipsize(gtk::pango::EllipsizeMode::End);
+    label.set_wrap(true);
+    label.set_wrap_mode(gtk::pango::WrapMode::WordChar);
+    label.set_lines(2);
     content.append(&label);
-    let kind = gtk::Label::new(Some(if theme_is_light(&theme.tokens) {
+    let kind = gtk::Label::new(Some(&crate::i18n::tr(if theme_is_light(&theme.tokens) {
         "LIGHT"
     } else {
         "DARK"
-    }));
+    })));
     kind.add_css_class("theme-kind");
     let metadata = gtk::Box::new(gtk::Orientation::Horizontal, 16);
     metadata.append(&kind);

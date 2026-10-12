@@ -6,7 +6,9 @@ from __future__ import annotations
 import time
 
 import pytest
+from gi.repository import Atspi
 
+from harness.interaction import SEPARATE_CLICK_GAP
 from harness.modes import ALL_MODES
 
 SINGLE_CLICK = pytest.mark.preferences(
@@ -23,8 +25,18 @@ DOUBLE_CLICK = pytest.mark.preferences(
 
 @SINGLE_CLICK
 @pytest.mark.parametrize("mode", ALL_MODES)
-def test_single_click_opens_a_directory(strata, mode):
-    strata.pointer.click(strata.entry("documents"))
+@pytest.mark.parametrize("initial", ["none", "group"])
+def test_single_click_opens_a_directory(strata, mode, initial):
+    root = strata.fixture.root.name
+    if initial == "group":
+        # A plain press on a member keeps the group for a drag; the release must still open it.
+        strata.wait_for_selection(["archive"], root)
+        strata.click_entry_with("todo.txt", ["ctrl"], root)
+        strata.click_entry_with("documents", ["ctrl"], root)
+        strata.wait_for_selection(["archive", "documents", "todo.txt"], root)
+        time.sleep(SEPARATE_CLICK_GAP)
+
+    strata.pointer.click(strata.entry("documents", root))
 
     strata.wait(
         lambda: strata.pane().name == "documents",
@@ -32,6 +44,49 @@ def test_single_click_opens_a_directory(strata, mode):
     )
     strata.entry("notes.txt")
     strata.wait_for_selection([], "documents")
+    if initial == "group" and mode == "Columns":
+        strata.wait_for_selection(["documents"], root)
+
+
+@SINGLE_CLICK
+@pytest.mark.preferences(browser_mode="columns", single_click_previews=False)
+@pytest.mark.parametrize("reveal_during_press", [False, True])
+def test_single_click_opens_a_folder_in_a_clipped_parent_column(
+    strata, unreserved_columns, reveal_during_press,
+):
+    browser_left = strata.pane().screen_bounds().x
+    strata.fixture.populate({
+        "documents": {"Level 2": {"Level 3": {"old-branch.txt": "old branch\n"}}},
+    })
+    for name in ["documents", "Level 2", "Level 3"]:
+        strata.select_entry_with_keyboard(name)
+        strata.keyboard.press("Return")
+        strata.wait_for_directory(name)
+
+    folder = strata.entry("pictures", directory=strata.fixture.root.name)
+    bounds = folder.screen_bounds()
+    press_x, press_y = max(bounds.x, browser_left) + 12, bounds.center[1]
+    strata.pointer.move_to(press_x, press_y)
+    strata.pointer.connection.button(1, True)
+    try:
+        if reveal_during_press:
+            # Move the camera without a wheel gesture, which legitimately
+            # cancels the pending click on some GTK versions.
+            scrollbar = next(
+                node for _, node in strata.window.walk()
+                if node.role == "scroll bar" and node.has_state("horizontal")
+            )
+            value = Atspi.Accessible.get_value_iface(scrollbar.accessible)
+            assert Atspi.Value.set_current_value(value, 0.0)
+        time.sleep(0.2)
+        # Sub-threshold pointer jitter must not turn column scrolling into a drag.
+        strata.pointer.move_to(press_x + 2, press_y)
+    finally:
+        strata.pointer.connection.button(1, False)
+
+    strata.wait_for_directory("pictures")
+    strata.entry("diagram.txt", directory="pictures")
+    strata.wait_for_selection([], "pictures")
 
 
 @SINGLE_CLICK
@@ -144,6 +199,75 @@ def test_click_then_double_click_opens_without_renaming(strata, mode):
     assert strata.window.find(role="text", name="Rename", states={"editable"}) is None, (
         "a double-click must not leave a rename editor behind"
     )
+
+
+def wait_for_focused_pane(strata, name: str) -> None:
+    strata.wait(
+        lambda: (pane := strata.focused_pane()) is not None and pane.name == name,
+        f"the {name!r} column to take focus",
+    )
+
+
+@pytest.mark.preferences(browser_mode="columns")
+@pytest.mark.parametrize("folder_clicks", [
+    pytest.param(1, marks=pytest.mark.preferences(list_folder_clicks=1), id="single-click-folders"),
+    pytest.param(2, marks=pytest.mark.preferences(list_folder_clicks=2), id="double-click-folders"),
+])
+@pytest.mark.parametrize("from_parent_column", [False, True], ids=["root", "clipped-parent"])
+def test_double_click_leaves_the_folder_open_and_focused(
+    strata, request, folder_clicks, from_parent_column,
+):
+    """A double-click ends where a single-click open does, even when its first press scrolls the strip."""
+
+    root = strata.fixture.root.name
+    browser_left = strata.pane().screen_bounds().x
+    if from_parent_column:
+        # Without the reserved slot the root column is the clipped one.
+        request.getfixturevalue("unreserved_columns")
+        strata.fixture.populate({"documents": {"Level 2": {"Level 3": {"leaf.txt": "leaf\n"}}}})
+        for name in ["documents", "Level 2", "Level 3"]:
+            strata.select_entry_with_keyboard(name)
+            strata.keyboard.press("Return")
+            strata.wait_for_directory(name)
+
+    folder = strata.settle(strata.entry("pictures", directory=root))
+    bounds = folder.screen_bounds()
+    strata.pointer.double_click(
+        folder, at=(max(bounds.x, browser_left) + 12, bounds.center[1]),
+    )
+
+    wait_for_focused_pane(strata, "pictures")
+    strata.wait_for_selection([], "pictures")
+    # Outlast the double-click interval so a late second activation would show.
+    time.sleep(0.6)
+    assert strata.pane_names()[-1] == "pictures"
+    wait_for_focused_pane(strata, "pictures")
+
+
+@pytest.mark.preferences(browser_mode="columns", list_folder_clicks=1)
+@pytest.mark.parametrize("clicks", [1, 2], ids=["click-row-space", "double-click-name"])
+def test_clicking_an_open_folder_focuses_its_column(strata, clicks):
+    root = strata.fixture.root.name
+    strata.pointer.click(strata.entry("documents"))
+    strata.wait_for_directory("documents")
+    strata.keyboard.press("Left")
+    wait_for_focused_pane(strata, root)
+    time.sleep(0.6)
+
+    entry = strata.entry("documents", root)
+    if clicks == 1:
+        point = strata.pointer.row_whitespace_point(entry, "documents")
+        strata.pointer.click(entry, at=point)
+    else:
+        label = entry.find(role="label", name="documents")
+        assert label is not None
+        point = label.screen_bounds().x + 4, label.screen_bounds().center[1]
+        strata.pointer.double_click(entry, at=point)
+
+    wait_for_focused_pane(strata, "documents")
+    time.sleep(0.6)
+    assert strata.pane_names()[-2:] == [root, "documents"], "the folder must stay open"
+    assert strata.window.find(role="text", name="Rename", states={"editable"}) is None
 
 
 @DOUBLE_CLICK

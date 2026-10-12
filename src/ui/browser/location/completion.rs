@@ -7,9 +7,17 @@ use std::{
     rc::Rc,
 };
 
-use gtk::{gdk, glib, prelude::*};
+use gtk::{
+    gdk::{self, ModifierType as Modifiers},
+    glib,
+    prelude::*,
+};
 
 use crate::app::Browser;
+use crate::ui::keys::{
+    self, Keys,
+    bindings::{COMPLETE, DOWN, ENTER, ENTER_ANY_SHIFT, ESCAPE_ANY_SHIFT, PAGE_DOWN, PAGE_UP, UP},
+};
 
 const MAX_COMPLETION_CANDIDATES: usize = 50;
 const MAX_SCANNED_ENTRIES: usize = 10_000;
@@ -112,7 +120,11 @@ impl PathCompletion {
         content_box.append(&scroll);
 
         let shortcuts = gtk::Label::new(None);
-        shortcuts.set_markup("<b>Tab</b> Complete   <b>↑↓</b> Choose   <b>↵</b> Open");
+        shortcuts.set_markup(&crate::ui::shortcut_reference::legend_markup(&[
+            (Keys::One(COMPLETE), "completion.complete"),
+            (Keys::Any(&[UP, DOWN]), "Choose"),
+            (Keys::One(ENTER), "Open"),
+        ]));
         shortcuts.set_xalign(0.0);
         shortcuts.add_css_class("path-completion-shortcuts");
         content_box.append(&shortcuts);
@@ -174,84 +186,64 @@ impl PathCompletion {
         let key_entry = entry.downgrade();
         let key_browser = browser.clone();
         let key_activate = on_activate;
-        keys.connect_key_pressed(move |_, key, _, modifiers| {
+        keys::on_press(&keys, move |_, press| {
+            const SHIFT: Modifiers = Modifiers::SHIFT_MASK;
             let Some(completion) = weak_completion.upgrade() else {
                 return glib::Propagation::Proceed;
             };
             let Some(entry) = key_entry.upgrade() else {
                 return glib::Propagation::Proceed;
             };
-            if modifiers.intersects(
-                gdk::ModifierType::CONTROL_MASK
-                    | gdk::ModifierType::ALT_MASK
-                    | gdk::ModifierType::SUPER_MASK,
-            ) {
-                return glib::Propagation::Proceed;
-            }
-            match key {
-                gdk::Key::Tab | gdk::Key::ISO_Left_Tab => {
-                    completion.handle_tab(&entry, &key_browser);
+            let visible = completion.popover.is_visible();
+            let step = |delta| {
+                if visible {
+                    completion.move_selection(delta);
                     glib::Propagation::Stop
-                }
-                gdk::Key::Down => {
-                    if completion.popover.is_visible() {
-                        completion.move_selection(1);
-                        glib::Propagation::Stop
-                    } else {
-                        completion.refresh(&entry, &key_browser);
-                        glib::Propagation::Stop
-                    }
-                }
-                gdk::Key::Up => {
-                    if completion.popover.is_visible() {
-                        completion.move_selection(-1);
-                        glib::Propagation::Stop
-                    } else {
-                        glib::Propagation::Proceed
-                    }
-                }
-                gdk::Key::Page_Down => {
-                    if completion.popover.is_visible() {
-                        completion.move_selection(5);
-                        glib::Propagation::Stop
-                    } else {
-                        glib::Propagation::Proceed
-                    }
-                }
-                gdk::Key::Page_Up => {
-                    if completion.popover.is_visible() {
-                        completion.move_selection(-5);
-                        glib::Propagation::Stop
-                    } else {
-                        glib::Propagation::Proceed
-                    }
-                }
-                gdk::Key::Escape => {
-                    if completion.popover.is_visible() {
-                        completion.dismiss();
-                        glib::Propagation::Stop
-                    } else {
-                        glib::Propagation::Proceed
-                    }
-                }
-                gdk::Key::Return | gdk::Key::KP_Enter => {
-                    if completion.popover.is_visible() {
-                        if let Some(index) = completion.selected_index.get() {
-                            let candidate = completion.candidates.borrow().get(index).cloned();
-                            if let Some(candidate) = candidate {
-                                completion.activate_candidate(
-                                    &entry,
-                                    &candidate,
-                                    key_activate.as_ref(),
-                                );
-                                return glib::Propagation::Stop;
-                            }
-                        }
-                        completion.dismiss();
-                    }
+                } else {
                     glib::Propagation::Proceed
                 }
-                _ => glib::Propagation::Proceed,
+            };
+            if press.is(COMPLETE.ignoring(SHIFT)) {
+                completion.handle_tab(&entry, &key_browser);
+                glib::Propagation::Stop
+            } else if press.is(DOWN.ignoring(SHIFT)) {
+                if visible {
+                    completion.move_selection(1);
+                } else {
+                    completion.refresh(&entry, &key_browser);
+                }
+                glib::Propagation::Stop
+            } else if press.is(UP.ignoring(SHIFT)) {
+                step(-1)
+            } else if press.is(PAGE_DOWN.ignoring(SHIFT)) {
+                step(5)
+            } else if press.is(PAGE_UP.ignoring(SHIFT)) {
+                step(-5)
+            } else if press.is(ESCAPE_ANY_SHIFT) {
+                if visible {
+                    completion.dismiss();
+                    glib::Propagation::Stop
+                } else {
+                    glib::Propagation::Proceed
+                }
+            } else if press.is(ENTER_ANY_SHIFT) {
+                if visible {
+                    if let Some(index) = completion.selected_index.get() {
+                        let candidate = completion.candidates.borrow().get(index).cloned();
+                        if let Some(candidate) = candidate {
+                            completion.activate_candidate(
+                                &entry,
+                                &candidate,
+                                key_activate.as_ref(),
+                            );
+                            return glib::Propagation::Stop;
+                        }
+                    }
+                    completion.dismiss();
+                }
+                glib::Propagation::Proceed
+            } else {
+                glib::Propagation::Proceed
             }
         });
         entry.add_controller(keys);

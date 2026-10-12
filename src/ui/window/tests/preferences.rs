@@ -202,6 +202,264 @@ fn texture_pixels(texture: &gtk::gdk::Texture) -> Vec<u8> {
 }
 
 #[test]
+fn columns_size_visibility_loads_and_updates_across_windows_and_rebuilds() {
+    gtk_test(
+        "ui::window::tests::preferences::columns_size_visibility_loads_and_updates_across_windows_and_rebuilds",
+        || {
+            write_settings("columns_show_sizes = false\n");
+            let manager = PreferenceManager::shared();
+            let first = OpenWindow::open();
+            let second = OpenWindow::open();
+            let directory = tempfile::tempdir().expect("size visibility fixture");
+            std::fs::create_dir(directory.path().join("child")).expect("folder");
+            std::fs::write(directory.path().join("child/one.txt"), b"a").expect("child");
+            std::fs::write(directory.path().join("a.txt"), b"twelve bytes").expect("file");
+            let count = crate::i18n::count_u64("items", 1);
+            let bytes = crate::i18n::file_size(12);
+            let metadata_visible = |open: &OpenWindow, row_class: &str, visible: bool| {
+                row_displays_metadata(open, row_class, "child", &count) == visible
+                    && row_displays_metadata(open, row_class, "a.txt", &bytes) == visible
+            };
+            for open in [&first, &second] {
+                open.content
+                    .browser
+                    .navigate_location(crate::model::Location::local(directory.path()));
+                wait_until(|| !column_loading(open, 0));
+                wait_until(|| {
+                    !widgets_in_shown_pane(&open.content.browser.widget(), |widget| {
+                        widget
+                            .downcast_ref::<gtk::Label>()
+                            .is_some_and(|label| label.text() == "child")
+                    })
+                    .is_empty()
+                });
+                assert!(metadata_visible(open, "file-row", false));
+                assert!(settings_closed(open));
+                let entry = (0..2)
+                    .filter_map(|position| open.content.browser.browser().entry_at(0, position))
+                    .find(|entry| entry.display_name == "child")
+                    .expect("folder entry");
+                assert_eq!(entry.child_count, crate::model::MetadataValue::Unknown);
+            }
+            manager.set_columns_show_sizes(true);
+            for open in [&first, &second] {
+                wait_until(|| metadata_visible(open, "file-row", true));
+                assert!(settings_closed(open));
+            }
+            manager.set_columns_show_sizes(false);
+            for open in [&first, &second] {
+                wait_until(|| metadata_visible(open, "file-row", false));
+                for mode in [BrowserMode::List, BrowserMode::Icons, BrowserMode::Columns] {
+                    open.content.browser.set_view_mode(mode);
+                    let row_class = match mode {
+                        BrowserMode::List => "list-row",
+                        BrowserMode::Icons => "icons-card",
+                        BrowserMode::Columns => "file-row",
+                    };
+                    wait_until(|| !column_loading(open, 0));
+                    wait_until(|| metadata_visible(open, row_class, mode != BrowserMode::Columns));
+                }
+            }
+            let appearance_toggle = || {
+                let mut action = None;
+                walk(first.window.upcast_ref(), &mut |widget| {
+                    if let Some(popover) = widget
+                        .downcast_ref::<gtk::MenuButton>()
+                        .and_then(|button| button.popover())
+                    {
+                        walk(popover.upcast_ref(), &mut |widget| {
+                            if widget
+                                .downcast_ref::<gtk::Label>()
+                                .is_some_and(|label| label.text() == "Show sizes in Columns view")
+                            {
+                                action = widget
+                                    .ancestor(gtk::Button::static_type())
+                                    .and_downcast::<gtk::Button>();
+                            }
+                        });
+                    }
+                });
+                action.expect("Columns appearance toggle").emit_clicked();
+            };
+            appearance_toggle();
+            assert!(manager.columns_show_sizes());
+            for open in [&first, &second] {
+                wait_until(|| metadata_visible(open, "file-row", true));
+            }
+            let browser = first.content.browser.browser();
+            let position = (0..2)
+                .find(|position| {
+                    browser
+                        .entry_at(0, *position)
+                        .is_some_and(|entry| entry.display_name == "a.txt")
+                })
+                .expect("file position");
+            browser.set_active_column(0);
+            browser.select(0, position);
+            browser.focus_active();
+            wait_until(|| {
+                first.content.browser.rename_is_active() || first.content.browser.begin_rename()
+            });
+            manager.set_columns_show_sizes(false);
+            assert!(first.content.browser.cancel_rename());
+            for open in [&first, &second] {
+                wait_until(|| metadata_visible(open, "file-row", false));
+                open.content.settings_button().emit_clicked();
+            }
+            settle();
+            let settings_switch = |open: &OpenWindow| {
+                let root =
+                    class_in_shown_pane(open.content.overlay().upcast_ref(), "settings-dialog")
+                        .into_iter()
+                        .next()
+                        .expect("Settings page");
+                switch_named(&root, "Show sizes in Columns view")
+            };
+            let first_switch = settings_switch(&first);
+            let second_switch = settings_switch(&second);
+            assert!(!first_switch.is_active() && !second_switch.is_active());
+            first_switch.set_active(true);
+            wait_until(|| second_switch.is_active());
+            for open in [&first, &second] {
+                wait_until(|| metadata_visible(open, "file-row", true));
+                close_settings(open);
+            }
+            appearance_toggle();
+            assert!(!manager.columns_show_sizes());
+            assert!(!first_switch.is_active() && !second_switch.is_active());
+            for open in [&first, &second] {
+                wait_until(|| metadata_visible(open, "file-row", false));
+            }
+            let late = tempfile::tempdir().expect("late folder count fixture");
+            std::fs::create_dir(late.path().join("child")).expect("late folder");
+            std::fs::write(late.path().join("child/one.txt"), b"a").expect("late child");
+            for open in [&first, &second] {
+                open.content
+                    .browser
+                    .navigate_location(crate::model::Location::local(late.path()));
+                wait_until(|| !column_loading(open, 0));
+                wait_until(|| {
+                    !widgets_in_shown_pane(&open.content.browser.widget(), |widget| {
+                        widget
+                            .downcast_ref::<gtk::Label>()
+                            .is_some_and(|label| label.text() == "child")
+                    })
+                    .is_empty()
+                });
+            }
+            manager.set_columns_show_sizes(true);
+            manager.set_columns_show_sizes(false);
+            for open in [&first, &second] {
+                wait_until(|| {
+                    open.content
+                        .browser
+                        .browser()
+                        .entry_at(0, 0)
+                        .is_some_and(|entry| {
+                            entry.child_count == crate::model::MetadataValue::Known(1)
+                        })
+                });
+                assert!(!row_displays_metadata(open, "file-row", "child", &count));
+            }
+        },
+    );
+}
+
+#[test]
+fn folder_item_counts_fill_visible_rows_in_each_view() {
+    gtk_test(
+        "ui::window::tests::preferences::folder_item_counts_fill_visible_rows_in_each_view",
+        || {
+            let open = OpenWindow::open();
+            for mode in [BrowserMode::Columns, BrowserMode::List, BrowserMode::Icons] {
+                let directory = tempfile::tempdir().expect("folder count fixture");
+                for name in ["empty", "one", "several"] {
+                    std::fs::create_dir(directory.path().join(name)).expect("folder");
+                }
+                std::fs::write(directory.path().join("one/a.txt"), b"a").expect("one child");
+                for name in ["a.txt", "b.txt", ".hidden"] {
+                    std::fs::write(directory.path().join("several").join(name), b"x")
+                        .expect("immediate child");
+                }
+                std::fs::create_dir(directory.path().join("several/nested"))
+                    .expect("nested folder");
+                std::fs::write(directory.path().join("several/nested/deeper.txt"), b"x")
+                    .expect("nested child");
+                std::fs::write(directory.path().join("file.txt"), b"twelve bytes")
+                    .expect("ordinary file");
+                open.content.browser.set_view_mode(mode);
+                open.content
+                    .browser
+                    .navigate_location(crate::model::Location::local(directory.path()));
+                wait_until(|| !column_loading(&open, 0));
+                let row_class = match mode {
+                    BrowserMode::Columns => "file-row",
+                    BrowserMode::List => "list-row",
+                    BrowserMode::Icons => "icons-card",
+                };
+                for (name, count) in [("empty", 0), ("one", 1), ("several", 4)] {
+                    let expected = if count == 0 {
+                        crate::i18n::tr("No items")
+                    } else {
+                        crate::i18n::count_u64("items", count)
+                    };
+                    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+                    while !row_displays_metadata(&open, row_class, name, &expected) {
+                        let entries = (0..4)
+                            .filter_map(|position| {
+                                open.content.browser.browser().entry_at(0, position)
+                            })
+                            .map(|entry| (entry.display_name, entry.child_count))
+                            .collect::<Vec<_>>();
+                        assert!(
+                            std::time::Instant::now() < deadline,
+                            "{mode:?}/{name}: missing {expected}; metadata: {entries:?}"
+                        );
+                        settle_for(std::time::Duration::from_millis(20));
+                    }
+                }
+                wait_until(|| {
+                    row_displays_metadata(&open, row_class, "file.txt", &crate::i18n::file_size(12))
+                });
+                assert!(settings_closed(&open));
+            }
+        },
+    );
+}
+
+fn row_displays_metadata(open: &OpenWindow, row_class: &str, name: &str, text: &str) -> bool {
+    let mut found = false;
+    walk(&open.content.browser.widget(), &mut |widget| {
+        let is_name = widget
+            .downcast_ref::<gtk::Label>()
+            .is_some_and(|label| label.text() == name)
+            || widget
+                .downcast_ref::<gtk::Inscription>()
+                .is_some_and(|label| label.text().as_deref() == Some(name));
+        if !widget.is_mapped() || !is_name {
+            return;
+        }
+        let mut ancestor = widget.parent();
+        while let Some(row) = ancestor {
+            if row.has_css_class(row_class) {
+                walk(&row, &mut |widget| {
+                    if widget.is_mapped()
+                        && widget
+                            .downcast_ref::<gtk::Label>()
+                            .is_some_and(|label| label.text() == text)
+                    {
+                        found = true;
+                    }
+                });
+                break;
+            }
+            ancestor = row.parent();
+        }
+    });
+    found
+}
+
+#[test]
 fn default_chrome_stays_operable_without_a_saved_tenxer_mode() {
     gtk_test(
         "ui::window::tests::preferences::default_chrome_stays_operable_without_a_saved_tenxer_mode",
@@ -229,6 +487,85 @@ fn default_chrome_stays_operable_without_a_saved_tenxer_mode() {
             assert!(window_listed(&open.window));
             assert!(!manager.tenxer_mode());
             assert!(!open.content.footer().tag_visible());
+        },
+    );
+}
+
+#[test]
+fn window_buttons_load_and_follow_settings_across_open_and_later_windows() {
+    gtk_test(
+        "ui::window::tests::preferences::window_buttons_load_and_follow_settings_across_open_and_later_windows",
+        || {
+            write_settings(
+                "window_show_minimize = true\nwindow_show_maximize = true\nwindow_show_close = false\n",
+            );
+            let manager = PreferenceManager::shared();
+            let first = OpenWindow::open();
+            let second = OpenWindow::open();
+            let assert_buttons = |open: &OpenWindow, expected: [bool; 3]| {
+                for (button, visible) in [
+                    open.content.minimize_button(),
+                    open.content.maximize_button(),
+                    open.content.close_button(),
+                ]
+                .into_iter()
+                .zip(expected)
+                {
+                    assert_eq!(button.is_visible(), visible);
+                }
+            };
+            for open in [&first, &second] {
+                assert!(settings_closed(open));
+                assert_buttons(open, [true, true, false]);
+            }
+            let saved = std::fs::read(settings_file()).expect("saved settings");
+            for open in [&first, &second] {
+                open.content.settings_button().emit_clicked();
+            }
+            settle();
+            assert_eq!(
+                std::fs::read(settings_file()).expect("settings unchanged"),
+                saved
+            );
+            let titles = [
+                "Show minimize button",
+                "Show maximize button",
+                "Show close button",
+            ];
+            for (index, title) in titles.into_iter().enumerate() {
+                let switch = switch_named(first.content.overlay(), title);
+                let initial = index != 2;
+                switch.set_active(!initial);
+                settle();
+                let mut expected = [true, true, false];
+                expected[index] = !initial;
+                for open in [&first, &second] {
+                    assert_buttons(open, expected);
+                    assert_eq!(
+                        switch_named(open.content.overlay(), title).is_active(),
+                        !initial
+                    );
+                }
+                switch_named(second.content.overlay(), title).set_active(initial);
+                settle();
+                for open in [&first, &second] {
+                    assert_buttons(open, [true, true, false]);
+                }
+            }
+            manager.set_window_show_minimize(false);
+            manager.set_window_show_maximize(false);
+            manager.set_window_show_close(true);
+            let third = OpenWindow::open();
+            for open in [&first, &second, &third] {
+                assert_buttons(open, [false, false, true]);
+            }
+            let persisted: toml::Value = toml::from_str(
+                &std::fs::read_to_string(settings_file()).expect("persisted preferences"),
+            )
+            .expect("valid settings");
+            assert_eq!(persisted["window_show_minimize"].as_bool(), Some(false));
+            assert_eq!(persisted["window_show_maximize"].as_bool(), Some(false));
+            assert_eq!(persisted["window_show_close"].as_bool(), Some(true));
         },
     );
 }
@@ -699,6 +1036,335 @@ fn ctrl_f_cannot_activate_hidden_filter_or_displace_existing_column_filter() {
     );
 }
 
+#[test]
+fn saved_folder_sorts_and_icon_sizes_apply_before_settings_and_follow_changes_across_windows() {
+    gtk_test(
+        "ui::window::tests::preferences::saved_folder_sorts_and_icon_sizes_apply_before_settings_and_follow_changes_across_windows",
+        || {
+            use std::os::unix::ffi::OsStrExt;
+
+            use crate::model::{FolderSort, Location, SortDirection, SortKey};
+
+            let sorted = tempfile::tempdir().expect("sorted folder");
+            let plain = tempfile::tempdir().expect("plain folder");
+            let sorted_location = Location::local(sorted.path());
+            let plain_location = Location::local(plain.path());
+            write_folder_views(&format!(
+                "version = 1\n[[folder]]\npath = \"{}\"\nsort = \"size\"\ndirection = \"descending\"\nicons_size = 192\n",
+                sorted.path().display()
+            ));
+            let manager = PreferenceManager::shared();
+            let first = OpenWindow::open();
+            let second = OpenWindow::open();
+            let sorting = |open: &OpenWindow| {
+                open.content
+                    .browser
+                    .browser()
+                    .column_preferences(0)
+                    .map(|preferences| preferences.sort())
+            };
+            let show = |open: &OpenWindow, location: &Location| {
+                open.content.browser.navigate_location(location.clone());
+                wait_until(|| {
+                    open.content.browser.browser().location_at(0).as_ref() == Some(location)
+                        && !column_loading(open, 0)
+                });
+            };
+
+            show(&first, &sorted_location);
+            show(&second, &plain_location);
+            assert_eq!(
+                sorting(&first),
+                Some((SortKey::Size, SortDirection::Descending))
+            );
+            assert_eq!(
+                sorting(&second),
+                Some((SortKey::Name, SortDirection::Ascending))
+            );
+            show(&second, &sorted_location);
+            assert_eq!(
+                sorting(&second),
+                Some((SortKey::Size, SortDirection::Descending))
+            );
+
+            first
+                .content
+                .browser
+                .browser()
+                .set_sort(0, SortKey::Type, SortDirection::Ascending);
+            wait_until(|| sorting(&second) == Some((SortKey::Type, SortDirection::Ascending)));
+            assert_eq!(
+                manager.default_sort(),
+                (SortKey::Name, SortDirection::Ascending)
+            );
+            manager.flush_folder_views();
+            assert!(folder_views_file().contains("sort = \"type\""));
+
+            manager.set_browser_mode(BrowserMode::Icons);
+            wait_until(|| icons_size(&first) == Some(192) && icons_size(&second) == Some(192));
+            let unremembered = plain
+                .path()
+                .join(std::ffi::OsStr::from_bytes(b"not-utf-8-\xff"));
+            std::fs::create_dir(&unremembered).expect("folder that is not remembered");
+            show(&first, &Location::local(&unremembered));
+            wait_until(|| icons_size(&first) == Some(manager.icons_thumbnail_size()));
+            icons_scale(&first)
+                .expect("icons size slider")
+                .set_value(224.0);
+            icons_scale(&second)
+                .expect("icons size slider")
+                .set_value(128.0);
+            assert_eq!(manager.icons_size_for(Some(&sorted_location)), 128);
+            settle();
+            assert_eq!(
+                icons_size(&first),
+                Some(224),
+                "another folder's change keeps a size that is not remembered"
+            );
+            show(&first, &plain_location);
+            wait_until(|| icons_size(&first) == Some(manager.icons_thumbnail_size()));
+
+            manager.reset_folder_sort(&sorted_location);
+            manager.set_default_icons_size(128);
+            assert_eq!(
+                manager.resolve_folder_sort(&sorted_location, false),
+                FolderSort::Default
+            );
+            wait_until(|| icons_size(&first) == Some(128));
+
+            manager.set_folder_sort(
+                &plain_location,
+                SortKey::Modified,
+                SortDirection::Descending,
+            );
+            manager.set_default_sort(SortKey::Modified, SortDirection::Descending);
+            manager.set_default_sort(SortKey::Name, SortDirection::Ascending);
+            manager.set_default_icons_size(96);
+            assert_eq!(
+                manager.resolve_folder_sort(&plain_location, false),
+                FolderSort::Default,
+                "a sort equal to a new default is no longer stored"
+            );
+            assert_eq!(
+                manager.icons_size_for(Some(&sorted_location)),
+                96,
+                "a size equal to a new default is no longer stored"
+            );
+            manager.set_browser_mode(BrowserMode::Columns);
+            wait_until(|| sorting(&second) == Some((SortKey::Name, SortDirection::Ascending)));
+
+            let size_ascending = (SortKey::Size, SortDirection::Ascending);
+            manager.set_folder_sort(&plain_location, size_ascending.0, size_ascending.1);
+            manager.set_remember_folder_views(false);
+            manager.set_default_sort(size_ascending.0, size_ascending.1);
+            manager.set_default_sort(SortKey::Name, SortDirection::Ascending);
+            manager.set_remember_folder_views(true);
+            assert_eq!(
+                manager.resolve_folder_sort(&plain_location, false),
+                FolderSort::Saved(size_ascending.0, size_ascending.1),
+                "a default set while folder settings are off drops nothing"
+            );
+            manager.set_folder_icons_size(Some(&sorted_location), 160);
+            manager.set_remember_folder_views(false);
+            manager.set_default_sort(size_ascending.0, size_ascending.1);
+            let notified_sizes = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+            let notified = notified_sizes.clone();
+            let observed = sorted_location.clone();
+            manager.observe(std::rc::Rc::new(move || {
+                notified
+                    .borrow_mut()
+                    .push(PreferenceManager::shared().icons_size_for(Some(&observed)));
+            }));
+            manager.set_remember_folder_views(true);
+            assert_eq!(
+                manager.resolve_folder_sort(&plain_location, false),
+                FolderSort::Default,
+                "turning folder settings back on drops values equal to the default"
+            );
+            assert_eq!(
+                notified_sizes.borrow().first(),
+                Some(&160),
+                "the first notification already uses the folder's own size"
+            );
+        },
+    );
+}
+
+#[test]
+fn folder_settings_saved_by_another_process_are_merged_instead_of_overwritten() {
+    gtk_test(
+        "ui::window::tests::preferences::folder_settings_saved_by_another_process_are_merged_instead_of_overwritten",
+        || {
+            use crate::model::{FolderSort, Location, SortDirection, SortKey};
+
+            let here = tempfile::tempdir().expect("folder sorted here");
+            let elsewhere = tempfile::tempdir().expect("folder sorted elsewhere");
+            let (here, elsewhere) = (
+                Location::local(here.path()),
+                Location::local(elsewhere.path()),
+            );
+            let open = OpenWindow::open();
+            open.content.browser.navigate_location(elsewhere.clone());
+            wait_until(|| !column_loading(&open, 0));
+            let manager = PreferenceManager::shared();
+            assert_eq!(
+                manager.resolve_folder_sort(&elsewhere, false),
+                FolderSort::Default
+            );
+
+            write_folder_views(&format!(
+                "version = 1\n[[folder]]\npath = \"{}\"\nsort = \"size\"\ndirection = \"descending\"\n",
+                elsewhere.display_path()
+            ));
+            manager.set_folder_sort(&here, SortKey::Type, SortDirection::Ascending);
+            manager.flush_folder_views();
+
+            let saved = folder_views_file();
+            assert!(saved.contains(&here.display_path()), "{saved}");
+            assert!(saved.contains(&elsewhere.display_path()), "{saved}");
+            assert_eq!(
+                manager.resolve_folder_sort(&elsewhere, false),
+                FolderSort::Saved(SortKey::Size, SortDirection::Descending)
+            );
+            wait_until(|| {
+                open.content
+                    .browser
+                    .browser()
+                    .column_preferences(0)
+                    .is_some_and(|preferences| preferences.sort_key == SortKey::Size)
+            });
+
+            manager.forget_folder_views();
+            manager.flush_folder_views();
+            write_folder_views(&format!(
+                "version = 1\n[[folder]]\npath = \"{}\"\nsort = \"type\"\ndirection = \"descending\"\n",
+                elsewhere.display_path()
+            ));
+            manager.forget_folder_views();
+            manager.flush_folder_views();
+            assert!(
+                !folder_views_file().contains("[[folder]]"),
+                "forgetting also clears what another process saved"
+            );
+            assert_eq!(
+                manager.resolve_folder_sort(&elsewhere, false),
+                FolderSort::Default
+            );
+
+            for unsaveable in ["version = 2\n", "version = 1\n[[folder]\n"] {
+                write_folder_views(unsaveable);
+                manager.set_folder_sort(&here, SortKey::Size, SortDirection::Ascending);
+                manager.flush_folder_views();
+                assert_eq!(folder_views_file(), unsaveable);
+            }
+            write_folder_views("version = 1\n");
+            manager.flush_folder_views();
+            assert!(
+                folder_views_file().contains(&here.display_path()),
+                "the save is retried once the file can be read again"
+            );
+
+            let saving_elsewhere =
+                std::fs::File::open(crate::storage::state_directory()).expect("state directory");
+            saving_elsewhere.lock().expect("another process saving");
+            manager.set_folder_sort(&here, SortKey::Type, SortDirection::Descending);
+            settle_for(std::time::Duration::from_secs(1));
+            assert!(
+                !folder_views_file().contains("sort = \"type\""),
+                "a save waits until another process has saved"
+            );
+            drop(saving_elsewhere);
+            wait_until(|| folder_views_file().contains("sort = \"type\""));
+
+            let stuck_elsewhere =
+                std::fs::File::open(crate::storage::state_directory()).expect("state directory");
+            stuck_elsewhere
+                .lock()
+                .expect("another process stopped mid-save");
+            let (release, released) = std::sync::mpsc::channel::<()>();
+            // Released anyway after a while, so a save that waits forever fails instead of hanging.
+            let holder = std::thread::spawn(move || {
+                let _held = stuck_elsewhere;
+                let _ = released.recv_timeout(std::time::Duration::from_secs(5));
+            });
+            manager.set_folder_sort(&here, SortKey::Modified, SortDirection::Ascending);
+            let started = std::time::Instant::now();
+            manager.flush_folder_views();
+            assert!(
+                started.elapsed() < std::time::Duration::from_secs(4),
+                "the exit save stops waiting for a stuck process"
+            );
+            assert!(folder_views_file().contains("sort = \"modified\""));
+            let _ = release.send(());
+            holder.join().expect("lock holder");
+
+            let mut settings: toml::Table = std::fs::read_to_string(settings_file())
+                .ok()
+                .and_then(|contents| toml::from_str(&contents).ok())
+                .unwrap_or_default();
+            settings.insert("sort_key".into(), "modified".into());
+            settings.insert("sort_direction".into(), "descending".into());
+            let staged = settings_file().with_extension("toml.new");
+            std::fs::create_dir_all(staged.parent().expect("config directory"))
+                .expect("config directory");
+            std::fs::write(&staged, toml::to_string(&settings).expect("settings"))
+                .expect("settings saved elsewhere");
+            std::fs::rename(&staged, settings_file()).expect("settings replaced");
+            wait_until(|| manager.default_sort() == (SortKey::Modified, SortDirection::Descending));
+            manager.set_folder_sort(&here, SortKey::Name, SortDirection::Ascending);
+            assert_eq!(
+                manager.resolve_folder_sort(&here, false),
+                FolderSort::Saved(SortKey::Name, SortDirection::Ascending),
+                "a sort equal to a default replaced elsewhere is still stored"
+            );
+        },
+    );
+}
+
+#[test]
+fn unreadable_folder_settings_use_defaults_and_are_never_overwritten() {
+    gtk_test(
+        "ui::window::tests::preferences::unreadable_folder_settings_use_defaults_and_are_never_overwritten",
+        || {
+            use crate::model::{Location, SortDirection, SortKey};
+
+            let unreadable = "version = 1\n[[folder]\npath = \"/broken\"\n";
+            write_folder_views(unreadable);
+            let open = OpenWindow::open();
+            let folder = load_folder(&open);
+            let browser = open.content.browser.browser();
+            assert_eq!(
+                browser
+                    .column_preferences(0)
+                    .map(|preferences| preferences.sort_key),
+                Some(SortKey::Name)
+            );
+
+            browser.set_sort(0, SortKey::Size, SortDirection::Descending);
+            wait_until(|| {
+                browser
+                    .column_preferences(0)
+                    .map(|preferences| preferences.sort_key)
+                    == Some(SortKey::Size)
+            });
+            open.content
+                .browser
+                .navigate_location(Location::local(folder.path()));
+            wait_until(|| !column_loading(&open, 0));
+
+            assert_eq!(
+                browser
+                    .column_preferences(0)
+                    .map(|preferences| preferences.sort_key),
+                Some(SortKey::Size),
+                "changes still apply until Strata closes"
+            );
+            PreferenceManager::shared().flush_folder_views();
+            assert_eq!(folder_views_file(), unreadable);
+        },
+    );
+}
+
 struct OpenWindow {
     window: gtk::ApplicationWindow,
     content: super::super::composition::WindowContent,
@@ -740,6 +1406,31 @@ fn write_settings(contents: &str) {
 
 fn settings_file() -> std::path::PathBuf {
     gtk::glib::user_config_dir().join("strata/settings.toml")
+}
+
+fn write_folder_views(contents: &str) {
+    let path = crate::storage::state_directory().join("folder-views.toml");
+    std::fs::create_dir_all(path.parent().expect("state directory")).expect("state directory");
+    std::fs::write(path, contents).expect("seed folder settings");
+}
+
+fn folder_views_file() -> String {
+    std::fs::read_to_string(crate::storage::state_directory().join("folder-views.toml"))
+        .expect("folder settings file")
+}
+
+fn icons_scale(open: &OpenWindow) -> Option<gtk::Scale> {
+    let mut scale = None;
+    walk(open.window.upcast_ref(), &mut |widget| {
+        if widget.has_css_class("icons-thumbnail-scale") {
+            scale = widget.clone().downcast::<gtk::Scale>().ok();
+        }
+    });
+    scale
+}
+
+fn icons_size(open: &OpenWindow) -> Option<i32> {
+    icons_scale(open).map(|scale| scale.value().round() as i32)
 }
 
 fn load_folder(open: &OpenWindow) -> tempfile::TempDir {
@@ -1066,4 +1757,433 @@ fn walk(widget: &gtk::Widget, visit: &mut impl FnMut(&gtk::Widget)) {
         walk(&widget, visit);
         child = widget.next_sibling();
     }
+}
+
+type ItemCustomization = (
+    &'static str,
+    Option<crate::model::FolderColor>,
+    Option<&'static str>,
+);
+
+fn customize_items(root: &std::path::Path, items: &[ItemCustomization]) {
+    let manager = PreferenceManager::shared();
+    for (relative, color, icon) in items {
+        let path = root.join(relative);
+        std::fs::create_dir_all(&path).expect("customized folder");
+        manager.set_folder_color(&path, color.map(crate::model::FolderColorValue::Preset));
+        manager.set_custom_icon(&path, *icon);
+    }
+}
+
+fn assert_item_customizations(root: &std::path::Path, expected: &[ItemCustomization], case: &str) {
+    let manager = PreferenceManager::shared();
+    let saved = std::fs::read_to_string(settings_file()).unwrap_or_default();
+    for (relative, color, icon) in expected {
+        let path = root.join(relative);
+        assert_eq!(
+            (
+                manager.folder_color(&path),
+                manager.custom_icon(&path).as_deref(),
+                saved.contains(&format!("\"{}\"", path.display()))
+            ),
+            (
+                color.map(crate::model::FolderColorValue::Preset),
+                *icon,
+                color.is_some() || icon.is_some()
+            ),
+            "{case}: color, icon and saved key of {relative}"
+        );
+    }
+}
+
+fn loaded_entry(open: &OpenWindow, path: &std::path::Path) -> crate::model::FileEntry {
+    let location = crate::model::Location::local(path);
+    let names = std::collections::HashSet::from([location.display_name()]);
+    let browser = open.content.browser.browser();
+    let find = || {
+        browser
+            .entries_named(&names)
+            .into_iter()
+            .find(|entry| entry.location == location)
+    };
+    wait_until(|| find().is_some());
+    find().expect("loaded entry")
+}
+
+/// Deletions dock as background operations as soon as they start.
+fn wait_for_operation(open: &OpenWindow) {
+    let browser = open.content.browser.browser();
+    let request = browser.last_started_operation().expect("operation started");
+    wait_until(|| !browser.is_current_operation(request) && !browser.has_background_operations());
+    // Customization saves coalesce on idle.
+    settle();
+}
+
+fn rendered_folder(path: &std::path::Path) -> Vec<u8> {
+    let image = gtk::Image::new();
+    crate::ui::thumbnail::show_customized_icon_image(
+        &image,
+        path,
+        crate::assets::icons::FOLDER,
+        24,
+    );
+    let texture = image
+        .paintable()
+        .and_downcast::<gtk::gdk::Texture>()
+        .expect("folder icon texture");
+    texture_pixels(&texture)
+}
+
+#[test]
+fn renamed_folder_keeps_its_customization_and_a_new_folder_at_the_old_path_does_not() {
+    gtk_test(
+        "ui::window::tests::preferences::renamed_folder_keeps_its_customization_and_a_new_folder_at_the_old_path_does_not",
+        || {
+            use crate::assets::icons::FILE_CODE;
+            use crate::model::FolderColor::Red;
+            use crate::model::{FolderSort, Location, SortDirection, SortKey};
+
+            let first = OpenWindow::open();
+            let second = OpenWindow::open();
+            let directory = load_folder(&first);
+            let old = directory.path().join("child");
+            let renamed = directory.path().join("renamed");
+            let plain = rendered_folder(&old);
+            customize_items(directory.path(), &[("child", Some(Red), Some(FILE_CODE))]);
+            let manager = PreferenceManager::shared();
+            let folder_sort =
+                |path: &std::path::Path| manager.resolve_folder_sort(&Location::local(path), false);
+            let size_sort = FolderSort::Saved(SortKey::Size, SortDirection::Descending);
+            manager.set_folder_sort(
+                &Location::local(&old),
+                SortKey::Size,
+                SortDirection::Descending,
+            );
+            let customized = rendered_folder(&old);
+            assert_ne!(customized, plain);
+
+            first
+                .content
+                .browser
+                .browser()
+                .rename(loaded_entry(&first, &old), "renamed".into());
+            wait_for_operation(&first);
+            assert_item_customizations(
+                directory.path(),
+                &[
+                    ("renamed", Some(Red), Some(FILE_CODE)),
+                    ("child", None, None),
+                ],
+                "after the rename",
+            );
+            assert_eq!(rendered_folder(&renamed), customized);
+            assert_eq!(folder_sort(&renamed), size_sort);
+            assert_eq!(folder_sort(&old), FolderSort::Default);
+
+            std::fs::create_dir(&old).expect("new folder at the old path");
+            loaded_entry(&first, &old);
+            assert_eq!(rendered_folder(&old), plain);
+
+            first
+                .content
+                .browser
+                .browser()
+                .delete(vec![loaded_entry(&first, &renamed)], false);
+            wait_for_operation(&first);
+            assert_item_customizations(
+                directory.path(),
+                &[("renamed", None, None)],
+                "after the trash",
+            );
+            assert_eq!(folder_sort(&renamed), FolderSort::Default);
+
+            // Tombstones are shared: another window's undo restores them.
+            second
+                .content
+                .browser
+                .navigate_location(crate::model::Location::local(directory.path()));
+            wait_until(|| !column_loading(&second, 0));
+            assert!(second.content.browser.undo_last_operation());
+            wait_for_operation(&second);
+            assert!(renamed.is_dir());
+            assert_item_customizations(
+                directory.path(),
+                &[("renamed", Some(Red), Some(FILE_CODE))],
+                "after another window undoes the trash",
+            );
+        },
+    );
+}
+
+#[derive(Clone, Copy)]
+enum ItemOperation {
+    MakeFolder(&'static str),
+    MakeFile(&'static str),
+    Customize(ItemCustomization),
+    Rename,
+    Move(crate::services::TransferConflict),
+    Copy(crate::services::TransferConflict),
+    Trash,
+    /// Restores the n-th item this case trashed to its original path.
+    PutBack(usize),
+    PermanentDelete,
+    Undo,
+    Redo,
+}
+
+#[test]
+fn folder_customizations_follow_file_operations_performed_in_strata() {
+    gtk_test(
+        "ui::window::tests::preferences::folder_customizations_follow_file_operations_performed_in_strata",
+        || {
+            use crate::assets::icons::{FILE_CODE, PICTURES};
+            use crate::model::FolderColor::{Blue, Green, Purple, Red};
+            use crate::model::Location;
+            use crate::services::{PasteItem, RestoreTrashItem, TransferConflict};
+            use ItemOperation::*;
+
+            let source = [
+                ("docs", Some(Red), Some(FILE_CODE)),
+                ("docs/inner", Some(Blue), None),
+            ];
+            let at_source = [
+                ("docs", Some(Red), Some(FILE_CODE)),
+                ("docs/inner", Some(Blue), None),
+                ("docs2", None, None),
+                ("dest/docs", None, None),
+            ];
+            let gone_from_source = [("docs", None, None), ("docs/inner", None, None)];
+            let plain_docs = [("docs", None, None)];
+            let green_docs = [("docs", Some(Green), None)];
+            let renamed = [
+                ("docs2", Some(Red), Some(FILE_CODE)),
+                ("docs2/inner", Some(Blue), None),
+                ("docs", None, None),
+            ];
+            let moved = [
+                ("dest/docs", Some(Red), Some(FILE_CODE)),
+                ("dest/docs/inner", Some(Blue), None),
+                ("docs", None, None),
+            ];
+            let existing_customized: [(ItemOperation, &[ItemCustomization]); 2] = [
+                (Customize(("dest/docs", Some(Green), Some(PICTURES))), &[]),
+                (Customize(("dest/docs/kept", Some(Purple), None)), &[]),
+            ];
+            let replace = [
+                existing_customized[0],
+                existing_customized[1],
+                (
+                    Move(TransferConflict::ReplaceExisting),
+                    &[
+                        ("dest/docs", Some(Red), Some(FILE_CODE)),
+                        ("dest/docs/inner", Some(Blue), None),
+                        ("dest/docs/kept", None, None),
+                        ("docs", None, None),
+                    ],
+                ),
+            ];
+            let merge = [
+                existing_customized[0],
+                existing_customized[1],
+                (MakeFile("docs/note.txt"), &[]),
+                (MakeFile("dest/docs/note.txt"), &[]),
+                (Customize(("dest/docs/note.txt", None, Some(PICTURES))), &[]),
+                (
+                    Move(TransferConflict::Merge),
+                    &[
+                        ("dest/docs", Some(Green), Some(PICTURES)),
+                        ("dest/docs/inner", Some(Blue), None),
+                        ("dest/docs/kept", Some(Purple), None),
+                        ("dest/docs/note.txt", None, None),
+                        ("docs", None, None),
+                        ("docs/inner", None, None),
+                    ],
+                ),
+            ];
+            let copy_replace = [
+                existing_customized[0],
+                existing_customized[1],
+                (
+                    Copy(TransferConflict::ReplaceExisting),
+                    &[
+                        ("dest/docs", None, None),
+                        ("dest/docs/inner", None, None),
+                        ("dest/docs/kept", None, None),
+                        ("docs", Some(Red), Some(FILE_CODE)),
+                    ],
+                ),
+                (
+                    Undo,
+                    &[
+                        ("dest/docs", Some(Green), Some(PICTURES)),
+                        ("dest/docs/kept", Some(Purple), None),
+                    ],
+                ),
+            ];
+            type Steps<'a> = &'a [(ItemOperation, &'a [ItemCustomization])];
+            let cases: [(&str, Steps); 11] = [
+                (
+                    "rename, undo and redo",
+                    &[(Rename, &renamed), (Undo, &at_source), (Redo, &renamed)],
+                ),
+                (
+                    "move, undo and redo",
+                    &[
+                        (Move(TransferConflict::FailIfExists), &moved),
+                        (Undo, &at_source),
+                        (Redo, &moved),
+                    ],
+                ),
+                (
+                    "Keep both lands under a new name",
+                    &[
+                        (MakeFolder("dest/docs"), &[]),
+                        (
+                            Move(TransferConflict::KeepBoth),
+                            &[
+                                ("dest/docs (1)", Some(Red), Some(FILE_CODE)),
+                                ("dest/docs (1)/inner", Some(Blue), None),
+                                ("dest/docs", None, None),
+                                ("docs", None, None),
+                            ],
+                        ),
+                    ],
+                ),
+                (
+                    "Replace drops the replaced folder's customizations",
+                    &replace,
+                ),
+                (
+                    "Merge keeps the destination folder's own customization",
+                    &merge,
+                ),
+                (
+                    "a copy that replaces drops the replaced folder's customizations until undo",
+                    &copy_replace,
+                ),
+                (
+                    "trash and undo",
+                    &[(Trash, &gone_from_source), (Undo, &at_source)],
+                ),
+                (
+                    "trash and Put back",
+                    &[(Trash, &gone_from_source), (PutBack(0), &at_source)],
+                ),
+                (
+                    "a plain folder trashed from the same path stays plain",
+                    &[
+                        (Trash, &gone_from_source),
+                        (MakeFolder("docs"), &plain_docs),
+                        (Trash, &plain_docs),
+                        (PutBack(1), &plain_docs),
+                        (PermanentDelete, &plain_docs),
+                        (PutBack(0), &at_source),
+                    ],
+                ),
+                (
+                    "two trashed folders from one path keep their own customizations",
+                    &[
+                        (Trash, &gone_from_source),
+                        (MakeFolder("docs"), &plain_docs),
+                        (Customize(("docs", Some(Green), None)), &green_docs),
+                        (Trash, &plain_docs),
+                        (PutBack(0), &at_source),
+                        (PermanentDelete, &plain_docs),
+                        (PutBack(1), &green_docs),
+                    ],
+                ),
+                ("permanent delete", &[(PermanentDelete, &gone_from_source)]),
+            ];
+
+            let open = OpenWindow::open();
+            let trash_files = gtk::glib::user_data_dir().join("Trash/files");
+            let trash_listing = || -> std::collections::HashSet<std::path::PathBuf> {
+                std::fs::read_dir(&trash_files)
+                    .map(|items| items.flatten().map(|item| item.path()).collect())
+                    .unwrap_or_default()
+            };
+            for (case, steps) in cases {
+                let root = tempfile::tempdir().expect("case root");
+                let docs = root.path().join("docs");
+                let dest = root.path().join("dest");
+                std::fs::create_dir(&dest).expect("destination");
+                customize_items(root.path(), &source);
+                open.content
+                    .browser
+                    .navigate_location(Location::local(root.path()));
+                wait_until(|| !column_loading(&open, 0));
+                let browser = open.content.browser.browser();
+                let mut known_trash = trash_listing();
+                let mut trashed = Vec::new();
+                let transfer = |conflict, move_sources| {
+                    browser.transfer(
+                        Location::local(&dest),
+                        vec![PasteItem {
+                            source: Location::local(&docs),
+                            conflict,
+                        }],
+                        move_sources,
+                        false,
+                    )
+                };
+
+                for (operation, expected) in steps {
+                    match *operation {
+                        MakeFolder(relative) => {
+                            std::fs::create_dir(root.path().join(relative)).expect("new folder")
+                        }
+                        MakeFile(relative) => {
+                            std::fs::write(root.path().join(relative), relative).expect("new file")
+                        }
+                        Customize(item) => {
+                            let manager = PreferenceManager::shared();
+                            let (relative, color, icon) = item;
+                            let path = root.path().join(relative);
+                            if !path.exists() {
+                                std::fs::create_dir_all(&path).expect("customized folder");
+                            }
+                            manager.set_folder_color(
+                                &path,
+                                color.map(crate::model::FolderColorValue::Preset),
+                            );
+                            manager.set_custom_icon(&path, icon);
+                        }
+                        Rename => {
+                            browser.rename(loaded_entry(&open, &docs), "docs2".into());
+                        }
+                        Move(conflict) => transfer(conflict, true),
+                        Copy(conflict) => transfer(conflict, false),
+                        Trash | PermanentDelete => browser.delete(
+                            vec![loaded_entry(&open, &docs)],
+                            matches!(operation, PermanentDelete),
+                        ),
+                        PutBack(index) => {
+                            let mut entry = crate::test_support::operations::entry(
+                                Location::local(&trashed[index]),
+                            );
+                            entry.kind = crate::model::EntryKind::Directory;
+                            browser.restore(vec![RestoreTrashItem {
+                                entry,
+                                destination: docs.clone(),
+                            }]);
+                        }
+                        Undo => wait_until(|| open.content.browser.undo_last_operation()),
+                        Redo => wait_until(|| open.content.browser.redo_last_operation()),
+                    }
+                    if !matches!(operation, MakeFolder(_) | MakeFile(_) | Customize(_)) {
+                        wait_for_operation(&open);
+                    }
+                    if matches!(operation, MakeFolder(_)) {
+                        loaded_entry(&open, &docs);
+                    }
+                    if matches!(operation, Trash) {
+                        let listing = trash_listing();
+                        trashed.extend(listing.difference(&known_trash).cloned());
+                        known_trash = listing;
+                    }
+                    assert_item_customizations(root.path(), expected, case);
+                }
+            }
+        },
+    );
 }

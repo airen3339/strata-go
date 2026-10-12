@@ -2,43 +2,48 @@
 
 use gtk::{gdk, glib, prelude::*};
 
+use super::keys::{
+    self, Binding, KeyPress,
+    bindings::{
+        DOWN, ENTER, FOCUS_NEXT, FOCUS_PREVIOUS, LEFT, RIGHT, UP, VIM_DOWN, VIM_LEFT, VIM_RIGHT,
+        VIM_UP,
+    },
+};
+
 #[cfg(test)]
 mod tests;
 
-pub(super) fn spatial_arrow(key: gdk::Key) -> Option<gdk::Key> {
-    match key {
-        gdk::Key::h | gdk::Key::Left | gdk::Key::KP_Left => Some(gdk::Key::Left),
-        gdk::Key::j | gdk::Key::Down | gdk::Key::KP_Down => Some(gdk::Key::Down),
-        gdk::Key::k | gdk::Key::Up | gdk::Key::KP_Up => Some(gdk::Key::Up),
-        gdk::Key::l | gdk::Key::Right | gdk::Key::KP_Right => Some(gdk::Key::Right),
-        _ => None,
-    }
+/// Shift and Super ride along with keys that move focus or the cursor.
+pub(super) const FOCUS_MODIFIERS: gdk::ModifierType =
+    gdk::ModifierType::SHIFT_MASK.union(gdk::ModifierType::SUPER_MASK);
+
+const ARROWS: [(Binding, Binding); 4] = [
+    (LEFT, VIM_LEFT),
+    (DOWN, VIM_DOWN),
+    (UP, VIM_UP),
+    (RIGHT, VIM_RIGHT),
+];
+
+pub(super) fn spatial_arrow(press: &KeyPress) -> Option<Binding> {
+    ARROWS
+        .into_iter()
+        .find(|(arrow, vim)| press.is_any(&[*arrow, *vim]))
+        .map(|(arrow, _)| arrow)
 }
 
+/// Reads **h j k l** as arrows unless typing owns them.
 pub(super) fn navigation_key(
-    key: gdk::Key,
-    modifiers: gdk::ModifierType,
+    press: &KeyPress,
     type_to_search: bool,
     focused: Option<&gtk::Widget>,
-) -> gdk::Key {
-    if type_to_search
-        || modifiers.intersects(
-            gdk::ModifierType::CONTROL_MASK
-                | gdk::ModifierType::ALT_MASK
-                | gdk::ModifierType::SUPER_MASK
-                | gdk::ModifierType::SHIFT_MASK,
-        )
-        || focused.is_some_and(|widget| editable(widget) || in_popover(widget))
-    {
-        return key;
+) -> KeyPress {
+    if type_to_search || focused.is_some_and(|widget| editable(widget) || in_popover(widget)) {
+        return *press;
     }
-    match key {
-        gdk::Key::h => gdk::Key::Left,
-        gdk::Key::j => gdk::Key::Down,
-        gdk::Key::k => gdk::Key::Up,
-        gdk::Key::l => gdk::Key::Right,
-        _ => key,
-    }
+    ARROWS
+        .into_iter()
+        .find(|(_, vim)| press.is(*vim))
+        .map_or(*press, |(arrow, _)| press.read_as(arrow))
 }
 
 pub(super) fn activate_native_arrow(scope: &impl IsA<gtk::Widget>, key: gdk::Key) -> bool {
@@ -79,35 +84,39 @@ pub(super) fn activate_native_arrow(scope: &impl IsA<gtk::Widget>, key: gdk::Key
     false
 }
 
-pub(super) fn arrow_direction(key: gdk::Key) -> Option<gtk::DirectionType> {
-    match key {
-        gdk::Key::Left => Some(gtk::DirectionType::Left),
-        gdk::Key::Right => Some(gtk::DirectionType::Right),
-        gdk::Key::Up => Some(gtk::DirectionType::Up),
-        gdk::Key::Down => Some(gtk::DirectionType::Down),
-        _ => None,
-    }
+pub(super) fn arrow_direction(
+    press: &KeyPress,
+    tolerated: gdk::ModifierType,
+) -> Option<gtk::DirectionType> {
+    [
+        (LEFT, gtk::DirectionType::Left),
+        (RIGHT, gtk::DirectionType::Right),
+        (UP, gtk::DirectionType::Up),
+        (DOWN, gtk::DirectionType::Down),
+    ]
+    .into_iter()
+    .find(|(arrow, _)| press.is(arrow.ignoring(tolerated)))
+    .map(|(_, direction)| direction)
 }
 
-pub(super) fn plain_tab_direction(
-    key: gdk::Key,
-    modifiers: gdk::ModifierType,
-) -> Option<gtk::DirectionType> {
-    if modifiers.intersects(
-        gdk::ModifierType::CONTROL_MASK
-            | gdk::ModifierType::ALT_MASK
-            | gdk::ModifierType::SUPER_MASK,
-    ) {
-        return None;
-    }
-    match key {
-        gdk::Key::ISO_Left_Tab => Some(gtk::DirectionType::TabBackward),
-        gdk::Key::Tab => Some(if modifiers.contains(gdk::ModifierType::SHIFT_MASK) {
-            gtk::DirectionType::TabBackward
-        } else {
-            gtk::DirectionType::TabForward
-        }),
-        _ => None,
+pub(super) fn vim_focus_direction(press: &KeyPress) -> Option<gtk::DirectionType> {
+    [
+        (VIM_LEFT, gtk::DirectionType::Left),
+        (VIM_DOWN, gtk::DirectionType::Down),
+        (VIM_UP, gtk::DirectionType::Up),
+        (VIM_RIGHT, gtk::DirectionType::Right),
+    ]
+    .into_iter()
+    .find_map(|(binding, direction)| press.is(binding).then_some(direction))
+}
+
+pub(super) fn plain_tab_direction(press: &KeyPress) -> Option<gtk::DirectionType> {
+    if press.is(FOCUS_NEXT) {
+        Some(gtk::DirectionType::TabForward)
+    } else if press.is(FOCUS_PREVIOUS) {
+        Some(gtk::DirectionType::TabBackward)
+    } else {
+        None
     }
 }
 
@@ -115,11 +124,87 @@ pub(super) fn contains_widget(container: &gtk::Widget, focused: Option<&gtk::Wid
     focused.is_some_and(|focused| focused == container || focused.is_ancestor(container))
 }
 
+/// Moves focus to the next (`TabForward`) or previous (`TabBackward`) focusable widget
+/// outside `scope` in Tab order, wrapping at the ends of the window as GTK does. Never
+/// enters `scope`, so a whole subtree acts as one Tab stop.
+pub(super) fn focus_beyond(scope: &gtk::Widget, direction: gtk::DirectionType) -> bool {
+    let backward = direction == gtk::DirectionType::TabBackward;
+    let step = |widget: &gtk::Widget| {
+        if backward {
+            widget.prev_sibling()
+        } else {
+            widget.next_sibling()
+        }
+    };
+    let focus = |candidate: &gtk::Widget| {
+        candidate.is_mapped() && candidate.is_sensitive() && candidate.child_focus(direction)
+    };
+    let mut path = vec![scope.clone()];
+    while let Some(parent) = path.last().and_then(gtk::Widget::parent) {
+        path.push(parent);
+    }
+    for widget in &path {
+        let mut sibling = step(widget);
+        while let Some(candidate) = sibling {
+            if focus(&candidate) {
+                return true;
+            }
+            sibling = step(&candidate);
+        }
+    }
+    for widget in path.iter().rev() {
+        let Some(parent) = widget.parent() else {
+            continue;
+        };
+        let mut sibling = if backward {
+            parent.last_child()
+        } else {
+            parent.first_child()
+        };
+        while let Some(candidate) = sibling.filter(|candidate| candidate != widget) {
+            if focus(&candidate) {
+                return true;
+            }
+            sibling = step(&candidate);
+        }
+    }
+    false
+}
+
+/// Whether `focused` was detached from `container` while the window's focus chain still
+/// runs through it (GTK moves focus at the next paint).
+pub(super) fn focus_removed_from(container: &gtk::Widget, focused: &gtk::Widget) -> bool {
+    if focused.root().is_some() {
+        return false;
+    }
+    let mut child = container.clone();
+    while let Some(parent) = child.parent() {
+        if parent.focus_child().as_ref() != Some(&child) {
+            return false;
+        }
+        child = parent;
+    }
+    child.is::<gtk::Root>()
+}
+
 pub(super) fn editable(widget: &gtk::Widget) -> bool {
     widget.is::<gtk::Editable>()
         || widget.is::<gtk::TextView>()
         || widget.ancestor(gtk::Entry::static_type()).is_some()
         || widget.ancestor(gtk::TextView::static_type()).is_some()
+}
+
+/// Unlike `editable`, a read-only text view is a document, not a field.
+pub(super) fn accepts_typing(widget: &gtk::Widget) -> bool {
+    let view = widget.downcast_ref::<gtk::TextView>().cloned().or_else(|| {
+        widget
+            .ancestor(gtk::TextView::static_type())
+            .and_downcast::<gtk::TextView>()
+    });
+    match view {
+        Some(view) => view.is_editable(),
+        None => editable(widget),
+    }
 }
 
 pub(super) fn in_popover(widget: &gtk::Widget) -> bool {
@@ -262,21 +347,13 @@ pub(super) fn install(scope: &impl IsA<gtk::Widget>) {
     let keys = gtk::EventControllerKey::new();
     keys.set_propagation_phase(gtk::PropagationPhase::Capture);
     let weak = scope.as_ref().downgrade();
-    keys.connect_key_pressed(move |_, key, _, modifiers| {
-        if modifiers.intersects(
-            gdk::ModifierType::CONTROL_MASK
-                | gdk::ModifierType::ALT_MASK
-                | gdk::ModifierType::SUPER_MASK
-                | gdk::ModifierType::SHIFT_MASK,
-        ) {
-            return glib::Propagation::Proceed;
-        }
+    keys::on_press(&keys, move |_, press| {
         let Some(scope) = weak.upgrade() else {
             return glib::Propagation::Proceed;
         };
-        let handled = if let Some(direction) = arrow_direction(key) {
+        let handled = if let Some(direction) = arrow_direction(press, gdk::ModifierType::empty()) {
             move_focus(&scope, direction)
-        } else if matches!(key, gdk::Key::Return | gdk::Key::KP_Enter) {
+        } else if press.is(ENTER) {
             activate(&scope)
         } else {
             false

@@ -7,15 +7,18 @@ use crate::services::{
     sanitize_uri_credentials,
 };
 use crate::ui::blur::BlurBin;
-use crate::ui::browser::clipboard::copy_path_text;
-use crate::ui::browser::{BrowserView, ViewState};
+use crate::ui::browser::clipboard::{
+    PreparedFileDrop, arm_spring_load_navigation, copy_path_text, prepare_file_drop_target,
+};
+use crate::ui::browser::{BrowserView, ViewState, file_drop_action};
 use crate::ui::controls::{
-    ModalTone, focus_button, form_entry, form_label, form_password_entry,
-    message_dialog_description, message_dialog_layout, modal_layout, segmented_control,
-    wrap_dialog_text,
+    ModalTone, dialog_text, focus_button, form_entry, form_label, form_password_entry,
+    keep_words_whole, message_dialog_description, message_dialog_layout, modal_layout,
+    segmented_control,
 };
 use crate::ui::modal::{
-    ModalHost, dismiss_modal_layer, modal_layer, show_error_dialog, submit_on_enter,
+    ModalHost, close_on_escape, dismiss_modal_layer, modal_layer, show_error_dialog,
+    submit_on_enter,
 };
 use crate::ui::window::{crypto_password_uuid_for_volume, gio_volume_is_encrypted};
 use futures_channel::oneshot;
@@ -87,7 +90,11 @@ struct MountPromptDetails {
 impl MountPromptDetails {
     fn fallback(location: &Location) -> Self {
         Self {
-            message: format!("Enter your credentials for “{}”.", location.display_path()),
+            message: rust_i18n::t!(
+                "Enter your credentials for “%{value1}”.",
+                value1 = location.display_path()
+            )
+            .into_owned(),
             default_user: String::new(),
             default_domain: String::new(),
             flags: fallback_ask_password_flags(location),
@@ -133,12 +140,13 @@ fn authentication_retry_message(flags: gio::AskPasswordFlags, message: &str) -> 
         });
     }
     if fields.is_empty() {
-        "That attempt wasn’t accepted. Try again.".to_owned()
+        crate::i18n::tr("That attempt wasn’t accepted. Try again.")
     } else {
-        format!(
-            "Those credentials weren’t accepted. Check {} and try again.",
-            fields.join(", ")
+        rust_i18n::t!(
+            "Those credentials weren’t accepted. Check %{value1} and try again.",
+            value1 = crate::i18n::list(fields.into_iter().map(crate::i18n::tr))
         )
+        .into_owned()
     }
 }
 
@@ -182,16 +190,18 @@ fn show_trust_question_dialog(
 
     let layout = message_dialog_layout(
         crate::assets::icons::TRIANGLE_ALERT,
-        "Verify server identity",
-        "Only continue after verifying the SSH host key through a trusted source.",
-        "Continue anyway",
+        &crate::i18n::tr("Verify server identity"),
+        &crate::i18n::tr(
+            "Only continue after verifying the SSH host key through a trusted source.",
+        ),
+        &crate::i18n::tr("Continue anyway"),
         ModalTone::Danger,
     );
     let backend_message = message_dialog_description(&sanitize_failure_message(message));
     layout.body.append(&backend_message);
-    let warning = message_dialog_description(
+    let warning = message_dialog_description(&crate::i18n::tr(
         "If the server did not provide a fingerprint, verify it outside Strata before continuing.",
-    );
+    ));
     layout.body.append(&warning);
     layout.actions.remove(&layout.cancel);
     layout.actions.remove(&layout.confirm);
@@ -245,21 +255,15 @@ fn show_trust_question_dialog(
     }
     focus_button(rejection.as_ref().unwrap_or(&layout.close));
 
-    let escape = gtk::EventControllerKey::new();
     let escape_operation = operation.clone();
     let escape_layer = layer.clone();
     let escape_overlay = window_overlay.clone();
     let escape_root = blurred_root;
-    escape.connect_key_pressed(move |_, key, _, _| {
-        if key != gtk::gdk::Key::Escape {
-            return glib::Propagation::Proceed;
-        }
+    close_on_escape(&layer, move || {
         declined.set(true);
         dismiss_modal_layer(&escape_layer, &escape_overlay, escape_root.as_ref());
         escape_operation.reply(gio::MountOperationResult::Aborted);
-        glib::Propagation::Stop
     });
-    layer.add_controller(escape);
     Some(layer)
 }
 
@@ -290,33 +294,33 @@ fn show_authentication_dialog(
     let secret_label = password_field_label(message);
     let layout = modal_layout(
         crate::assets::icons::KEY,
-        if secret_label == "Passphrase" {
+        &crate::i18n::tr(if secret_label == "Passphrase" {
             "Passphrase required"
         } else {
             "Authentication required"
-        },
-        "Authenticate to access this volume or location",
-        "Connect",
+        }),
+        &crate::i18n::tr("Authenticate to access this volume or location"),
+        &crate::i18n::tr("Connect"),
     );
     layout.content.add_css_class("wide");
     layout.body.add_css_class("authentication-body");
-    let explanation_text =
-        wrap_dialog_text(message.trim(), AUTHENTICATION_TEXT_WIDTH_CHARS as usize);
-    let explanation = gtk::Label::new(Some(&explanation_text));
+    let explanation = gtk::Label::new(Some(&dialog_text(message)));
     explanation.add_css_class("authentication-explanation");
     explanation.set_max_width_chars(AUTHENTICATION_TEXT_WIDTH_CHARS);
     explanation.set_wrap(true);
+    explanation.set_wrap_mode(gtk::pango::WrapMode::WordChar);
+    keep_words_whole(&explanation);
     explanation.set_xalign(0.0);
     layout.body.append(&explanation);
     if authentication_failed {
-        let error_text = wrap_dialog_text(
-            &authentication_retry_message(flags, message),
-            AUTHENTICATION_TEXT_WIDTH_CHARS as usize,
-        );
-        let error = gtk::Label::new(Some(&error_text));
+        let error = gtk::Label::new(Some(&dialog_text(&authentication_retry_message(
+            flags, message,
+        ))));
         error.add_css_class("authentication-error");
         error.set_max_width_chars(AUTHENTICATION_TEXT_WIDTH_CHARS);
         error.set_wrap(true);
+        error.set_wrap_mode(gtk::pango::WrapMode::WordChar);
+        keep_words_whole(&error);
         error.set_xalign(0.0);
         layout.body.append(&error);
     }
@@ -347,7 +351,7 @@ fn show_authentication_dialog(
     let anonymous = connect_as_buttons[1].clone();
     if flags.contains(gio::AskPasswordFlags::ANONYMOUS_SUPPORTED) {
         let connect_as = gtk::Box::new(gtk::Orientation::Vertical, 7);
-        connect_as.append(&form_label("Connect as"));
+        connect_as.append(&form_label(&crate::i18n::tr("Connect as")));
         connect_as.append(&connect_as_control);
         layout.body.append(&connect_as);
     }
@@ -357,7 +361,7 @@ fn show_authentication_dialog(
         segmented_control(&["Don't remember", "Until logout", "Forever"], 0);
     if flags.contains(gio::AskPasswordFlags::SAVING_SUPPORTED) {
         let remember_field = gtk::Box::new(gtk::Orientation::Vertical, 5);
-        remember_field.append(&form_label("Password storage"));
+        remember_field.append(&form_label(&crate::i18n::tr("Password storage")));
         remember_field.append(&remember);
         layout.body.append(&remember_field);
     }
@@ -456,25 +460,19 @@ fn show_authentication_dialog(
 
     submit_on_enter(&layout.body, &connect);
 
-    let escape = gtk::EventControllerKey::new();
     let escape_operation = operation.cloned();
     let escape_handler = cancelled;
     let escape_layer = layer.clone();
     let escape_overlay = window_overlay;
     let escape_root = blurred_root;
-    escape.connect_key_pressed(move |_, key, _, _| {
-        if key != gtk::gdk::Key::Escape {
-            return glib::Propagation::Proceed;
-        }
+    close_on_escape(&layer, move || {
         dismiss_modal_layer(&escape_layer, &escape_overlay, escape_root.as_ref());
         if let Some(operation) = escape_operation.as_ref() {
             operation.reply(gio::MountOperationResult::Aborted);
         } else if let Some(cancelled) = escape_handler.as_ref() {
             cancelled();
         }
-        glib::Propagation::Stop
     });
-    layer.add_controller(escape);
 
     if flags.contains(gio::AskPasswordFlags::NEED_USERNAME) && defaults.0.is_empty() {
         username.grab_focus();
@@ -499,7 +497,7 @@ fn dismiss_authentication_prompt(browser_overlay: &gtk::Overlay, layer: &gtk::Bo
 
 fn append_authentication_field(fields: &gtk::Box, label_text: &str, field: &impl IsA<gtk::Widget>) {
     let group = gtk::Box::new(gtk::Orientation::Vertical, 5);
-    group.append(&form_label(label_text));
+    group.append(&form_label(&crate::i18n::tr(label_text)));
     group.append(field);
     fields.append(&group);
 }
@@ -527,6 +525,16 @@ fn credentials_from_location_input(
         save: gio::PasswordSave::Never,
     });
     Ok((sanitized, credentials))
+}
+
+/// Entry text to show while a typed location mounts: the sanitized URI in its decoded display
+/// form, or `None` when the typed text needs no rewrite.
+fn mounting_entry_text(input: &str, sanitized: &str) -> Option<String> {
+    if sanitized == input {
+        return None;
+    }
+    let displayed = Location::uri(sanitized).display_path();
+    (displayed != input).then_some(displayed)
 }
 
 pub(super) enum TypedLocation {
@@ -686,7 +694,9 @@ fn mount_failure_message(location: &Location, error: &glib::Error) -> Option<Str
         return Some(backend_unavailable_message(uri));
     }
     if mount_error_is_host_key_rejection(error) {
-        return Some("The remote computer’s host key could not be verified. Confirm its fingerprint with the server administrator before trying again.".to_owned());
+        return Some(crate::i18n::tr(
+            "The remote computer’s host key could not be verified. Confirm its fingerprint with the server administrator before trying again.",
+        ));
     }
     if let Some(message) = transport_failure_message(error) {
         return Some(message);
@@ -695,29 +705,20 @@ fn mount_failure_message(location: &Location, error: &glib::Error) -> Option<Str
 }
 
 fn transport_failure_message(error: &glib::Error) -> Option<String> {
-    let (kind, advice) = if error.matches(gio::IOErrorEnum::HostNotFound) {
-        (
-            "That host couldn’t be found.",
-            "Check the address and DNS settings.",
-        )
+    let message = if error.matches(gio::IOErrorEnum::HostNotFound) {
+        "That host couldn’t be found. Check the address and DNS settings."
     } else if error.matches(gio::IOErrorEnum::ConnectionRefused) {
-        (
-            "The host refused the connection.",
-            "Check the service and port.",
-        )
+        "The host refused the connection. Check the service and port."
     } else if error.matches(gio::IOErrorEnum::TimedOut) {
-        ("The connection timed out.", "Check the host and firewall.")
+        "The connection timed out. Check the host and firewall."
     } else if error.matches(gio::IOErrorEnum::HostUnreachable)
         || error.matches(gio::IOErrorEnum::NetworkUnreachable)
     {
-        (
-            "That host is unreachable.",
-            "Check your network connection.",
-        )
+        "That host is unreachable. Check your network connection."
     } else {
         return None;
     };
-    Some(format!("{kind} {advice}"))
+    Some(crate::i18n::tr(message))
 }
 
 fn mount_error_is_cancelled(error: &glib::Error) -> bool {
@@ -1230,6 +1231,7 @@ impl ViewState {
             .and_then(|mount| crate::adapters::location_for_file(&mount.root()))
             .or_else(|| successor_mount_location(waited));
         if let Some(location) = location {
+            crate::adapters::invalidate_mount_snapshot();
             self.apply_unlock_view_follow_up(&waited.keys, &location, user_asked_to_open);
         }
         self.finish_unlock_slot(&waited.keys);
@@ -1313,7 +1315,7 @@ impl ViewState {
                             let _activity = BrowserView {
                                 state: state.clone(),
                             }
-                            .begin_global_activity("Connecting…");
+                            .begin_global_activity(crate::i18n::tr("Connecting…"));
                             let outcome = wait_for_foreign_volume_mount(&wait_volume).await;
                             drop(_activity);
                             let successor = match outcome {
@@ -1355,7 +1357,7 @@ impl ViewState {
                         if !mount_error_is_cancelled(&error) {
                             show_error_dialog(
                                 &state.overlay,
-                                "Unable to mount volume",
+                                &crate::i18n::tr("Unable to mount volume"),
                                 &error.to_string(),
                             );
                         }
@@ -1415,8 +1417,10 @@ impl ViewState {
                             state.finish_unlock_slot(&waited.keys);
                             show_error_dialog(
                                 &state.overlay,
-                                "Unable to mount volume",
-                                "The device started, but no mountable volume appeared.",
+                                &crate::i18n::tr("Unable to mount volume"),
+                                &crate::i18n::tr(
+                                    "The device started, but no mountable volume appeared.",
+                                ),
                             );
                         }
                     });
@@ -1457,7 +1461,7 @@ impl ViewState {
                             let _activity = BrowserView {
                                 state: state.clone(),
                             }
-                            .begin_global_activity("Connecting…");
+                            .begin_global_activity(crate::i18n::tr("Connecting…"));
                             let outcome =
                                 wait_for_foreign_drive_start(&wait_drive, &wait_match).await;
                             drop(_activity);
@@ -1500,7 +1504,7 @@ impl ViewState {
                         if !mount_error_is_cancelled(&error) {
                             show_error_dialog(
                                 &state.overlay,
-                                "Unable to mount volume",
+                                &crate::i18n::tr("Unable to mount volume"),
                                 &error.to_string(),
                             );
                         }
@@ -1535,14 +1539,18 @@ impl ViewState {
                 self.browser.focus_active();
             }
             Ok(TypedLocation::Mounting { sanitized }) => {
-                if sanitized != input.as_str() {
-                    self.location_entry.set_text(&sanitized);
+                if let Some(text) = mounting_entry_text(input.as_str(), &sanitized) {
+                    self.location_entry.set_text(&text);
                 }
             }
             Err(error) => {
                 self.location_stack.set_visible_child_name("breadcrumbs");
                 self.restore_location_text();
-                show_error_dialog(&self.overlay, "Unable to open location", &error.to_string());
+                show_error_dialog(
+                    &self.overlay,
+                    &crate::i18n::tr("Unable to open location"),
+                    &error.message(),
+                );
             }
         }
     }
@@ -1599,8 +1607,8 @@ impl ViewState {
             error => {
                 show_error_dialog(
                     &self.overlay,
-                    "Unable to open directory",
-                    &error.to_string(),
+                    &crate::i18n::tr("Unable to open directory"),
+                    &error.message(),
                 );
             }
         }
@@ -1630,10 +1638,15 @@ impl ViewState {
                             prompt_details,
                         );
                     } else {
+                        state.abandon_deferred_reveal();
                         state.location_stack.set_visible_child_name("breadcrumbs");
                         state.restore_location_text();
                         if let Some(message) = mount_failure_message(&location, &error) {
-                            show_error_dialog(&state.overlay, "Unable to connect", &message);
+                            show_error_dialog(
+                                &state.overlay,
+                                &crate::i18n::tr("Unable to connect"),
+                                &message,
+                            );
                         }
                     }
                 }
@@ -1674,7 +1687,11 @@ impl ViewState {
                             prompt_details,
                         );
                     } else if let Some(message) = mount_failure_message(&location, &error) {
-                        show_error_dialog(&state.overlay, "Unable to connect", &message);
+                        show_error_dialog(
+                            &state.overlay,
+                            &crate::i18n::tr("Unable to connect"),
+                            &message,
+                        );
                     }
                 }
             },
@@ -1705,6 +1722,7 @@ impl ViewState {
             },
             move || {
                 if let Some(state) = cancel_weak.upgrade() {
+                    state.abandon_deferred_reveal();
                     state.location_stack.set_visible_child_name("breadcrumbs");
                     state.restore_location_text();
                     state.browser.focus_active();
@@ -1877,16 +1895,18 @@ impl ViewState {
 
         let layout = modal_layout(
             crate::assets::icons::LOCK,
-            "Unlocking volume",
+            &crate::i18n::tr("Unlocking volume"),
             volume_name,
-            "Hide",
+            &crate::i18n::tr("Hide"),
         );
         layout.content.add_css_class("compact");
-        layout.set_loading(true, Some("Unlocking volume"));
+        layout.set_loading(true, Some(&crate::i18n::tr("Unlocking volume")));
         layout.cancel.set_visible(false);
-        layout.body.append(&message_dialog_description(
-            "You can hide this and keep working. Unlocking will continue in the background.",
-        ));
+        layout
+            .body
+            .append(&message_dialog_description(&crate::i18n::tr(
+                "You can hide this and keep working. Unlocking will continue in the background.",
+            )));
         let content = layout.content;
         let close = layout.close;
         let hide = layout.confirm;
@@ -1924,21 +1944,14 @@ impl ViewState {
                 }
             }
         });
-        let escape = gtk::EventControllerKey::new();
-        escape.connect_key_pressed({
+        close_on_escape(&view.layer, {
             let hide_keys = hide_keys.clone();
-            move |_, key, _, _| {
-                if key == gtk::gdk::Key::Escape {
-                    if let Some(state) = weak.upgrade() {
-                        state.hide_unlock_progress(&hide_keys);
-                    }
-                    glib::Propagation::Stop
-                } else {
-                    glib::Propagation::Proceed
+            move || {
+                if let Some(state) = weak.upgrade() {
+                    state.hide_unlock_progress(&hide_keys);
                 }
             }
         });
-        view.layer.add_controller(escape);
         hide.grab_focus();
         if let Some(slot) = self
             .unlock_slots
@@ -2044,7 +2057,7 @@ impl ViewState {
         let activity = BrowserView {
             state: self.clone(),
         }
-        .begin_global_activity("Connecting…");
+        .begin_global_activity(crate::i18n::tr("Connecting…"));
         // Keep GTK's native question handler for other schemes and devices;
         // SFTP host-key choices are rendered by Strata without answering automatically.
         let sftp_question = matches!(
@@ -2256,7 +2269,9 @@ impl ViewState {
                     &current_label,
                     Some(&crumb.display_path()),
                 );
-                let copy = gtk::Button::builder().tooltip_text("Copy path").build();
+                let copy = gtk::Button::builder()
+                    .tooltip_text(crate::i18n::tr("Copy path"))
+                    .build();
                 let copy_icon = crate::assets::primary_icon(crate::assets::icons::COPY, 16);
                 copy.set_child(Some(&copy_icon));
                 copy.add_css_class("copy-path");
@@ -2271,14 +2286,14 @@ impl ViewState {
                     let generation = feedback_generation.get().saturating_add(1);
                     feedback_generation.set(generation);
                     crate::assets::set_primary_icon(&copy_icon, crate::assets::icons::CHECK);
-                    button.set_tooltip_text(Some("Path copied"));
+                    button.set_tooltip_text(Some(&crate::i18n::tr("Path copied")));
                     let button = button.clone();
                     let copy_icon = copy_icon.clone();
                     let feedback_generation = feedback_generation.clone();
                     glib::timeout_add_local_once(Duration::from_secs(2), move || {
                         if feedback_generation.get() == generation {
                             crate::assets::set_primary_icon(&copy_icon, crate::assets::icons::COPY);
-                            button.set_tooltip_text(Some("Copy path"));
+                            button.set_tooltip_text(Some(&crate::i18n::tr("Copy path")));
                         }
                     });
                 });
@@ -2301,11 +2316,71 @@ impl ViewState {
                 crate::ui::accessibility::set_description(&button, Some(&crumb.display_path()));
                 button.set_cursor_from_name(Some("pointer"));
                 let weak = Rc::downgrade(self);
+                let clicked_weak = weak.clone();
+                let clicked_crumb = crumb.clone();
                 button.connect_clicked(move |_| {
-                    if let Some(state) = weak.upgrade() {
-                        state.browser.navigate(crumb.clone());
+                    if let Some(state) = clicked_weak.upgrade() {
+                        state.browser.navigate_to_ancestor(clicked_crumb.clone());
                     }
                 });
+                let spring_navigate: Rc<dyn Fn(Location)> = {
+                    let weak = weak.clone();
+                    Rc::new(move |location| {
+                        if let Some(state) = weak.upgrade() {
+                            state.browser.navigate_location(location, false);
+                        }
+                    })
+                };
+                let PreparedFileDrop {
+                    target: drop,
+                    state: drop_state,
+                } = prepare_file_drop_target(move || Some(crumb.clone()));
+                let state_for_enter = drop_state.clone();
+                let navigate_for_enter = spring_navigate.clone();
+                drop.connect_enter(move |target, _, _| {
+                    let action = file_drop_action(target, &state_for_enter);
+                    arm_spring_load_navigation(&state_for_enter, target, &navigate_for_enter);
+                    action
+                });
+                let state_for_motion = drop_state.clone();
+                let navigate_for_motion = spring_navigate.clone();
+                drop.connect_motion(move |target, _, _| {
+                    let action = file_drop_action(target, &state_for_motion);
+                    arm_spring_load_navigation(&state_for_motion, target, &navigate_for_motion);
+                    action
+                });
+                let state_for_value = drop_state.clone();
+                let navigate_for_value = spring_navigate.clone();
+                drop.connect_value_notify(move |target| {
+                    if target.current_drop().is_none() {
+                        return;
+                    }
+                    arm_spring_load_navigation(&state_for_value, target, &navigate_for_value);
+                });
+                let state_for_leave = drop_state.clone();
+                drop.connect_leave(move |_| {
+                    state_for_leave.cancel_spring_load_navigation();
+                });
+                drop.connect_drop(move |target, value, _, _| {
+                    drop_state.cancel_spring_load_navigation();
+                    let Some(state) = weak.upgrade() else {
+                        return false;
+                    };
+                    let Some(destination) = drop_state.destination() else {
+                        return false;
+                    };
+                    let Some(sources) = super::locations_from_file_list_value(value) else {
+                        return false;
+                    };
+                    if sources.is_empty() {
+                        return false;
+                    }
+                    let commit =
+                        super::file_drop_commit(target, &destination, &sources, &drop_state);
+                    state.commit_file_drop(destination, sources, commit);
+                    true
+                });
+                button.add_controller(drop);
                 self.breadcrumbs.append(&button);
             }
         }
@@ -2413,7 +2488,7 @@ impl ViewState {
                     popover.popdown();
                 }
                 if let Some(state) = weak_self.upgrade() {
-                    state.browser.navigate(target_crumb.clone());
+                    state.browser.navigate_to_ancestor(target_crumb.clone());
                 }
             });
 

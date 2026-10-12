@@ -25,7 +25,9 @@ def request_archive_collision(strata, format="ZIP"):
     strata.keyboard.press("ctrl+a")
     strata.keyboard.type_text("archive")
     strata.wait(lambda: field.text == "archive", "archive name input")
-    strata.pointer.click(dialog.find(role="toggle button", name=format))
+    format_button = dialog.find(role="toggle button", name=format)
+    strata.pointer.click(format_button)
+    strata.wait(lambda: format_button.has_state("pressed"), "selected archive format")
     assert strata.dialog_button("Compress").activate()
     strata.wait(
         lambda: (dialog := strata.dialog()) is not None and dialog.name == "File already exists",
@@ -110,6 +112,8 @@ def test_archive_conflict_keyboard_choices_preserve_cancel_and_replace_behavior(
             strata.wait(lambda: strata.dialog_button("Cancel").has_state("focused"), "Cancel focus")
         strata.keyboard.press("Return")
     strata.wait(lambda: strata.dialog() is None, "conflict dismissal")
+    if choice in {"Cancel", "Escape"}:
+        strata.wait_for_focused_entry("todo.txt")
     assert strata.fixture.path("archive (1).zip").read_bytes() == b"previous archive"
     assert not strata.fixture.path("archive (2).zip").exists()
     if choice == "Replace":

@@ -6,7 +6,11 @@ use gtk::prelude::*;
 
 use crate::model::{EntryKind, FileEntry};
 
-use super::browser_modes::BrowserMode;
+use super::{
+    browser_modes::BrowserMode,
+    keys::{Keys, bindings},
+    shortcut_reference::with_keys,
+};
 
 pub(super) fn set_label(widget: &impl IsA<gtk::Accessible>, label: &str) {
     widget.update_property(&[gtk::accessible::Property::Label(label)]);
@@ -18,19 +22,57 @@ pub(super) fn set_description(widget: &impl IsA<gtk::Accessible>, description: O
     )]);
 }
 
-// Location controls require explicit accessible names.
-pub(super) const LOCATION_LABEL: &str = "Location (Ctrl+L)";
-pub(super) const LOCATION_CONFIRM_LABEL: &str = "Navigate (Enter)";
-pub(super) const LOCATION_CANCEL_LABEL: &str = "Cancel (Escape)";
+fn tristate(value: bool) -> gtk::AccessibleTristate {
+    if value {
+        gtk::AccessibleTristate::True
+    } else {
+        gtk::AccessibleTristate::False
+    }
+}
 
+pub(super) fn set_checked(widget: &impl IsA<gtk::Accessible>, checked: bool) {
+    widget.update_state(&[gtk::accessible::State::Checked(tristate(checked))]);
+}
+
+pub(super) fn set_pressed(widget: &impl IsA<gtk::Accessible>, pressed: bool) {
+    widget.update_state(&[gtk::accessible::State::Pressed(tristate(pressed))]);
+}
+
+/// Option rows show their chosen state by toggling a check icon from several
+/// places; mirroring the icon keeps the accessible state from drifting. The
+/// icon's own `visible` property is read because the closed popover hides
+/// every option's ancestors.
+pub(super) fn sync_checked_with_icon(option: &impl IsA<gtk::Widget>, check: &gtk::Image) {
+    let option = option.upcast_ref::<gtk::Widget>();
+    set_checked(option, check.get_visible());
+    let option = option.downgrade();
+    check.connect_visible_notify(move |check| {
+        if let Some(option) = option.upgrade() {
+            set_checked(&option, check.get_visible());
+        }
+    });
+}
+
+pub(super) fn location_confirm_label() -> String {
+    with_keys("Navigate (%{keys})", Keys::One(bindings::ENTER))
+}
+
+pub(super) fn location_cancel_label() -> String {
+    with_keys("Cancel (%{keys})", Keys::One(bindings::ESCAPE))
+}
+
+// Location controls require explicit accessible names.
 pub(super) fn describe_location_controls(
     entry: &impl IsA<gtk::Accessible>,
     confirm: &impl IsA<gtk::Accessible>,
     cancel: &impl IsA<gtk::Accessible>,
 ) {
-    set_label(entry, LOCATION_LABEL);
-    set_label(confirm, LOCATION_CONFIRM_LABEL);
-    set_label(cancel, LOCATION_CANCEL_LABEL);
+    set_label(
+        entry,
+        &with_keys("Location (%{keys})", Keys::One(bindings::LOCATION)),
+    );
+    set_label(confirm, &location_confirm_label());
+    set_label(cancel, &location_cancel_label());
 }
 
 /// The name belongs on the list item rather than on the row content: the item
@@ -38,7 +80,9 @@ pub(super) fn describe_location_controls(
 /// the selected and focused states.
 pub(super) fn describe_entry(item: &gtk::ListItem, display_name: &str, entry: Option<&FileEntry>) {
     item.set_accessible_label(display_name);
-    item.set_accessible_description(entry.map_or("Entry", entry_kind_name));
+    item.set_accessible_description(
+        &entry.map_or_else(|| crate::i18n::tr("Entry"), entry_kind_name),
+    );
 }
 
 /// A plain `GtkBox` has the `generic` accessible role, and ARIA forbids naming
@@ -65,7 +109,7 @@ pub(super) fn dialog_box(title: &str) -> gtk::Box {
 pub(super) fn describe_pane(pane: &impl IsA<gtk::Accessible>, directory: &str, mode: BrowserMode) {
     pane.update_property(&[
         gtk::accessible::Property::Label(directory),
-        gtk::accessible::Property::Description(view_name(mode)),
+        gtk::accessible::Property::Description(&view_name(mode)),
     ]);
 }
 
@@ -74,7 +118,22 @@ pub(super) const ENTRY_CONTAINER_DESCRIPTION: &str = "Files";
 pub(super) fn describe_entry_container(container: &impl IsA<gtk::Accessible>, directory: &str) {
     container.update_property(&[
         gtk::accessible::Property::Label(directory),
-        gtk::accessible::Property::Description(ENTRY_CONTAINER_DESCRIPTION),
+        gtk::accessible::Property::Description(&crate::i18n::tr(ENTRY_CONTAINER_DESCRIPTION)),
+    ]);
+}
+
+pub(super) const LOADING_SURFACE_DESCRIPTION: &str = "Loading";
+
+/// The pane surface takes keyboard focus while a directory is empty, unreadable or
+/// loading; it is named after the directory and described by what it shows.
+pub(super) fn describe_pane_surface(
+    surface: &impl IsA<gtk::Accessible>,
+    directory: &str,
+    status: &str,
+) {
+    surface.update_property(&[
+        gtk::accessible::Property::Label(directory),
+        gtk::accessible::Property::Description(status),
     ]);
 }
 
@@ -105,23 +164,23 @@ pub(super) fn describe_menu_item(
     ]);
 }
 
-pub(super) fn view_name(mode: BrowserMode) -> &'static str {
-    match mode {
+pub(super) fn view_name(mode: BrowserMode) -> String {
+    crate::i18n::tr(match mode {
         BrowserMode::Columns => "Columns view",
         BrowserMode::Icons => "Icons view",
         BrowserMode::List => "List view",
-    }
+    })
 }
 
-fn entry_kind_name(entry: &FileEntry) -> &'static str {
-    match entry.kind {
+fn entry_kind_name(entry: &FileEntry) -> String {
+    crate::i18n::tr(match entry.kind {
         EntryKind::Directory => "Folder",
         EntryKind::DirectorySymbolicLink => "Folder link",
         EntryKind::File => "File",
         EntryKind::FileSymbolicLink => "File link",
         EntryKind::SymbolicLink => "Broken link",
         EntryKind::Other => "Other",
-    }
+    })
 }
 
 #[cfg(test)]

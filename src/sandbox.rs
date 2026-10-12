@@ -157,6 +157,9 @@ pub(crate) enum ParseOperation {
     PreviewMedia(MediaPreviewSize),
     PreviewAudio(MediaPreviewSize),
     AudioPeaks,
+    VideoStoryboard {
+        cell_edge: u32,
+    },
     AudioTags,
     AudioCover,
     ArchiveList {
@@ -192,6 +195,7 @@ impl ParseOperation {
             Self::PreviewMedia(_) => "preview-media",
             Self::PreviewAudio(_) => "preview-audio",
             Self::AudioPeaks => "audio-peaks",
+            Self::VideoStoryboard { .. } => "video-storyboard",
             Self::AudioTags => "audio-tags",
             Self::AudioCover => "audio-cover",
             Self::ArchiveList { .. } => "archive-list",
@@ -201,7 +205,10 @@ impl ParseOperation {
     fn is_media(&self) -> bool {
         matches!(
             self,
-            Self::PreviewMedia(_) | Self::PreviewAudio(_) | Self::AudioPeaks
+            Self::PreviewMedia(_)
+                | Self::PreviewAudio(_)
+                | Self::AudioPeaks
+                | Self::VideoStoryboard { .. }
         )
     }
 
@@ -212,6 +219,7 @@ impl ParseOperation {
                 | Self::PreviewMedia(_)
                 | Self::PreviewAudio(_)
                 | Self::AudioPeaks
+                | Self::VideoStoryboard { .. }
                 | Self::AudioTags
                 | Self::AudioCover
                 | Self::MediaMetadata
@@ -266,6 +274,7 @@ impl ParseOperation {
             | Self::InspectImage
             | Self::PreviewAudio(_)
             | Self::AudioPeaks
+            | Self::VideoStoryboard { .. }
             | Self::AudioTags
             | Self::MediaMetadata
             | Self::RawMetadata
@@ -304,6 +313,7 @@ impl ParseOperation {
             | Self::PreviewMedia(_)
             | Self::PreviewAudio(_)
             | Self::AudioPeaks
+            | Self::VideoStoryboard { .. }
             | Self::AudioTags
             | Self::AudioCover
             | Self::MediaMetadata
@@ -404,9 +414,9 @@ fn parse_sandboxed(
     }
     let input = input
         .canonicalize()
-        .map_err(|error| format!("Unable to open preview input: {error}"))?;
-    let input_metadata = fs::metadata(&input)
-        .map_err(|error| format!("Unable to inspect preview input: {error}"))?;
+        .map_err(|error| crate::services::io_error_message(&error))?;
+    let input_metadata =
+        fs::metadata(&input).map_err(|error| crate::services::io_error_message(&error))?;
     if !input_metadata.is_file() {
         return Err("Preview input is not a regular file".to_owned());
     }
@@ -421,10 +431,11 @@ fn parse_sandboxed(
             ) {
                 "The image exceeds the 32 MiB conversion limit. Choose a smaller image.".to_owned()
             } else if matches!(operation, ParseOperation::PreviewModel(_)) {
-                format!(
-                    "This model file exceeds the {} MiB preview limit. Try a smaller or lower-detail version.",
-                    MAX_MODEL_INPUT_BYTES / (1024 * 1024)
-                )
+                const _: () = assert!(
+                    MAX_MODEL_INPUT_BYTES == 128 * 1024 * 1024,
+                    "update the model size limit message and its catalog entry"
+                );
+                "This model file exceeds the 128 MiB preview limit. Try a smaller or lower-detail version.".to_owned()
             } else {
                 "Preview input exceeds the supported size limit".to_owned()
             },
@@ -439,7 +450,8 @@ fn parse_sandboxed(
         });
     }
 
-    let output = PrivateOutput::create().map_err(|error| error.to_string())?;
+    let output =
+        PrivateOutput::create().map_err(|error| crate::services::io_error_message(&error))?;
     let secret = if let ParseOperation::ArchiveList {
         password: Some(password),
         ..
@@ -454,8 +466,8 @@ fn parse_sandboxed(
     let running_executable = PathBuf::from(format!("/proc/{}/exe", std::process::id()));
     let executable =
         resolve_renderer_executable(&current_executable, &running_executable, output.path())?;
-    let bwrap = crate::trusted_command::resolve("bwrap")
-        .map_err(|error| format!("Unable to start the preview sandbox: {error}"))?;
+    let bwrap =
+        crate::trusted_command::resolve("bwrap").map_err(|error| sandbox_unavailable(&error))?;
     let devices = Vec::new();
     let mut command = sandbox_command(
         &bwrap,
@@ -474,8 +486,7 @@ fn parse_sandboxed(
     }
     command.stderr(Stdio::null());
     command.stdout(Stdio::null());
-    let mut child = spawn_renderer(&mut command)
-        .map_err(|error| format!("Unable to start the preview sandbox: {error}"))?;
+    let mut child = spawn_renderer(&mut command).map_err(|error| sandbox_start_failed(&error))?;
     drop(command);
     let timeout = if matches!(
         operation,
@@ -589,6 +600,21 @@ fn resolve_renderer_executable(
     fs::copy(running, &snapshot)
         .map_err(|error| format!("Unable to preserve the running Strata executable: {error}"))?;
     Ok(snapshot)
+}
+
+/// Fixed text for a missing or untrusted bubblewrap; the detail names system directories.
+pub(crate) fn sandbox_unavailable(detail: &str) -> String {
+    tracing::warn!(detail, "the bubblewrap sandbox is unavailable");
+    crate::i18n::tr("The bubblewrap sandbox is not available")
+}
+
+pub(crate) fn sandbox_start_failed(error: &io::Error) -> String {
+    tracing::warn!(%error, "unable to start the sandbox");
+    rust_i18n::t!(
+        "Unable to start the sandbox: %{error}",
+        error = crate::services::io_error_detail(error)
+    )
+    .into_owned()
 }
 
 fn spawn_renderer(command: &mut Command) -> io::Result<Child> {
@@ -788,9 +814,12 @@ fn sandbox_command(
         let size = MediaPreviewSize::new(size.width, size.height);
         command.arg("/dev/stdout");
         command.arg(format!("{}x{}", size.width, size.height));
-    } else if matches!(operation, ParseOperation::AudioPeaks) {
+    } else if let ParseOperation::AudioPeaks | ParseOperation::VideoStoryboard { .. } = operation {
         command.arg("/dev/stdout");
-        command.arg("0");
+        command.arg(match operation {
+            ParseOperation::VideoStoryboard { cell_edge } => cell_edge.to_string(),
+            _ => "0".to_owned(),
+        });
     } else {
         command.arg(format!("/output/{}", operation.output_name()));
         let value = match operation {

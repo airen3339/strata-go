@@ -198,6 +198,37 @@ pass before merge.
 - Use shared control bindings rather than window-local copies or one-off broadcasts. Preserve documented chooser and window-local exceptions.
 - Extend the exhaustive saved-preferences fixture and behavioral coverage for startup before Settings opens, changes across two windows, and relevant view rebuilds. Serialization-only tests are not sufficient.
 
+## Internationalization
+
+- Every new or changed application-owned, user-facing string must be localized
+  with `rust-i18n` and added or updated in **all ten supported languages in the
+  same change**: English, French, German, Spanish, Japanese, Brazilian Portuguese,
+  Korean, Vietnamese, Italian, and Russian. This includes labels, buttons, menus,
+  placeholders, tooltips, accessibility names/descriptions, dialogs, help text,
+  errors, notifications, and status/progress messages.
+- Follow `docs/internationalization.md` and update the matching catalogs under
+  `data/locales/`. English fallback is a runtime safeguard, not permission to leave
+  translations missing or copy English into other languages as a placeholder.
+- Translate complete messages with named placeholders and the appropriate plural
+  forms. Preserve placeholder names, markup, paths, commands, and keybindings;
+  do not assemble sentences from English-only fragments or plural suffixes.
+- Keep translation at presentation boundaries. Never translate filesystem paths,
+  filenames, protocol/action identifiers, user-authored content, or labels and
+  values supplied by another application.
+- When changing UI text or catalogs, run the catalog coverage and interpolation
+  regressions with `./scripts/test-headless.py i18n::`, plus affected behavioral
+  tests as required by the validation policy above.
+
+## Keyboard shortcuts
+
+- Read key input only through `ui::keys` (`keys::on_press`, `keys::on_release`,
+  `keys::read_event`); `clippy.toml` rejects raw key signals elsewhere.
+- Define every shortcut as a constant in the `ui::keys::bindings` catalog and
+  match it with `press.is(…)` or `press.digit_in(…)`. Never compare raw keyvals or
+  typed text to recognize a command.
+- Never type a key label by hand. F1 rows, hints, tooltips, and menus render
+  catalog bindings with `keys::label`. Follow `docs/keyboard-shortcuts.md`.
+
 ## UI controls
 
 - Reuse existing control builders, shared bindings, and CSS classes for dropdowns, buttons, toggles, and segmented controls before creating new ones. Match their hover, active, focus, disabled, and theme states; do not style a new control as a generic form field when an existing button style applies.
@@ -226,5 +257,5 @@ pass before merge.
 
 ## Theming
 
-- Apply semantic `@theme_*` colors to every visual state of new interface elements, including icons, text, backgrounds, borders, focus rings, selections, hover/active states, menus, and dialogs.
+- Apply semantic `@strata_*` colors to every visual state of new interface elements, including icons, text, backgrounds, borders, focus rings, selections, hover/active states, menus, and dialogs.
 - Never use static hex/RGB colors for themeable interface elements. Built-in, custom, and Omarchy themes must remain visually consistent and update live.

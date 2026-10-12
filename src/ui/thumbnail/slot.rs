@@ -4,16 +4,24 @@ use std::cell::{Cell, RefCell};
 
 use gtk::{gdk, gdk::prelude::*, glib, graphene, prelude::*, subclass::prelude::*};
 
+#[cfg(test)]
+mod tests;
+
 mod imp {
     use super::*;
 
     #[derive(Default)]
     pub struct ThumbnailSlot {
         pub slot: Cell<i32>,
+        pub(crate) icon_context: Cell<crate::assets::IconContext>,
         pub content_inset: Cell<i32>,
         pub limit_fallback_height: Cell<bool>,
         pub fallback_scale: Cell<f64>,
         pub texture: RefCell<Option<gdk::Texture>>,
+        pub decoration: RefCell<Option<gdk::Texture>>,
+        pub provider_path: RefCell<Option<String>>,
+        pub provider_retry: Cell<bool>,
+        pub decoration_description: RefCell<Option<String>>,
         pub fallback: RefCell<Option<gdk::Texture>>,
         pub fallback_icon: RefCell<Option<String>>,
         pub(crate) mark: Cell<crate::ui::browser::ClipboardMark>,
@@ -35,6 +43,7 @@ mod imp {
     impl ObjectImpl for ThumbnailSlot {
         fn dispose(&self) {
             super::super::forget_slot(self.obj().as_ptr() as usize);
+            crate::ui::file_providers::forget(self.obj().as_ptr() as usize);
         }
     }
 
@@ -63,7 +72,15 @@ mod imp {
             let marked = mark_icon.is_some();
 
             let texture = mark_icon
-                .and_then(crate::assets::primary_icon_paintable)
+                .and_then(|name| {
+                    crate::assets::sized_icon_paintable(
+                        name,
+                        &crate::assets::primary_icon_color(),
+                        obj.icon_pixel_size(),
+                        obj.scale_factor(),
+                        obj.icon_context(),
+                    )
+                })
                 .or_else(|| self.texture.borrow().clone())
                 .or_else(|| self.fallback.borrow().clone());
 
@@ -90,6 +107,13 @@ mod imp {
             ));
             snapshot_texture(snapshot, &texture, draw_width, draw_height);
             snapshot.restore();
+            if let Some(badge) = self.decoration.borrow().as_ref() {
+                let size = (width.min(height) * 0.55).clamp(10.0, 24.0) as f32;
+                snapshot.append_texture(
+                    badge,
+                    &graphene::Rect::new(width as f32 - size, height as f32 - size, size, size),
+                );
+            }
         }
     }
 }
@@ -144,17 +168,54 @@ impl ThumbnailSlot {
     pub(crate) fn new(slot: i32) -> Self {
         let widget: Self = glib::Object::new();
         widget.connect_map(|slot| {
+            crate::ui::file_providers::remap(slot);
             // Mapping can precede allocation and leave visible requests deferred.
             slot.add_tick_callback(|_, _| {
                 super::viewport::schedule_refresh();
                 glib::ControlFlow::Break
             });
         });
+        widget.connect_unmap(crate::ui::file_providers::unmap);
+        widget.connect_scale_factor_notify(super::refresh_slot_icon);
         widget.set_overflow(gtk::Overflow::Hidden);
         widget.imp().fallback_scale.set(1.0);
         widget.imp().base_opacity.set(1.0);
         widget.set_slot(slot);
         widget
+    }
+
+    #[cfg(test)]
+    pub(crate) fn decoration_description(&self) -> Option<String> {
+        self.imp().decoration_description.borrow().clone()
+    }
+
+    pub(crate) fn provider_path(&self) -> Option<String> {
+        self.imp().provider_path.borrow().clone()
+    }
+    pub(crate) fn set_provider_path(&self, path: Option<String>) {
+        self.imp().provider_path.replace(path);
+    }
+    pub(crate) fn begin_provider_retry(&self) -> bool {
+        !self.imp().provider_retry.replace(true)
+    }
+    pub(crate) fn finish_provider_retry(&self) {
+        self.imp().provider_retry.set(false);
+    }
+
+    pub(crate) fn set_decoration(&self, texture: Option<&gdk::Texture>, description: Option<&str>) {
+        if self.imp().decoration_description.borrow().as_deref() != description {
+            self.imp()
+                .decoration_description
+                .replace(description.map(str::to_owned));
+            self.update_property(&[gtk::accessible::Property::Description(
+                description.unwrap_or(""),
+            )]);
+        }
+        if same_texture(self.imp().decoration.borrow().as_ref(), texture) {
+            return;
+        }
+        self.imp().decoration.replace(texture.cloned());
+        self.queue_draw();
     }
 
     pub(crate) fn set_slot(&self, size: i32) {
@@ -163,12 +224,33 @@ impl ThumbnailSlot {
             return;
         }
         self.imp().slot.set(size);
+        super::refresh_slot_icon(self);
         self.queue_resize();
+    }
+
+    pub(crate) fn icon_context(&self) -> crate::assets::IconContext {
+        self.imp().icon_context.get()
+    }
+
+    pub(crate) fn set_icon_context(&self, context: crate::assets::IconContext) {
+        if self.imp().icon_context.replace(context) != context {
+            super::refresh_slot_icon(self);
+            self.queue_draw();
+        }
+    }
+
+    pub(crate) fn icon_pixel_size(&self) -> i32 {
+        (self.imp().slot.get() - 2 * self.imp().content_inset.get()).max(1)
+    }
+
+    pub(crate) fn fallback_icon(&self) -> Option<String> {
+        self.imp().fallback_icon.borrow().clone()
     }
 
     pub(crate) fn set_content_inset(&self, inset: i32) {
         let inset = inset.max(0);
         if self.imp().content_inset.replace(inset) != inset {
+            super::refresh_slot_icon(self);
             self.queue_draw();
         }
     }

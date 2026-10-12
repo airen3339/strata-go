@@ -16,6 +16,7 @@ mod deferred;
 #[path = "directory_changes/tests.rs"]
 mod directory_changes;
 mod events;
+mod folder_sorts;
 mod location_input;
 mod metadata;
 mod monitor;
@@ -26,6 +27,7 @@ mod operations;
 mod preferences;
 mod recent;
 mod relocation;
+mod reveal;
 mod selection;
 #[path = "sorting/tests.rs"]
 mod staged_sort;
@@ -53,7 +55,7 @@ fn assert_invalid_creation_is_rejected(name: &str, create: impl FnOnce(&Rc<Brows
     assert!(browser.operation_load.borrow().is_none());
     assert!(matches!(
         events.borrow().as_slice(),
-        [BrowserEvent::OperationFailed { message }] if message == expected
+        [BrowserEvent::OperationFailed { message, .. }] if message == expected
     ));
 }
 
@@ -83,6 +85,58 @@ struct RecordingFileSource {
 
 type WatchCallback = Rc<dyn Fn(DirectoryChange)>;
 
+/// Identities of fake folders, so a source can find a folder after a rename.
+#[derive(Default)]
+struct FolderIdentities(RefCell<HashMap<Location, LocationIdentity>>);
+
+impl FolderIdentities {
+    fn identify(&self, location: &Location) {
+        let mut identities = self.0.borrow_mut();
+        let born = identities.len() as u64 + 1;
+        identities.insert(
+            location.clone(),
+            LocationIdentity {
+                device: 1,
+                inode: born,
+                created: Some(std::time::UNIX_EPOCH + std::time::Duration::from_secs(born)),
+            },
+        );
+    }
+
+    /// A new folder at `to` that the filesystem gave the deleted `from` folder's inode.
+    fn reuse_inode(&self, from: &Location, to: &Location) {
+        let mut identities = self.0.borrow_mut();
+        let deleted = identities.remove(from).expect("an identified folder");
+        identities.insert(
+            to.clone(),
+            LocationIdentity {
+                created: Some(std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_000)),
+                ..deleted
+            },
+        );
+    }
+
+    fn rename(&self, from: &Location, to: &Location) {
+        let mut identities = self.0.borrow_mut();
+        let identity = identities.remove(from).expect("an identified folder");
+        identities.insert(to.clone(), identity);
+    }
+
+    fn identity(&self, location: &Location) -> Option<LocationIdentity> {
+        self.0.borrow().get(location).copied()
+    }
+
+    fn find(&self, parent: &Location, identity: LocationIdentity) -> Option<Location> {
+        self.0
+            .borrow()
+            .iter()
+            .find(|(location, candidate)| {
+                identity.matches(candidate) && location.parent().as_ref() == Some(parent)
+            })
+            .map(|(location, _)| location.clone())
+    }
+}
+
 struct WatchingFileSource {
     notify: Rc<RefCell<Option<WatchCallback>>>,
 }
@@ -109,6 +163,7 @@ impl FileSource for WatchingFileSource {
                 image_dimensions: MetadataValue::Unknown,
                 child_count: MetadataValue::Unknown,
                 duration_seconds: MetadataValue::Unknown,
+                recent_uri: None,
             }],
         });
         emit(DirectoryEvent::Finished {
@@ -191,6 +246,7 @@ impl FileSource for RetryFileSource {
                     image_dimensions: MetadataValue::Unknown,
                     child_count: MetadataValue::Unknown,
                     duration_seconds: MetadataValue::Unknown,
+                    recent_uri: None,
                 }],
             });
             emit(DirectoryEvent::Finished {
@@ -254,6 +310,7 @@ impl FileSource for FilePreviewSource {
                 image_dimensions: MetadataValue::Unknown,
                 child_count: MetadataValue::Unknown,
                 duration_seconds: MetadataValue::Unknown,
+                recent_uri: None,
             }],
         });
         emit(DirectoryEvent::Finished {
@@ -291,6 +348,7 @@ impl FileSource for ArchiveFileSource {
                     image_dimensions: MetadataValue::Unknown,
                     child_count: MetadataValue::Unknown,
                     duration_seconds: MetadataValue::Unknown,
+                    recent_uri: None,
                 },
                 FileEntry {
                     location: Location::local("/fixture/notes.txt"),
@@ -306,6 +364,7 @@ impl FileSource for ArchiveFileSource {
                     image_dimensions: MetadataValue::Unknown,
                     child_count: MetadataValue::Unknown,
                     duration_seconds: MetadataValue::Unknown,
+                    recent_uri: None,
                 },
                 FileEntry {
                     location: Location::uri("sftp://example.com/remote-archive.zip"),
@@ -321,6 +380,23 @@ impl FileSource for ArchiveFileSource {
                     image_dimensions: MetadataValue::Unknown,
                     child_count: MetadataValue::Unknown,
                     duration_seconds: MetadataValue::Unknown,
+                    recent_uri: None,
+                },
+                FileEntry {
+                    location: Location::local("/fixture/socket.zip"),
+                    native_name: OsString::from("socket.zip"),
+                    thumbnail_path: None,
+                    display_name: "socket.zip".into(),
+                    kind: EntryKind::Other,
+                    size: MetadataValue::Known(0),
+                    modified_unix_seconds: MetadataValue::Known(1),
+                    recent_unix_seconds: MetadataValue::Unknown,
+                    is_hidden: false,
+                    mode: MetadataValue::Unknown,
+                    image_dimensions: MetadataValue::Unknown,
+                    child_count: MetadataValue::Unknown,
+                    duration_seconds: MetadataValue::Unknown,
+                    recent_uri: None,
                 },
             ],
         });
@@ -356,6 +432,7 @@ impl FileSource for OpenChildBesideFileSource {
                     image_dimensions: MetadataValue::Unknown,
                     child_count: MetadataValue::Unknown,
                     duration_seconds: MetadataValue::Unknown,
+                    recent_uri: None,
                 },
                 FileEntry {
                     location: Location::local("/fixture/example.conf"),
@@ -371,6 +448,7 @@ impl FileSource for OpenChildBesideFileSource {
                     image_dimensions: MetadataValue::Unknown,
                     child_count: MetadataValue::Unknown,
                     duration_seconds: MetadataValue::Unknown,
+                    recent_uri: None,
                 },
             ]
         } else {
@@ -410,6 +488,7 @@ impl FileSource for RestoredSortingSource {
             image_dimensions: MetadataValue::Unknown,
             child_count: MetadataValue::Unknown,
             duration_seconds: MetadataValue::Unknown,
+            recent_uri: None,
         };
         emit(DirectoryEvent::Batch {
             request_id: request.id,
@@ -447,6 +526,7 @@ impl FileSource for FakeFileSource {
                 image_dimensions: MetadataValue::Unknown,
                 child_count: MetadataValue::Unknown,
                 duration_seconds: MetadataValue::Unknown,
+                recent_uri: None,
             }],
         });
         emit(DirectoryEvent::Finished {
@@ -483,6 +563,7 @@ impl FileSource for TrashFileSource {
                 image_dimensions: MetadataValue::Unknown,
                 child_count: MetadataValue::Unknown,
                 duration_seconds: MetadataValue::Unknown,
+                recent_uri: None,
             }],
         });
         emit(DirectoryEvent::Finished {
@@ -546,6 +627,7 @@ impl OperationProvider for ImmediateOperationProvider {
             Some(ForwardRenameOutcome::Failed) => emit(OperationEvent::Failed {
                 request_id: request.id,
                 message: "rename failed".to_owned(),
+                password_failure: None,
             }),
             Some(ForwardRenameOutcome::Cancelled) => emit(OperationEvent::Cancelled {
                 request_id: request.id,
@@ -612,6 +694,17 @@ impl OperationProvider for ImmediateOperationProvider {
                     .then(|| item.source.transfer_target(&request.destination))
                     .flatten(),
             });
+            if request.move_sources
+                && let Some(target) = item.source.transfer_target(&request.destination)
+                && target != item.source
+            {
+                emit(OperationEvent::ItemMoved {
+                    request_id: request.id,
+                    from: item.source.clone(),
+                    to: target,
+                    merged: item.conflict == TransferConflict::Merge,
+                });
+            }
         }
         emit(OperationEvent::Pasted {
             request_id: request.id,
@@ -635,6 +728,14 @@ impl OperationProvider for ImmediateOperationProvider {
                     .collect(),
             )
         });
+        for item in &request.items {
+            emit(OperationEvent::ItemMoved {
+                request_id: request.id,
+                from: item.record.current.clone(),
+                to: item.record.original.clone(),
+                merged: false,
+            });
+        }
         emit(OperationEvent::Pasted {
             request_id: request.id,
             locations: request
@@ -737,6 +838,7 @@ impl OperationProvider for ImmediateOperationProvider {
         emit(OperationEvent::Extracted {
             request_id: request.id,
             first_name: None,
+            created: Vec::new(),
         });
         LoadHandle::new(|| {})
     }
@@ -836,6 +938,7 @@ fn fixture_entry(path: &str) -> FileEntry {
         image_dimensions: MetadataValue::Unknown,
         child_count: MetadataValue::Unknown,
         duration_seconds: MetadataValue::Unknown,
+        recent_uri: None,
     }
 }
 
@@ -880,6 +983,7 @@ fn batch_entry(name: &str) -> FileEntry {
         image_dimensions: MetadataValue::Unknown,
         child_count: MetadataValue::Unknown,
         duration_seconds: MetadataValue::Unknown,
+        recent_uri: None,
     }
 }
 
@@ -984,6 +1088,9 @@ struct ScriptedSource {
     fill_calls: RefCell<Vec<FillCall>>,
     enumerate_calls: RefCell<Vec<(RequestId, DirectoryEmit)>>,
     manual_enumerate: bool,
+    missing: RefCell<HashSet<Location>>,
+    unreachable: RefCell<HashSet<Location>>,
+    identities: FolderIdentities,
 }
 
 impl ScriptedSource {
@@ -996,6 +1103,9 @@ impl ScriptedSource {
             fill_calls: RefCell::new(Vec::new()),
             enumerate_calls: RefCell::new(Vec::new()),
             manual_enumerate: false,
+            missing: RefCell::new(HashSet::new()),
+            unreachable: RefCell::new(HashSet::new()),
+            identities: FolderIdentities::default(),
         }
     }
 
@@ -1032,6 +1142,7 @@ impl ScriptedSource {
             image_dimensions: MetadataValue::Unknown,
             child_count: MetadataValue::Unknown,
             duration_seconds: MetadataValue::Unknown,
+            recent_uri: None,
         }
     }
     fn answer(
@@ -1090,8 +1201,33 @@ impl ScriptedSource {
 }
 
 impl FileSource for ScriptedSource {
-    fn validate_location(&self, _location: &Location) -> Result<(), LocationValidationError> {
-        Ok(())
+    fn query_location_identity(
+        &self,
+        location: Location,
+        emit: Rc<dyn Fn(Option<LocationIdentity>)>,
+    ) -> LoadHandle {
+        emit(self.identities.identity(&location));
+        LoadHandle::new(|| {})
+    }
+
+    fn find_by_identity(
+        &self,
+        parent: Location,
+        identity: LocationIdentity,
+        emit: Rc<dyn Fn(Option<Location>)>,
+    ) -> LoadHandle {
+        emit(self.identities.find(&parent, identity));
+        LoadHandle::new(|| {})
+    }
+
+    fn validate_location(&self, location: &Location) -> Result<(), LocationValidationError> {
+        if self.missing.borrow().contains(location) {
+            Err(LocationValidationError::Missing)
+        } else if self.unreachable.borrow().contains(location) {
+            Err(LocationValidationError::Unavailable("offline".into()))
+        } else {
+            Ok(())
+        }
     }
 
     fn supports_metadata_fill(&self, _location: &Location) -> bool {
@@ -1178,6 +1314,59 @@ fn scripted_browser(
     (browser, events, source)
 }
 
+#[derive(Debug, PartialEq, Eq)]
+enum LocationChange {
+    Relocated {
+        from: Location,
+        to: Location,
+        merged: bool,
+    },
+    Removed {
+        location: Location,
+        trash_identity: Option<TrashedOriginal>,
+    },
+    Restored(Location),
+}
+
+fn location_changes(events: &[BrowserEvent]) -> Vec<LocationChange> {
+    events
+        .iter()
+        .filter_map(|event| match event {
+            BrowserEvent::ItemRelocated { from, to, merged } => Some(LocationChange::Relocated {
+                from: from.clone(),
+                to: to.clone(),
+                merged: *merged,
+            }),
+            BrowserEvent::ItemRemoved {
+                location,
+                trash_identity,
+            } => Some(LocationChange::Removed {
+                location: location.clone(),
+                trash_identity: *trash_identity,
+            }),
+            BrowserEvent::ItemRestored { location } => {
+                Some(LocationChange::Restored(location.clone()))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+fn relocated(from: &Location, to: &Location) -> LocationChange {
+    LocationChange::Relocated {
+        from: from.clone(),
+        to: to.clone(),
+        merged: false,
+    }
+}
+
+fn removed(location: &Location) -> LocationChange {
+    LocationChange::Removed {
+        location: location.clone(),
+        trash_identity: None,
+    }
+}
+
 /// The deadline only turns a hang into a deterministic failure.
 fn pump_until(condition: impl Fn() -> bool) {
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
@@ -1252,6 +1441,7 @@ impl FileSource for MixedPeekFileSource {
                     image_dimensions: MetadataValue::Unknown,
                     child_count: MetadataValue::Unknown,
                     duration_seconds: MetadataValue::Unknown,
+                    recent_uri: None,
                 },
                 FileEntry {
                     location: Location::local("/fixture/normal.txt"),
@@ -1267,6 +1457,7 @@ impl FileSource for MixedPeekFileSource {
                     image_dimensions: MetadataValue::Unknown,
                     child_count: MetadataValue::Unknown,
                     duration_seconds: MetadataValue::Unknown,
+                    recent_uri: None,
                 },
             ],
         });

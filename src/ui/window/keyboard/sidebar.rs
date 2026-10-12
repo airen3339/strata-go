@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: MIT
 
-use gtk::{
-    gdk::{Key, ModifierType as Modifiers},
-    prelude::*,
-};
+use gtk::{gdk::ModifierType as Modifiers, prelude::*};
+
+use crate::ui::keys::{KeyPress, bindings::*};
 
 pub(in crate::ui) enum SidebarChord {
     Move(i32),
@@ -12,20 +11,27 @@ pub(in crate::ui) enum SidebarChord {
     Swallow,
 }
 
-pub(in crate::ui) fn sidebar_chord(key: Key, modifiers: Modifiers) -> Option<SidebarChord> {
-    if modifiers.intersects(Modifiers::CONTROL_MASK | Modifiers::ALT_MASK | Modifiers::SUPER_MASK) {
+pub(in crate::ui) fn sidebar_chord(press: &KeyPress) -> Option<SidebarChord> {
+    let held = press.modifiers();
+    if held.intersects(Modifiers::CONTROL_MASK | Modifiers::ALT_MASK | Modifiers::SUPER_MASK) {
         return None;
     }
-    if modifiers.contains(Modifiers::SHIFT_MASK) {
+    // The held Shift, including one that typed a symbol, swallows the key.
+    if held.contains(Modifiers::SHIFT_MASK) {
         return Some(SidebarChord::Swallow);
     }
-    Some(match key {
-        Key::j | Key::Down | Key::KP_Down => SidebarChord::Move(1),
-        Key::k | Key::Up | Key::KP_Up => SidebarChord::Move(-1),
-        Key::l | Key::Return | Key::KP_Enter | Key::space => SidebarChord::Activate,
-        Key::h | Key::Left | Key::KP_Left | Key::BackSpace => SidebarChord::Leave,
-        Key::Right | Key::KP_Right | Key::Delete => SidebarChord::Swallow,
-        _ => return None,
+    Some(if press.is_any(&[VIM_DOWN, DOWN]) {
+        SidebarChord::Move(1)
+    } else if press.is_any(&[VIM_UP, UP]) {
+        SidebarChord::Move(-1)
+    } else if press.is_any(&[VIM_RIGHT, ENTER, SPACE]) {
+        SidebarChord::Activate
+    } else if press.is_any(&[VIM_LEFT, LEFT, BACKSPACE]) {
+        SidebarChord::Leave
+    } else if press.is_any(&[RIGHT, DELETE]) {
+        SidebarChord::Swallow
+    } else {
+        return None;
     })
 }
 

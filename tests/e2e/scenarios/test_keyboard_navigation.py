@@ -4,15 +4,41 @@
 from __future__ import annotations
 
 import pytest
-from harness.modes import ALL_MODES, COLUMNS_AND_ONE, NEXT_ENTRY_KEY, PREVIOUS_ENTRY_KEY
+from harness.keyboard_layout import RUSSIAN, US
+from harness.modes import (
+    ALL_MODES,
+    COLUMNS_AND_ONE,
+    NEXT_ENTRY_KEY,
+    PREVIOUS_ENTRY_KEY,
+    SINGLE_PANE_MODES,
+)
 
 ROOT_ENTRIES = ["archive", "documents", "pictures", "readme.md", "todo.txt"]
 
+# 10xer moves the cursor and keeps the selection. On Russian its j key types о.
+ARROW_CASES = [
+    pytest.param(
+        mode.values[0], bindings, US, "todo.txt", marks=mode.marks, id=f"{bindings}-{mode.id}"
+    )
+    for bindings in ("arrows", "hjkl")
+    for mode in ALL_MODES
+] + [
+    pytest.param(
+        "Columns",
+        "hjkl",
+        RUSSIAN,
+        "readme.md",
+        marks=pytest.mark.preferences(browser_mode="columns", tenxer_mode=True),
+        id="hjkl-columns-tenxer-ru",
+    )
+]
+
 
 @pytest.mark.preferences(type_to_search=False)
-@pytest.mark.parametrize("mode", ALL_MODES)
-@pytest.mark.parametrize("bindings", ["arrows", "hjkl"])
-def test_arrow_keys_move_focus_and_selection(strata, mode, bindings):
+@pytest.mark.parametrize("mode, bindings, layout, selected", ARROW_CASES)
+def test_arrow_keys_move_focus_and_selection(
+    strata, keyboard_layout, mode, bindings, layout, selected
+):
     assert strata.entry_names() == ROOT_ENTRIES
 
     # A file, so that a single click never navigates in any presentation.
@@ -24,15 +50,16 @@ def test_arrow_keys_move_focus_and_selection(strata, mode, bindings):
     previous_key = PREVIOUS_ENTRY_KEY[mode]
     if bindings == "hjkl":
         next_key, previous_key = aliases[next_key], aliases[previous_key]
-    strata.keyboard.press(next_key)
-    strata.wait_for_focused_entry("todo.txt")
-    strata.wait(
-        lambda: strata.selected_names() == ["todo.txt"],
-        "the selection to follow focus",
-    )
+    with keyboard_layout(layout):
+        strata.keyboard.press(next_key)
+        strata.wait_for_focused_entry("todo.txt")
+        strata.wait(
+            lambda: strata.selected_names() == [selected],
+            f"the selection to be {selected} after the move",
+        )
 
-    strata.keyboard.press(previous_key)
-    strata.wait_for_focused_entry("readme.md")
+        strata.keyboard.press(previous_key)
+        strata.wait_for_focused_entry("readme.md")
 
 
 @pytest.mark.preferences(arrow_navigation_scoped=True, type_to_search=False)
@@ -145,6 +172,8 @@ def test_tenxer_sidebar_and_header_round_trips(strata):
 
     empty = strata.fixture.path("empty-sidebar")
     empty.mkdir()
+    # Clicks target rows by position, so the monitor must list the folder first.
+    strata.entry("empty-sidebar")
     for chord, mode in (("ctrl+1", "Columns"), ("ctrl+3", "List"), ("ctrl+2", "Icons")):
         strata.keyboard.press(chord)
         strata.wait_for_view(mode)
@@ -152,7 +181,7 @@ def test_tenxer_sidebar_and_header_round_trips(strata):
         strata.select_entry("readme.md")
         strata.wait_for_focused_entry("readme.md")
 
-        toggle = strata.window.find(name="Toggle sidebar (Ctrl+B)")
+        toggle = strata.window.find(name="Toggle sidebar (Ctrl+N)")
         assert toggle is not None, "sidebar toggle"
         strata.keyboard.press("Tab")
         strata.wait(lambda: toggle.has_state("focused"), "Tab to focus the sidebar toggle")
@@ -239,19 +268,57 @@ def test_alt_up_and_history_navigate_between_directories(strata, mode):
     strata.open_directory("documents")
     strata.keyboard.press("alt+Up")
     strata.wait_for_directory(root)
+    strata.wait_for_selection(["documents"], directory=root)
+    strata.wait_for_focused_entry("documents")
+    if mode == "Columns":
+        assert "documents" not in strata.pane_names(), "the child column stays closed"
 
     strata.keyboard.press("alt+Left")
     strata.wait_for_directory("documents")
 
     strata.keyboard.press("alt+Right")
     strata.wait_for_directory(root)
+    strata.wait_for_selection(["documents"], directory=root)
+    strata.wait_for_focused_entry("documents")
+    if mode == "Columns":
+        assert "documents" not in strata.pane_names(), "the child column stays closed"
 
 
-@pytest.mark.preferences(browser_mode="list")
+@pytest.mark.preferences(browser_mode="columns")
+def test_columns_return_selects_the_source_folder_at_any_depth(strata):
+    root = strata.fixture.root.name
+    # "aaa" lists first, so a return that ignores the source folder selects it.
+    for name in ["aaa", "deep"]:
+        folder = strata.fixture.path("documents") / name
+        folder.mkdir()
+        (folder / "leaf.txt").write_text("leaf\n")
+    strata.keyboard.press("F5")
+    strata.open_directory("documents")
+    strata.open_directory("deep", directory="documents")
+    strata.wait_for_directory("deep")
+
+    crumb = strata.wait(
+        lambda: strata.window.find(role="button", name="documents"),
+        "the documents breadcrumb",
+    )
+    strata.pointer.click(crumb)
+    strata.wait_for_directory("documents")
+    strata.wait_for_selection(["deep"], directory="documents")
+    strata.wait_for_focused_entry("deep")
+    assert "deep" not in strata.pane_names(), "the child column stays closed"
+
+    strata.keyboard.press("BackSpace")
+    strata.wait_for_directory(root)
+    strata.wait_for_selection(["documents"], directory=root)
+    strata.wait_for_focused_entry("documents")
+    assert "documents" not in strata.pane_names(), "the child column stays closed"
+
+
+@pytest.mark.parametrize("mode", SINGLE_PANE_MODES)
 @pytest.mark.parametrize("return_key", ["alt+Left", "alt+Up"])
 @pytest.mark.parametrize("enter_with", ["keyboard", "pointer"])
-def test_list_return_restores_nested_scroll_selection_and_keyboard_cursor(
-    strata, return_key, enter_with
+def test_return_restores_nested_scroll_selection_and_keyboard_cursor(
+    strata, mode, return_key, enter_with
 ):
     def populate(parent):
         for index in range(160):
@@ -303,9 +370,77 @@ def test_list_return_restores_nested_scroll_selection_and_keyboard_cursor(
         restored = strata.settle(strata.entry(name))
         assert abs(restored.screen_bounds().y - y) <= 2, "restore the viewport, not just reveal the selection"
         next_name = f"folder-{int(name.removeprefix('folder-')) + 1:03}"
-        strata.keyboard.press("Down")
+        strata.keyboard.press(NEXT_ENTRY_KEY[mode])
         strata.wait_for_focused_entry(next_name)
         strata.wait_for_selection([next_name])
+
+
+@pytest.mark.parametrize("mode", SINGLE_PANE_MODES)
+def test_refresh_keeps_the_keyboard_cursor_and_viewport(strata, mode):
+    archive = strata.fixture.path("archive")
+    for index in range(160):
+        (archive / f"folder-{index:03}").mkdir()
+    strata.open_directory("archive")
+    strata.wait_for_directory("archive")
+    strata.keyboard.press("End")
+    strata.wait_for_focused_entry("folder-159")
+
+    strata.keyboard.press("F5")
+    strata.wait_for_focused_entry("folder-159")
+    strata.wait_for_selection(["folder-159"])
+    assert strata.on_screen(strata.entry("folder-159")), "the cursor row stays in view"
+    strata.keyboard.press(PREVIOUS_ENTRY_KEY[mode])
+    strata.wait_for_focused_entry("folder-158")
+    strata.wait_for_selection(["folder-158"])
+
+
+@pytest.mark.parametrize("mode", SINGLE_PANE_MODES)
+def test_refresh_keeps_focus_in_an_empty_pane_filter(strata, mode):
+    archive = strata.fixture.path("archive")
+    for index in range(160):
+        (archive / f"folder-{index:03}").mkdir()
+    strata.open_directory("archive")
+    strata.wait_for_directory("archive")
+    strata.keyboard.press("ctrl+f")
+    field = strata.editable_field()
+
+    strata.keyboard.press("F5")
+    # The reload hides the field with the rows; GTK moves focus off it after the next
+    # paint unless the reload hands it back. Several steady samples outlast both.
+    steady: list[bool] = []
+
+    def keeps_focus() -> bool:
+        steady.append(field.has_state("focused") and field.has_state("showing"))
+        del steady[:-10]
+        return len(steady) == 10 and all(steady)
+
+    strata.wait(keeps_focus, "the filter field to keep focus across the reload")
+    strata.keyboard.type_text("f")
+    strata.wait(lambda: field.text == "f", "typing to reach the filter field")
+
+
+@pytest.mark.preferences(browser_mode="list")
+def test_list_typed_file_path_beats_the_restored_position(strata):
+    root = strata.fixture.root.name
+    target = strata.fixture.path("documents") / "zz-typed-target.txt"
+    target.write_text("typed target\n")
+
+    strata.open_directory("documents")
+    strata.wait_for_focused_entry("notes.txt")
+    strata.keyboard.press("Down")
+    strata.wait_for_focused_entry("report.md")
+    strata.keyboard.press("alt+Left")
+    strata.wait_for_directory(root)
+
+    strata.keyboard.press("ctrl+l")
+    field = strata.editable_field()
+    strata.keyboard.press("ctrl+a")
+    strata.keyboard.type_text(str(target))
+    strata.wait(lambda: field.text == str(target), "the typed file path")
+    strata.keyboard.press("Return")
+    strata.wait_for_directory("documents")
+    strata.wait_for_selection([target.name])
+    strata.wait_for_focused_entry(target.name)
 
 
 @pytest.mark.parametrize("mode", ALL_MODES)
@@ -336,6 +471,30 @@ def test_select_all_selects_every_entry(strata, mode):
     strata.wait(
         lambda: strata.selected_names() == ROOT_ENTRIES,
         "Ctrl+A to select every entry in the pane",
+    )
+
+
+@pytest.mark.preferences(browser_mode="columns", single_click_previews=False)
+def test_columns_home_and_end_mirror_the_cursor(strata):
+    root = strata.fixture.root.name
+    strata.select_entry_with_keyboard("documents")
+    strata.wait(lambda: strata.pane_names() == [root, "documents"], "the child column to open")
+
+    strata.keyboard.press("End")
+    strata.wait_for_focused_entry("todo.txt")
+    strata.wait(lambda: strata.pane_names() == [root], "the stale child column to close")
+    assert strata.current_directory() == root
+
+    strata.keyboard.press("Up")
+    strata.wait_for_focused_entry("readme.md")
+    strata.keyboard.press("Up")
+    strata.wait_for_focused_entry("pictures")
+    strata.wait(lambda: strata.pane_names() == [root, "pictures"], "Up to mirror the folder")
+
+    strata.keyboard.press("Home")
+    strata.wait_for_focused_entry("archive")
+    strata.wait(
+        lambda: strata.pane_names() == [root, "archive"], "Home to mirror the first folder"
     )
 
 

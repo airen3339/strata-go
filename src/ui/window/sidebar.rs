@@ -53,6 +53,7 @@ pub(in crate::ui) fn build_sidebar(
         update_notice: shell.update_notice,
         update_area: shell.update_area,
         update_label: shell.update_label,
+        update_version: shell.update_version,
         handlers: RefCell::new(handlers),
         mount_handler: RefCell::new(Some(mount_handler)),
         recent_setting_handler: RefCell::new(recent_setting_handler),
@@ -83,6 +84,7 @@ struct SidebarShell {
     update_notice: gtk::Button,
     update_area: gtk::Box,
     update_label: gtk::Label,
+    update_version: gtk::Label,
 }
 
 impl SidebarShell {
@@ -97,7 +99,7 @@ impl SidebarShell {
             .vexpand(true)
             .build();
         scroller.add_css_class("sidebar-scroll");
-        let (update_area, update_notice, update_label) = update_notice();
+        let (update_area, update_notice, update_label, update_version) = update_notice();
         let widget = gtk::Box::new(gtk::Orientation::Vertical, 0);
         widget.add_css_class("sidebar-shell");
         widget.append(&scroller);
@@ -108,21 +110,32 @@ impl SidebarShell {
             update_notice,
             update_area,
             update_label,
+            update_version,
         }
     }
 }
 
-fn update_notice() -> (gtk::Box, gtk::Button, gtk::Label) {
+fn update_notice() -> (gtk::Box, gtk::Button, gtk::Label, gtk::Label) {
     let content = gtk::Box::new(gtk::Orientation::Horizontal, 8);
     let dot = gtk::Label::new(Some("●"));
     dot.add_css_class("sidebar-update-dot");
+    let text = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    text.set_hexpand(true);
+    text.set_valign(gtk::Align::Center);
     let label = gtk::Label::new(None);
     label.add_css_class("sidebar-update-label");
-    label.set_xalign(0.0);
-    label.set_hexpand(true);
-    label.set_ellipsize(gtk::pango::EllipsizeMode::End);
+    let version = gtk::Label::new(None);
+    version.add_css_class("sidebar-update-version");
+    for line in [&label, &version] {
+        line.set_xalign(0.0);
+        line.set_single_line_mode(true);
+        line.set_max_width_chars(1);
+        line.set_ellipsize(gtk::pango::EllipsizeMode::End);
+        text.append(line);
+    }
+    crate::ui::controls::keep_words_whole(&label);
     content.append(&dot);
-    content.append(&label);
+    content.append(&text);
     content.append(&crate::assets::primary_icon(
         crate::assets::icons::DOWNLOADS,
         17,
@@ -137,7 +150,7 @@ fn update_notice() -> (gtk::Box, gtk::Button, gtk::Label) {
     area.set_visible(false);
     area.append(&separator);
     area.append(&notice);
-    (area, notice, label)
+    (area, notice, label, version)
 }
 
 impl SidebarState {
@@ -242,14 +255,15 @@ impl SidebarState {
             .push((location.clone(), row.clone()));
         install_sidebar_file_drop(&self.view, row, location.clone());
         let browser = Rc::downgrade(&self.browser);
-        let sidebar = self.widget.clone();
-        let selected_row = row.clone();
+        let sidebar = self.widget.downgrade();
         let keyboard_activation = Rc::new(Cell::new(false));
         let activating = keyboard_activation.clone();
         row.connect_activate(move |_| activating.set(true));
-        row.connect_clicked(move |_| {
+        row.connect_clicked(move |row| {
             let select_first = keyboard_activation.replace(false);
-            select_sidebar_row(&sidebar, &selected_row);
+            if let Some(sidebar) = sidebar.upgrade() {
+                select_sidebar_row(&sidebar, row);
+            }
             if let Some(browser) = browser.upgrade() {
                 match navigation {
                     PlaceNavigation::Direct => {

@@ -198,9 +198,19 @@ fn deferred_scroll_restoration_yields_to_updates_wheel_scrollbar_and_query_reset
             let fixture = tempfile::tempdir().expect("scroll fixture");
             let mut items = Vec::new();
             for position in 0..80 {
-                let path = fixture.path().join(format!("scroll-{position:03}"));
-                std::fs::create_dir(&path).expect("scroll fixture directory");
-                items.push(SearchItem::for_test(path, true));
+                let is_directory = position != 1;
+                let name = if is_directory {
+                    format!("scroll-{position:03}")
+                } else {
+                    "main.rs".to_owned()
+                };
+                let path = fixture.path().join(name);
+                if is_directory {
+                    std::fs::create_dir(&path).expect("scroll fixture directory");
+                } else {
+                    std::fs::write(&path, "fn main() {}\n").expect("scroll fixture file");
+                }
+                items.push(SearchItem::for_test(path, is_directory));
             }
             render_results(
                 &dialog.state,
@@ -209,6 +219,40 @@ fn deferred_scroll_restoration_yields_to_updates_wheel_scrollbar_and_query_reset
                 SearchCoverage::default(),
             );
             drain_main_context();
+            let icon_for_path = |path: &std::path::Path| {
+                let position = dialog
+                    .state
+                    .visible_results
+                    .borrow()
+                    .iter()
+                    .position(|item| item.path == path)
+                    .expect("result path");
+                dialog
+                    .state
+                    .list
+                    .row_at_index(i32::try_from(position).expect("row index"))
+                    .and_then(|row| row.child())
+                    .and_then(|content| content.first_child())
+                    .and_then(|child| {
+                        child
+                            .downcast::<super::super::thumbnail::ThumbnailSlot>()
+                            .ok()
+                    })
+                    .expect("result icon")
+                    .fallback_icon()
+                    .expect("fallback icon")
+            };
+            let directory_path = items[0].path.clone();
+            let source_path = items[1].path.clone();
+            assert_eq!(icon_for_path(&directory_path), crate::assets::icons::FOLDER);
+            assert_eq!(icon_for_path(&source_path), crate::assets::icons::LANG_RUST);
+            assert!(
+                dialog
+                    .state
+                    .requested_thumbnails
+                    .borrow()
+                    .contains(&source_path)
+            );
             let adjustment = dialog.state.scroller.vadjustment();
             assert!(adjustment.upper() > adjustment.page_size() + 300.0);
 
@@ -245,6 +289,15 @@ fn deferred_scroll_restoration_yields_to_updates_wheel_scrollbar_and_query_reset
             drain_main_context();
             assert_eq!(adjustment.value(), 240.0);
             assert!(!dialog.state.requested_thumbnails.borrow().is_empty());
+            assert!(
+                !dialog
+                    .state
+                    .requested_thumbnails
+                    .borrow()
+                    .contains(&source_path)
+            );
+            assert_eq!(icon_for_path(&directory_path), crate::assets::icons::FOLDER);
+            assert_eq!(icon_for_path(&source_path), crate::assets::icons::LANG_RUST);
 
             items.swap(3, 4);
             render_results(
@@ -475,6 +528,77 @@ fn global_search_combines_home_and_drives_and_refreshes_mounts() {
             );
             assert!(dialog.state.search.borrow().is_none());
             window.destroy();
+        },
+    );
+}
+
+#[test]
+fn global_search_reads_saved_exclusions_before_settings_and_on_each_window_invocation() {
+    crate::test_support::gtk_test(
+        "ui::search::tests::global_search_reads_saved_exclusions_before_settings_and_on_each_window_invocation",
+        || {
+            let config = glib::user_config_dir().join("strata");
+            std::fs::create_dir_all(&config).expect("isolated config directory");
+            std::fs::write(
+                config.join("settings.toml"),
+                "search_exclusions = ['private-build']\n",
+            )
+            .expect("saved exclusion");
+            let fixture = tempfile::tempdir().expect("search fixture");
+            let root = fixture.path();
+            std::fs::create_dir(root.join("private-build")).expect("excluded directory");
+            std::fs::write(root.join("private-build/needle-hidden.txt"), "hidden")
+                .expect("excluded file");
+            std::fs::write(root.join("needle-visible.txt"), "visible").expect("visible file");
+            let dialogs: Vec<_> = (0..2)
+                .map(|_| {
+                    let dialog =
+                        SearchDialog::new(Rc::new(|_| {}), Rc::new(|_| {}), Rc::new(|| {}));
+                    let window = gtk::Window::builder().child(&dialog.widget()).build();
+                    window.present();
+                    (dialog, window)
+                })
+                .collect();
+            let manager = super::super::preferences::PreferenceManager::shared();
+            for excluded in [true, false, true] {
+                if !excluded || manager.search_exclusions().is_empty() {
+                    manager.set_search_exclusions(if excluded {
+                        vec!["private-build".into()]
+                    } else {
+                        Vec::new()
+                    });
+                }
+                for (dialog, _) in &dialogs {
+                    dialog.show(vec![root.to_path_buf()], false);
+                    dialog.state.field.set_text("needle");
+                    wait_until(|| {
+                        !dialog.state.indexing_spinner.is_visible()
+                            && dialog.state.visible_results.borrow().len()
+                                == if excluded { 1 } else { 2 }
+                    });
+                    assert!(
+                        dialog
+                            .state
+                            .visible_results
+                            .borrow()
+                            .iter()
+                            .any(|item| item.path == root.join("needle-visible.txt"))
+                    );
+                    assert_eq!(
+                        dialog
+                            .state
+                            .visible_results
+                            .borrow()
+                            .iter()
+                            .any(|item| item.path == root.join("private-build/needle-hidden.txt")),
+                        !excluded
+                    );
+                }
+            }
+            for (dialog, window) in dialogs {
+                hide(&dialog.state);
+                window.destroy();
+            }
         },
     );
 }

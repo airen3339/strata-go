@@ -23,12 +23,15 @@ use crate::ui::browser::transfer::PendingSendToCompletion;
 use crate::ui::browser::transfer::duplicate_transfer;
 use crate::ui::browser::trash::TrashLoadingView;
 use crate::ui::browser_modes::{BrowserDensity, BrowserMode, ClickActivation, ModeViews};
+use crate::ui::keys;
 use gtk::glib;
 use gtk::prelude::*;
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::rc::{Rc, Weak};
 use std::time::Duration;
+
+pub(in crate::ui) type PlaybackHandoff = Rc<dyn Fn(&Location) -> Option<Duration>>;
 
 mod archive;
 pub(super) mod camera_scroll;
@@ -60,41 +63,44 @@ mod preview;
 mod progress;
 mod properties;
 mod result_selection;
+mod tab_location;
+mod tab_stops;
 mod transfer;
 mod trash;
 
 #[cfg(test)]
 pub(super) use crate::ui::browser::clipboard::clipboard_mark;
-pub(in crate::ui) use crate::ui::browser::clipboard::drag_icon_with_count;
+pub(in crate::ui) use crate::ui::browser::clipboard::drag_preview_icon;
 pub(super) use crate::ui::browser::clipboard::{
     ClipboardMark, ClipboardMarks, file_drag_content, mark_in, set_mark_result_style,
 };
 pub(crate) use crate::ui::browser::clipboard::{
-    PreparedFileDrop, drag_actions_for_modifiers, file_drop_action, file_drop_commit,
-    locations_from_file_list_value, prepare_file_drop_target,
+    PreparedFileDrop, arm_spring_load_navigation, clear_active_drag, drag_actions_for_modifiers,
+    file_drag_hover_target, file_drop_action, file_drop_commit, locations_from_file_list_value,
+    prepare_file_drop_target,
 };
 pub(crate) use crate::ui::browser::collection::{
     ActivePaneFilter, bind_listing_filter, detach_collection_view, filter_placeholder,
     focus_collection_item_when_allocated, focus_filter_entry, notify_filter_query,
-    prepare_collection_inline_edit, restore_filter_controls, reveal_collection_after_layout,
-    scroll_collection_when_allocated, search_result_entry,
+    prepare_collection_inline_edit, refocus_filter_entry, restore_filter_controls,
+    reveal_collection_after_layout, scroll_collection_when_allocated, search_result_entry,
 };
 pub(in crate::ui) use crate::ui::browser::collection::{FilterQueryBinding, bind_filter_query};
 pub(super) use crate::ui::browser::context_menu::{
     ContextMenuTarget, ContextMenuTrigger, ContextResolver, install_folder_context_menu,
     install_item_context_menu, install_resolved_item_context_menu,
 };
-pub(super) use crate::ui::browser::desktop::{launch_terminal, open_location};
+pub(super) use crate::ui::browser::desktop::{launch_terminal, open_location_at};
 pub(super) use crate::ui::browser::entry::{
     FOLDER_TYPE_GROUP, OTHER_TYPE_GROUP, entry_filter, entry_icon, entry_model_value,
-    format_file_size, icon_for_name, metadata_needs_fill, model_type_group, rounded_size_and_unit,
+    format_file_size, icon_for_name, metadata_needs_fill, model_type_group,
 };
 pub(crate) use crate::ui::browser::file_commands::{
     ConflictFocus, CreateRefusal, PinChange, TargetCommand, Yank, can_rename,
 };
 pub(super) use crate::ui::browser::inline_edit::{queue_rename, reveal_rename_row};
 pub(in crate::ui) use crate::ui::browser::listing_filter::{
-    FilterStatus, results_step_target, scroll_results_to, selected_cursor,
+    FilterFocus, FilterStatus, results_step_target, scroll_results_to, selected_cursor,
 };
 pub(super) use crate::ui::browser::pane_header::{
     column_sort_direction_toggle, column_sort_menu, empty_trash_button, pane_new_folder_button,
@@ -187,6 +193,7 @@ pub(super) struct ViewState {
     hovered_column: Cell<Option<usize>>,
     // The preview drawer holds the keys, so no column is the keyboard destination.
     preview_owns_keys: Cell<bool>,
+    playback_handoff: RefCell<Option<PlaybackHandoff>>,
     context_menu_column: Cell<Option<usize>>,
     context_menu_generation: Cell<u64>,
     context_menu_focus: RefCell<Option<glib::WeakRef<gtk::Widget>>>,
@@ -194,11 +201,21 @@ pub(super) struct ViewState {
     /// True only while a column row gesture is writing the selection model.
     /// Focus echoes of the cursor are not pointer-owned.
     pointer_owns_selection: Cell<bool>,
+    folder_press: RefCell<Option<columns::FolderPress>>,
+    /// The depth whose column a sibling swap just removed, so its replacement fades in.
+    swap_slot: Cell<Option<usize>>,
+    tab_location: RefCell<tab_location::TabLocation>,
     column_resizing: Cell<bool>,
+    /// Visible browser area published by the preview layout; bounds Miller column widths.
+    column_width_limit: Cell<Option<i32>>,
+    /// Set until the first limit, and after a text-size change, so the next
+    /// published limit narrows wider columns once.
+    clamp_to_next_column_limit: Cell<bool>,
     horizontal_scroll_generation: Rc<Cell<u64>>,
     suppress_focus_scroll: Cell<bool>,
     /// Set while a footer prompt moves the cursor; the prompt keeps the keys.
     cursor_keeps_focus: Cell<bool>,
+    tab_crossing: Cell<tab_stops::TabCrossing>,
     pending_mirror: RefCell<Option<glib::SourceId>>,
     source_generation: Rc<Cell<u64>>,
     peek: RefCell<Option<PeekView>>,
@@ -226,8 +243,6 @@ pub(super) struct ViewState {
         RefCell<HashMap<crate::services::OperationRequestId, Rc<BackgroundProgress>>>,
     pending_send_to_completion: RefCell<Option<PendingSendToCompletion>>,
     finished_send_to_completion: RefCell<Option<FinishedSendToCompletion>>,
-    send_to_success_widget: RefCell<Option<gtk::Widget>>,
-    send_to_success_generation: Cell<u64>,
 
     pin_handler: RefCell<Option<PinHandler>>,
     unpin_handler: RefCell<Option<UnpinHandler>>,
@@ -235,10 +250,8 @@ pub(super) struct ViewState {
     print_handler: RefCell<Option<PrintHandler>>,
     search_selection_handlers: RefCell<Vec<Rc<dyn Fn()>>>,
     pending_select: RefCell<Vec<String>>,
+    pending_properties: RefCell<Option<Location>>,
     pending_location_selection: RefCell<Option<(Location, Vec<Location>)>>,
-    /// Set when the pending selection came from a properties request, so the
-    /// dialog opens once the entry it describes is actually loaded.
-    pending_select_properties: Cell<bool>,
     pending_extract_retry: RefCell<Option<(FileEntry, Location)>>,
     extract_destination: RefCell<Option<Location>>,
     pending_archive_destination: RefCell<Option<Location>>,
@@ -247,8 +260,10 @@ pub(super) struct ViewState {
     /// failed only because the location doesn't support Trash can offer a
     /// permanent-delete retry for exactly those entries.
     pending_delete_entries: RefCell<Vec<FileEntry>>,
+    pending_file_operation_animation: RefCell<Option<fly_to_trash::PreparedFlight>>,
     /// Visible permanent-delete rows captured before the operation mutates the model.
     pending_delete_dissolve: RefCell<Option<(usize, dissolve_delete::PreparedDissolve)>>,
+    delete_dissolve_request: Cell<Option<crate::services::OperationRequestId>>,
     deferred_delete_empty_depth: Cell<Option<usize>>,
     pending_navigate: RefCell<Option<Location>>,
     pending_location_credentials: RefCell<Option<MountCredentials>>,
@@ -257,7 +272,8 @@ pub(super) struct ViewState {
     trash_loading: RefCell<Option<TrashLoadingView>>,
     unlock_slots: RefCell<Vec<UnlockProgressSlot>>,
     auto_refresh: RefCell<Option<glib::SourceId>>,
-    trash_button: RefCell<Option<gtk::Button>>,
+    trash_button: glib::WeakRef<gtk::Button>,
+    recent_removal: crate::adapters::RecentRemovalState,
     drag_autoscroll: RefCell<Option<Rc<columns::drag_scroll::DragAutoscroll>>>,
     drag_source_depth: Cell<Option<usize>>,
     suppress_scroll_after_drop: Cell<bool>,
@@ -349,11 +365,11 @@ impl BrowserView {
         let location_entry = gtk::Entry::builder()
             .hexpand(true)
             .width_chars(36)
-            .placeholder_text("Enter a path or URI…")
+            .placeholder_text(crate::i18n::tr("Enter a path or URI…"))
             .build();
         location_entry.add_css_class("location-entry");
         let confirm_location = gtk::Button::builder()
-            .tooltip_text(super::accessibility::LOCATION_CONFIRM_LABEL)
+            .tooltip_text(super::accessibility::location_confirm_label())
             .build();
         confirm_location.set_child(Some(&crate::assets::primary_icon(
             crate::assets::icons::CHECK,
@@ -361,7 +377,7 @@ impl BrowserView {
         )));
         confirm_location.add_css_class("location-action");
         let cancel_location = gtk::Button::builder()
-            .tooltip_text(super::accessibility::LOCATION_CANCEL_LABEL)
+            .tooltip_text(super::accessibility::location_cancel_label())
             .build();
         cancel_location.set_child(Some(&crate::assets::primary_icon(
             crate::assets::icons::X,
@@ -516,7 +532,10 @@ impl BrowserView {
 
         let global_activity_spinner = gtk::Spinner::new();
         global_activity_spinner.add_css_class("global-activity-spinner");
-        crate::ui::accessibility::set_description(&global_activity_spinner, Some("Working…"));
+        crate::ui::accessibility::set_description(
+            &global_activity_spinner,
+            Some(&crate::i18n::tr("Working…")),
+        );
         global_activity_spinner.set_visible(false);
         let location_control = gtk::Box::new(gtk::Orientation::Horizontal, 6);
         location_control.add_css_class("location-control");
@@ -571,15 +590,22 @@ impl BrowserView {
             columns: RefCell::new(Vec::new()),
             hovered_column: Cell::new(None),
             preview_owns_keys: Cell::new(false),
+            playback_handoff: RefCell::new(None),
             context_menu_column: Cell::new(None),
             context_menu_generation: Cell::new(0),
             context_menu_focus: RefCell::new(None),
             input_ownership: RefCell::new(super::input_ownership::InputOwnership::default()),
             pointer_owns_selection: Cell::new(false),
+            folder_press: RefCell::new(None),
+            swap_slot: Cell::new(None),
+            tab_location: RefCell::new(tab_location::TabLocation::default()),
             column_resizing: Cell::new(false),
+            column_width_limit: Cell::new(None),
+            clamp_to_next_column_limit: Cell::new(true),
             horizontal_scroll_generation: Rc::new(Cell::new(0)),
             suppress_focus_scroll: Cell::new(false),
             cursor_keeps_focus: Cell::new(false),
+            tab_crossing: Cell::new(tab_stops::TabCrossing::None),
             pending_mirror: RefCell::new(None),
             source_generation,
             peek: RefCell::new(None),
@@ -606,8 +632,6 @@ impl BrowserView {
             background_file_progress: RefCell::new(HashMap::new()),
             pending_send_to_completion: RefCell::new(None),
             finished_send_to_completion: RefCell::new(None),
-            send_to_success_widget: RefCell::new(None),
-            send_to_success_generation: Cell::new(0),
 
             pin_handler: RefCell::new(None),
             unpin_handler: RefCell::new(None),
@@ -615,13 +639,15 @@ impl BrowserView {
             print_handler: RefCell::new(None),
             search_selection_handlers: RefCell::new(Vec::new()),
             pending_select: RefCell::new(Vec::new()),
+            pending_properties: RefCell::new(None),
             pending_location_selection: RefCell::new(None),
-            pending_select_properties: Cell::new(false),
             pending_extract_retry: RefCell::new(None),
             extract_destination: RefCell::new(None),
             pending_archive_destination: RefCell::new(None),
             pending_delete_entries: RefCell::new(Vec::new()),
+            pending_file_operation_animation: RefCell::new(None),
             pending_delete_dissolve: RefCell::new(None),
+            delete_dissolve_request: Cell::new(None),
             deferred_delete_empty_depth: Cell::new(None),
             pending_navigate: RefCell::new(None),
             pending_location_credentials: RefCell::new(None),
@@ -630,7 +656,8 @@ impl BrowserView {
             trash_loading: RefCell::new(None),
             unlock_slots: RefCell::new(Vec::new()),
             auto_refresh: RefCell::new(None),
-            trash_button: RefCell::new(None),
+            trash_button: glib::WeakRef::new(),
+            recent_removal: crate::adapters::RecentRemovalState::new(),
             drag_autoscroll: RefCell::new(None),
             drag_source_depth: Cell::new(None),
             suppress_scroll_after_drop: Cell::new(false),
@@ -665,15 +692,21 @@ impl BrowserView {
 
         let weak_state = Rc::downgrade(&state);
         columns::install_horizontal_scroll(&state);
-        super::marquee::install_shared_origin_surface(&state.scroller, move |surface, _, x, _| {
-            let state = weak_state.upgrade()?;
-            let laid_out = state.columns_widget.compute_bounds(surface)?;
-            if x < f64::from(laid_out.x() + laid_out.width()) {
-                return None;
-            }
-            let columns = state.columns.borrow();
-            columns.last().map(|column| column.marquee.clone())
-        });
+        super::marquee::install_shared_origin_surface(
+            &state.scroller,
+            super::marquee::OriginClick::ClearsSelection,
+            move |surface, _, x, _| {
+                let state = weak_state.upgrade()?;
+                let laid_out = state.columns_widget.compute_bounds(surface)?;
+                if x < f64::from(laid_out.x() + laid_out.width()) {
+                    return None;
+                }
+                let columns = state.columns.borrow();
+                columns.last().map(|column| column.marquee.clone())
+            },
+        );
+        // Installed last so its capture press runs before the scroller's other gestures.
+        columns::install_double_click_guard(&state);
 
         state
             .mode_views
@@ -699,9 +732,16 @@ impl BrowserView {
         // The observer owns the view state while its window is alive. The window clears
         // the observer on destruction to break this deliberate lifecycle cycle.
         let observer_state = state.clone();
-        state
-            .browser
-            .observe(move |event| observer_state.handle(event));
+        state.browser.observe(move |event| {
+            observer_state.handle(event);
+            observer_state.refresh_tab_location();
+        });
+        let weak_state = Rc::downgrade(&state);
+        state.browser.observe_navigation(move || {
+            if let Some(state) = weak_state.upgrade() {
+                state.refresh_tab_location();
+            }
+        });
 
         let click = gtk::GestureClick::new();
         click.set_button(0);
@@ -717,7 +757,7 @@ impl BrowserView {
         let keys = gtk::EventControllerKey::new();
         keys.set_propagation_phase(gtk::PropagationPhase::Capture);
         let weak_state = Rc::downgrade(&state);
-        keys.connect_key_pressed(move |_, _, _, _| {
+        keys::on_press(&keys, move |_, _| {
             if let Some(state) = weak_state.upgrade() {
                 state.cancel_click_rename();
             }
@@ -822,6 +862,7 @@ impl BrowserView {
         self.state.browser.finish_navigation_cleanup();
     }
 
+    #[cfg(test)]
     pub(crate) fn connect_navigation_cleanup(&self, window: &gtk::Window) {
         let weak = self.downgrade();
         window.connect_close_request(move |_| {
@@ -860,35 +901,19 @@ impl BrowserView {
         self.state.commit_file_drop(destination, sources, commit);
     }
 
-    /// Selects `names` in the active column once it finishes loading,
-    /// optionally opening the properties dialog for the focused one.
-    pub fn select_after_load(&self, names: Vec<String>, properties: bool) {
-        self.state.pending_select.borrow_mut().extend(names);
-        self.state.pending_select_properties.set(properties);
+    pub(crate) fn reveal_location(&self, location: Location) {
+        if let Some(parent) = location.parent() {
+            self.state.reveal_locations(parent, vec![location], false);
+        }
     }
 
-    pub(super) fn reveal_location(&self, location: Location) {
-        let Some(parent) = location.parent() else {
-            return;
-        };
-        self.state.pending_archive_destination.take();
-        self.state.pending_navigate.take();
-        self.state.pending_select.take();
-        self.state.pending_select_properties.set(false);
-        self.state
-            .pending_location_selection
-            .replace(Some((parent.clone(), vec![location])));
-        if self.state.browser.active_location().as_ref() == Some(&parent) {
-            if let Some(depth) = self.state.browser.active_depth() {
-                if let Some(column) = self.state.columns.borrow().get(depth) {
-                    column.filter_entry.set_text("");
-                }
-                self.state.mode_views.borrow().clear_filter(depth);
-            }
-            self.state.browser.reload_active();
-        } else {
-            self.state.browser.navigate_location(parent, false);
-        }
+    pub(crate) fn reveal_locations(
+        &self,
+        directory: Location,
+        targets: Vec<Location>,
+        properties: bool,
+    ) {
+        self.state.reveal_locations(directory, targets, properties);
     }
 
     pub(super) fn refresh_source_filter(&self) {
@@ -932,7 +957,7 @@ impl BrowserView {
     }
 
     pub fn set_trash_button(&self, button: gtk::Button) {
-        self.state.trash_button.replace(Some(button));
+        self.state.trash_button.set(Some(&button));
     }
 
     pub fn begin_rename(&self) -> bool {
@@ -985,13 +1010,22 @@ impl BrowserView {
         self.state.pending_new_entry.borrow().is_some()
     }
 
+    pub fn inline_edit_is_open(&self) -> bool {
+        self.state.inline_edit_is_open()
+    }
+
     /// Lets a marquee drag begin on blank chrome beside the file panes — the sidebar or
     /// the preview pane — and run into whichever view the current mode shows. The pane
     /// nearest the `edge` the surface sits on is the target, since that is the one such
     /// a drag runs into.
-    pub(super) fn add_marquee_origin(&self, surface: &impl IsA<gtk::Widget>, edge: gtk::PackType) {
+    pub(super) fn add_marquee_origin(
+        &self,
+        surface: &impl IsA<gtk::Widget>,
+        edge: gtk::PackType,
+        click: super::marquee::OriginClick,
+    ) {
         let weak_state = Rc::downgrade(&self.state);
-        super::marquee::install_shared_origin_surface(surface, move |_, _, _, _| {
+        super::marquee::install_shared_origin_surface(surface, click, move |_, _, _, _| {
             let state = weak_state.upgrade()?;
             // Sidebar-origin events do not reach the browser's pointer controllers.
             state.hovered_column.set(None);
@@ -1037,9 +1071,15 @@ impl BrowserView {
         if mode == previous {
             return;
         }
+        if mode == BrowserMode::Columns {
+            self.state.cancel_peek();
+            self.state.peek_anchor.take();
+        }
         // The rebuilt view has a different displayed order for the same anchor.
         self.state.browser.leave_visual();
         let searching = self.state.listing_search_showing();
+        // Read before the rebuild tears down the focused field or results.
+        let filter_focus = self.state.filter_focus();
         self.state.mode.set(mode);
         let filter = match previous {
             BrowserMode::Columns => self.state.capture_active_column_filter(),
@@ -1059,7 +1099,9 @@ impl BrowserView {
                 .restore_active_filter(&filter);
         }
         match previous {
-            BrowserMode::Columns => self.state.truncate(0),
+            // The columns view is already hidden, so an exit animation here
+            // would never be seen.
+            BrowserMode::Columns => self.state.truncate_for_replacement(0),
             BrowserMode::Icons | BrowserMode::List => self
                 .state
                 .mode_views
@@ -1067,10 +1109,41 @@ impl BrowserView {
                 .clear_inactive_mode(previous),
         }
         self.state.carry_listing_search(searching);
-        if mode == BrowserMode::Columns {
+        self.restore_view_switch_focus(filter_focus);
+    }
+
+    /// Focus follows the filter session across a view switch.
+    fn restore_view_switch_focus(&self, filter_focus: Option<FilterFocus>) {
+        if let Some(target) = self.filter_target() {
+            if filter_focus == Some(FilterFocus::Entry) {
+                refocus_filter_entry(target.entry());
+                return;
+            }
+            if filter_focus == Some(FilterFocus::Results)
+                || listing_filter::filter_shows_query(&target)
+            {
+                target.settle();
+                self.focus_filter_results(&target);
+                return;
+            }
+        }
+        if self.view_mode() == BrowserMode::Columns {
             self.state.focus_rebuilt_active_column();
         } else if let Some(depth) = self.state.browser.active_depth() {
             self.state.mode_views.borrow().focus_visible_pane(depth);
+        }
+    }
+
+    /// Focus for a view switched from a menu, once the menu has closed: results replace
+    /// the listing that would otherwise take focus.
+    pub(in crate::ui) fn focus_switched_view(&self) {
+        if let Some(target) = self
+            .filter_target()
+            .filter(listing_filter::filter_shows_query)
+        {
+            self.focus_filter_results(&target);
+        } else {
+            self.state.browser.focus_active();
         }
     }
 
@@ -1082,6 +1155,24 @@ impl BrowserView {
         } else {
             self.state.browser.focus_active();
         }
+    }
+
+    pub(in crate::ui) fn restore_listing_focus(&self) {
+        self.state.restore_listing_focus();
+    }
+
+    /// Makes this listing the focus target when a dismissed overlay leaves `window`
+    /// without a focused widget.
+    pub(in crate::ui) fn set_as_modal_focus_fallback(&self, window: &gtk::Window) {
+        let view = self.downgrade();
+        crate::ui::modal::set_modal_focus_fallback(
+            window,
+            Rc::new(move || {
+                if let Some(view) = view.upgrade() {
+                    view.restore_listing_focus();
+                }
+            }),
+        );
     }
 
     pub fn set_density(&self, density: BrowserDensity) {
@@ -1103,11 +1194,11 @@ impl BrowserView {
             .set_group_by_type(enabled);
     }
 
-    pub fn set_icons_thumbnail_size(&self, size: i32) {
+    pub fn apply_resolved_icons_size(&self, size: i32) {
         self.state
             .mode_views
             .borrow_mut()
-            .set_icons_thumbnail_size(size);
+            .apply_resolved_icons_size(size);
     }
 
     pub fn activate_focused(&self) {
@@ -1288,7 +1379,7 @@ impl BrowserView {
                         || focused.is_ancestor(&column.header_actions)
                 })
             })
-            .is_some_and(|column| column.list.grab_focus())
+            .is_some_and(ColumnView::focus_surface)
     }
 
     pub fn navigate_up(&self) {
@@ -1309,7 +1400,7 @@ impl BrowserView {
                     .location_at(0)
                     .and_then(|location| location.parent())
                 {
-                    self.state.browser.navigate(parent);
+                    self.state.browser.navigate_to_ancestor(parent);
                 }
             }
             Some(depth) => self.state.browser.close_column(depth),
@@ -1367,7 +1458,7 @@ impl BrowserView {
         if let Err(error) = self.state.open_typed_location(input, base.as_deref()) {
             show_error_dialog(
                 &self.state.overlay,
-                "Unable to open location",
+                &crate::i18n::tr("Unable to open location"),
                 &error.to_string(),
             );
         }
@@ -1441,6 +1532,10 @@ impl BrowserView {
         }
     }
 
+    pub(in crate::ui) fn set_playback_handoff(&self, handoff: PlaybackHandoff) {
+        self.state.playback_handoff.replace(Some(handoff));
+    }
+
     pub(in crate::ui) fn record_pointer_hover(&self, surface: (f64, f64), column: Option<usize>) {
         if self
             .state
@@ -1483,9 +1578,10 @@ impl BrowserView {
         cancel_source(&self.state.pending_peek);
         self.state.browser.close_peek();
         // Capture-phase keys run before the pane sees the event that would cancel
-        // an in-progress history restore, so the command has to cancel it first.
-        self.state.mode_views.borrow_mut().cancel_list_restore();
+        // an in-progress restore, so the command has to cancel it first.
+        self.state.mode_views.borrow_mut().cancel_pending_restore();
         self.state.sync_mode_selection();
+        self.state.cancel_tab_location_hold();
         self.state.refresh_destination_style();
     }
 
@@ -1497,7 +1593,11 @@ impl BrowserView {
 
     fn paste_location(&self) -> Option<Location> {
         self.state.sync_mode_selection();
-        let selected = self.state.browser.selected_entries();
+        let selected = if self.state.browser.selected_count() == 1 {
+            self.state.browser.selected_entries()
+        } else {
+            Vec::new()
+        };
         let column = self
             .state
             .destination_depth()
@@ -1773,7 +1873,8 @@ impl BrowserView {
         } else {
             self.state.browser.select(depth, position);
         }
-        self.state.mirror_focused_folder(depth, Some(position));
+        self.state
+            .mirror_focused_folder(depth, Some(position), false);
         if let (Some(direction), Some((view, scroll))) = (key, collection) {
             let position = self.cursor_view_position(&view);
             super::scrolling::reveal_cursor(
@@ -1816,11 +1917,7 @@ impl BrowserView {
     }
 
     pub fn refresh(&self) {
-        if self.view_mode() == BrowserMode::Columns {
-            self.state.browser.refresh_all();
-        } else {
-            self.state.browser.reload_active();
-        }
+        self.state.refresh_browser();
     }
 
     pub fn set_auto_refresh_interval(&self, secs: u32) {
@@ -1861,7 +1958,10 @@ impl BrowserView {
         let entries = if let Some(entries) = self.selected_search_results() {
             entries
         } else if self.view_mode() == BrowserMode::Columns {
-            self.state.browser.selected_entries()
+            self.focused_listing_depth()
+                .map(|depth| self.state.browser.command_entries(depth))
+                .filter(|entries| !entries.is_empty())
+                .unwrap_or_else(|| self.state.browser.deletion_entries())
         } else {
             self.state.browser.deletion_entries()
         };
@@ -1936,21 +2036,22 @@ impl BrowserView {
                         image_dimensions: crate::model::MetadataValue::Unknown,
                         child_count: crate::model::MetadataValue::Unknown,
                         duration_seconds: crate::model::MetadataValue::Unknown,
+                        recent_uri: None,
                     }
                 })
                 .collect()
         };
-        let trash_button = self.state.trash_button.borrow().clone();
+        let source = self.state.delete_animation_source();
+        let trash_button = self.state.trash_button.upgrade();
+        let animation = source.zip(trash_button).and_then(|(source, trash_button)| {
+            fly_to_trash::prepare_fly_from_trash(&source, entries.iter(), &trash_button)
+        });
+        self.state
+            .pending_file_operation_animation
+            .replace(animation);
         let undone = self.state.browser.undo_last_trash();
-        if undone
-            && let Some(trash_button) = trash_button
-            && !entries.is_empty()
-        {
-            let source = self
-                .state
-                .delete_animation_source()
-                .unwrap_or_else(|| self.state.overlay.clone().upcast());
-            fly_to_trash::fly_from_trash(&source, &entries, &trash_button, || {});
+        if !undone {
+            self.state.pending_file_operation_animation.take();
         }
         undone
     }
@@ -1997,21 +2098,7 @@ impl BrowserView {
     }
 
     pub fn filter_has_focus(&self) -> bool {
-        match self.view_mode() {
-            BrowserMode::Columns => {
-                let focused = self.state.overlay.root().and_then(|root| root.focus());
-                self.state.columns.borrow().iter().any(|column| {
-                    column.filter_entry.has_focus()
-                        || focused.as_ref().is_some_and(|focused| {
-                            focused == column.filter_entry.upcast_ref::<gtk::Widget>()
-                                || focused.is_ancestor(&column.filter_entry)
-                        })
-                })
-            }
-            BrowserMode::Icons | BrowserMode::List => {
-                self.state.mode_views.borrow().filter_has_focus()
-            }
-        }
+        self.filter_focus() == Some(FilterFocus::Entry)
     }
 
     /// Recursive results have their own selection, independent of the directory's selection.
@@ -2222,7 +2309,8 @@ impl BrowserView {
         if let Some((depth, position)) = cursor()
             && Some((depth, position)) != before
         {
-            self.state.mirror_focused_folder(depth, Some(position));
+            self.state
+                .mirror_focused_folder(depth, Some(position), false);
         }
         if let Some((view, scroll)) = collection {
             let position = self.cursor_view_position(&view);
@@ -2259,39 +2347,22 @@ impl BrowserView {
     }
 
     /// Moves the focus to the first or last visible entry of the active pane, for
-    /// `Ctrl+Up` and `Ctrl+Down`.
+    /// `Ctrl+Up`/`Ctrl+Down` and plain `Home`/`End`. Works from a focused row or
+    /// tile, from the collection view itself, and from the pane surface while it
+    /// shows a loading page.
     pub fn jump_selection(&self, direction: i32) -> bool {
         let focused = self.state.overlay.root().and_then(|root| root.focus());
-        let Some((view, scroll)) = focused
+        let collection = focused
             .as_ref()
-            .and_then(super::scrolling::focused_collection)
-        else {
-            return false;
-        };
-        let order = self
-            .state
-            .browser
-            .active_depth()
-            .map(|depth| self.state.mode_views.borrow().visual_order(depth))
-            .filter(|order| !order.is_empty());
-        self.state
-            .browser
-            .page_along(direction, usize::MAX, order.as_deref());
-        super::scrolling::reveal_jump(&view, &scroll, direction);
-        true
-    }
-
-    pub fn jump_parked_selection(&self, direction: i32) -> bool {
-        if !self.item_view_has_focus()
-            || !self
-                .state
-                .overlay
-                .root()
-                .and_then(|root| root.focus())
-                .is_some_and(|focused| focused.is::<gtk::Stack>())
-        {
+            .and_then(super::scrolling::focused_collection);
+        let parked = focused
+            .as_ref()
+            .is_some_and(|focused| focused.is::<gtk::Stack>())
+            && self.item_view_has_focus();
+        if collection.is_none() && !parked {
             return false;
         }
+        self.keyboard_navigation();
         let order = self
             .state
             .browser
@@ -2301,6 +2372,9 @@ impl BrowserView {
         self.state
             .browser
             .page_along(direction, usize::MAX, order.as_deref());
+        if let Some((view, scroll)) = collection {
+            super::scrolling::reveal_jump(&view, &scroll, direction);
+        }
         true
     }
 
@@ -2317,23 +2391,31 @@ impl BrowserView {
         empty && self.dismiss_focused_filter()
     }
 
+    /// Dismisses the filter whose field or results have focus. An empty revealed
+    /// Columns filter has no results, so Escape on its rows clears the selection instead.
     pub fn dismiss_focused_filter(&self) -> bool {
         if self.state.mode_views.borrow().dismiss_focused_filter() {
             return true;
         }
         let focused = self.state.overlay.root().and_then(|root| root.focus());
-        let columns = self.state.columns.borrow();
-        let Some(column) = columns.iter().find(|column| {
-            column.filter_entry.has_focus()
-                || focused.as_ref().is_some_and(|focused| {
-                    focused == column.filter_entry.upcast_ref::<gtk::Widget>()
-                        || focused.is_ancestor(&column.filter_entry)
-                })
-        }) else {
+        let column = focused.and_then(|focused| {
+            self.state
+                .columns
+                .borrow()
+                .iter()
+                .find(|column| listing_filter::column_filter_focus(column, &focused).is_some())
+                .cloned()
+        });
+        let Some(column) = column else {
             return false;
         };
         column.filter_button.set_active(false);
-        column.list.grab_focus();
+        // Show the listing now rather than after the debounce, so focus lands on it.
+        column.flush_filter_query();
+        column.focus_surface();
+        // The returning rows arrive unselected; restore the directory's cursor and
+        // selection on them.
+        self.state.browser.focus_active();
         true
     }
 
@@ -2419,6 +2501,20 @@ impl BrowserView {
 }
 
 impl ViewState {
+    /// Returns focus to the listing after an overlay closes: the cursor row, or the
+    /// pane surface of an empty or loading directory.
+    pub(super) fn restore_listing_focus(&self) {
+        if self.mode.get() == BrowserMode::Columns {
+            self.focus_rebuilt_active_column();
+            return;
+        }
+        self.browser.focus_active();
+        let focused = self.overlay.root().and_then(|root| root.focus());
+        if !focused.is_some_and(|focused| focused.is_mapped()) {
+            self.mode_views.borrow().focus_pane_surface();
+        }
+    }
+
     pub(super) fn notify_search_selection_changed(&self) {
         let handlers = self.search_selection_handlers.borrow().clone();
         for handler in handlers {
@@ -2462,7 +2558,7 @@ impl ViewState {
             self.global_activity_spinner.set_visible(false);
             crate::ui::accessibility::set_description(
                 &self.global_activity_spinner,
-                Some("Working…"),
+                Some(&crate::i18n::tr("Working…")),
             );
         }
     }
@@ -2479,17 +2575,22 @@ impl ViewState {
             let Some(state) = weak_state.upgrade() else {
                 return glib::ControlFlow::Break;
             };
-            if state.pending_new_entry.borrow().is_some()
-                || state.active_rename.borrow().is_some()
-                || state.rename_operation_pending()
-                || state.mode_views.borrow().rename_is_active()
-            {
+            // A submitted rename also waits for the listing to show its result.
+            if state.inline_edit_is_open() || state.rename_operation_pending() {
                 return glib::ControlFlow::Continue;
             }
             state.refresh_browser();
             glib::ControlFlow::Continue
         });
         self.auto_refresh.replace(Some(source));
+    }
+
+    /// A reload rebinds the rows an inline edit leases, which would discard the typed
+    /// name, so window commands and auto-refresh wait while this holds.
+    pub(super) fn inline_edit_is_open(&self) -> bool {
+        self.pending_new_entry.borrow().is_some()
+            || self.active_rename.borrow().is_some()
+            || self.mode_views.borrow().rename_is_active()
     }
 
     fn refresh_browser(&self) {
@@ -2636,9 +2737,7 @@ impl ViewState {
                     })
             {
                 // Do not leave keyboard focus inside controls hidden by pointer navigation.
-                if !column.list.grab_focus() {
-                    column.presentation.stack.grab_focus();
-                }
+                column.focus_surface();
             }
             column
                 .header_actions_stack
@@ -2678,6 +2777,15 @@ impl ViewState {
         })
     }
 
+    /// Like `ModeViews::listing_may_take_focus`, for any column.
+    fn column_may_take_focus(&self) -> bool {
+        self.overlay
+            .root()
+            .and_then(|root| root.focus())
+            .is_none_or(|focused| focused.root().is_none())
+            || self.focused_column_depth().is_some()
+    }
+
     fn select_all(&self, depth: usize) {
         if self.mode.get() != BrowserMode::Columns {
             self.browser.select_all(depth);
@@ -2685,7 +2793,7 @@ impl ViewState {
         }
         if let Some(column) = self.columns.borrow().get(depth) {
             column.selection.select_all();
-            column.list.grab_focus();
+            column.focus_surface();
         }
     }
 }
@@ -2717,16 +2825,6 @@ fn new_folder_destination_depth(
 
 fn single_pane_preview_reservation(width: i32) -> i32 {
     width.max(0) / 2
-}
-
-fn vim_focus_direction(key: gtk::gdk::Key) -> Option<gtk::DirectionType> {
-    match key {
-        gtk::gdk::Key::h => Some(gtk::DirectionType::Left),
-        gtk::gdk::Key::j => Some(gtk::DirectionType::Down),
-        gtk::gdk::Key::k => Some(gtk::DirectionType::Up),
-        gtk::gdk::Key::l => Some(gtk::DirectionType::Right),
-        _ => None,
-    }
 }
 
 mod chooser_context;

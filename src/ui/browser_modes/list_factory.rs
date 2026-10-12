@@ -68,6 +68,15 @@ impl ListFactory {
     }
 
     fn install_interactions(&self, item: &gtk::ListItem, row: &ListRow) {
+        super::install_folder_peek(
+            &row.widget,
+            item,
+            self.state.clone(),
+            self.browser.clone(),
+            self.positions.index.clone(),
+            self.positions.view.clone(),
+            self.depth,
+        );
         let slow_click = Rc::new(super::SlowClickRename::default());
         install_preview_click(
             &row.widget,
@@ -100,13 +109,7 @@ impl ListFactory {
             self.depth,
             Some((self.positions.index.clone(), self.positions.view.clone())),
             self.state.clone(),
-            (
-                Some(row.name.upcast_ref()),
-                Some(row.icon.upcast_ref()),
-                &content_click,
-                true,
-                slow_click,
-            ),
+            (&content_click, true, slow_click),
         );
     }
 
@@ -232,6 +235,7 @@ impl ListRow {
     }
 
     fn clear(&self) {
+        crate::ui::file_providers::bind(&self.icon, None);
         set_mode_mark_style(&self.widget, ClipboardMark::None);
         thumbnail::show_fallback_icon(&self.icon, crate::assets::icons::DOCUMENTS, 18);
         self.icon.set_hidden(false);
@@ -280,7 +284,7 @@ impl ListBinding {
                 self.depth,
                 position,
                 self.entry.location.clone(),
-                false,
+                self.entry.is_directory(),
             );
         }
     }

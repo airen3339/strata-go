@@ -2,7 +2,7 @@
 
 use std::{
     cell::{Cell, RefCell},
-    collections::{HashMap, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     fs,
     future::Future,
     io::ErrorKind,
@@ -24,9 +24,9 @@ use crate::{
     model::{EntryKind, FileEntry, Location, MetadataValue},
     services::{
         DirectoryChange, DirectoryEvent, DirectoryRequest, FileSource, LoadHandle,
-        LocationValidationError, MetadataOutcome, MetadataRequest, MetadataUpdate, RequestId,
-        backend_unavailable_message, is_hidden_name, is_image_path, is_media_path,
-        native_hidden_names, native_kind, sanitize_failure_message,
+        LocationIdentity, LocationValidationError, MetadataOutcome, MetadataRequest,
+        MetadataUpdate, RequestId, backend_unavailable_message, is_hidden_name, is_image_path,
+        is_media_path, native_hidden_names, native_kind, sanitize_failure_message,
     },
 };
 
@@ -36,7 +36,7 @@ const LIST_ATTRIBUTES: &str = "standard::display-name,standard::name,standard::t
 const FULL_ATTRIBUTES: &str = "standard::display-name,standard::name,standard::type,standard::is-hidden,standard::is-symlink,standard::size,standard::target-uri,time::modified,unix::mode,access::can-trash,access::can-delete";
 const RECENT_ATTRIBUTES: &str = "standard::display-name,standard::name,standard::type,standard::is-hidden,standard::target-uri,recent::modified";
 const METADATA_ATTRIBUTES: &str = "standard::type,standard::size,time::modified,unix::mode";
-const MAX_PENDING_MONITOR_CHANGES: usize = 256;
+const MAX_PENDING_MONITOR_CHANGES: usize = 4_096;
 const MAX_ICON_DETAILS_CACHE_ENTRIES: usize = 10_000;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -169,7 +169,12 @@ fn cached_icon_details(path: &Path, fingerprint: IconDetailsFingerprint) -> Opti
     icon_details_cache().lock().ok()?.get(path, fingerprint)
 }
 
+static CACHE_HAS_ENTRIES: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 fn cached_icon_details_for_revisit(path: &Path) -> Option<IconDetails> {
+    if !CACHE_HAS_ENTRIES.load(std::sync::atomic::Ordering::Acquire) {
+        return None;
+    }
     let was_cached = icon_details_cache().lock().ok()?.entries.contains_key(path);
     if !was_cached {
         return None;
@@ -191,6 +196,7 @@ fn cache_icon_details(
             fingerprint,
             IconDetails::from_update(update),
         );
+        CACHE_HAS_ENTRIES.store(true, std::sync::atomic::Ordering::Release);
     }
 }
 
@@ -247,7 +253,8 @@ fn map_validation_error(error: std::io::Error) -> LocationValidationError {
     match error.kind() {
         ErrorKind::NotFound => LocationValidationError::Missing,
         ErrorKind::PermissionDenied => LocationValidationError::Inaccessible,
-        _ => LocationValidationError::Unavailable(error.to_string()),
+        ErrorKind::NotADirectory => LocationValidationError::NotDirectory,
+        _ => LocationValidationError::Unavailable(crate::services::io_error_detail(&error)),
     }
 }
 
@@ -263,7 +270,9 @@ fn uri_validation_result(
                 location.uri_value().unwrap_or_default(),
             ))
         } else {
-            LocationValidationError::Unavailable(sanitize_failure_message(&error.to_string()))
+            LocationValidationError::Unavailable(sanitize_failure_message(
+                &crate::services::gio_error_detail(&error),
+            ))
         }
     })?;
     match info.file_type() {
@@ -315,6 +324,33 @@ pub(crate) async fn query_file_entry(location: Location) -> Result<FileEntry, gl
         )
         .await?;
     Ok(entry_from_info(location, info))
+}
+
+fn listed_entry(
+    request_id: RequestId,
+    location: &Location,
+    directory: &gio::File,
+    info: gio::FileInfo,
+) -> Option<FileEntry> {
+    let Some(child) = location_for_file(&directory.child(info.name())) else {
+        tracing::warn!(
+            request_id = request_id.0,
+            backend = %location.backend_name(),
+            "skipped a directory entry whose URI could not be parsed"
+        );
+        let display_name = info
+            .has_attribute(gio::FILE_ATTRIBUTE_STANDARD_DISPLAY_NAME)
+            .then(|| info.display_name());
+        tracing::debug!(
+            request_id = request_id.0,
+            location = %location.diagnostic_path(),
+            display_name = ?display_name,
+            name_bytes = info.name().as_os_str().len(),
+            "skipped directory entry"
+        );
+        return None;
+    };
+    Some(entry_from_info(child, info))
 }
 
 fn entry_from_info(location: Location, info: gio::FileInfo) -> FileEntry {
@@ -374,6 +410,7 @@ fn entry_from_info(location: Location, info: gio::FileInfo) -> FileEntry {
         child_count: MetadataValue::Unknown,
         duration_seconds: MetadataValue::Unknown,
         is_hidden: info_is_hidden(&info),
+        recent_uri: None,
     }
 }
 
@@ -396,11 +433,13 @@ fn recent_target_location(info: &gio::FileInfo) -> Option<Location> {
 
 fn recent_entry_from_target(
     recent_info: &gio::FileInfo,
+    recent_uri: String,
     target_location: Location,
     target_info: gio::FileInfo,
 ) -> Option<FileEntry> {
     let mut entry = entry_from_info(target_location, target_info);
     entry.recent_unix_seconds = recent_unix_seconds(recent_info);
+    entry.recent_uri = Some(recent_uri);
     let final_location_is_recent = entry
         .location
         .uri_value()
@@ -410,14 +449,21 @@ fn recent_entry_from_target(
 
 // Resolve concurrently so one unreachable target cannot consume the batch's deadline.
 async fn resolve_recent_batch(
-    infos: Vec<gio::FileInfo>,
+    infos: Vec<(gio::FileInfo, String)>,
     include_metadata: bool,
     deadline: Instant,
 ) -> Vec<RecentEntryResolution> {
     let context = glib::MainContext::default();
     let pending: Vec<_> = infos
         .into_iter()
-        .map(|info| context.spawn_local(resolve_recent_entry(info, include_metadata, deadline)))
+        .map(|(info, recent_uri)| {
+            context.spawn_local(resolve_recent_entry(
+                info,
+                recent_uri,
+                include_metadata,
+                deadline,
+            ))
+        })
         .collect();
     let mut resolutions = Vec::with_capacity(pending.len());
     for handle in pending {
@@ -428,6 +474,7 @@ async fn resolve_recent_batch(
 
 async fn resolve_recent_entry(
     recent_info: gio::FileInfo,
+    recent_uri: String,
     include_metadata: bool,
     deadline: Instant,
 ) -> RecentEntryResolution {
@@ -448,15 +495,17 @@ async fn resolve_recent_entry(
         remaining,
         target_file.query_info_future(
             attributes,
-            gio::FileQueryInfoFlags::NOFOLLOW_SYMLINKS,
+            gio::FileQueryInfoFlags::NONE,
             glib::Priority::DEFAULT,
         ),
     )
     .await
     {
-        Ok(Ok(target_info)) => recent_entry_from_target(&recent_info, target_location, target_info)
-            .map(Box::new)
-            .map_or(RecentEntryResolution::Stale, RecentEntryResolution::Entry),
+        Ok(Ok(target_info)) => {
+            recent_entry_from_target(&recent_info, recent_uri, target_location, target_info)
+                .map(Box::new)
+                .map_or(RecentEntryResolution::Stale, RecentEntryResolution::Entry)
+        }
         Ok(Err(_)) => RecentEntryResolution::Stale,
         Err(_) => RecentEntryResolution::TimedOut,
     }
@@ -521,10 +570,10 @@ fn scan_native_directory(
 ) -> NativeEnumeration {
     let children = match fs::read_dir(path) {
         Ok(children) => children,
-        Err(error) => return NativeEnumeration::Failed(error.to_string()),
+        Err(error) => return NativeEnumeration::Failed(crate::services::io_error_message(&error)),
     };
     let hidden_names = native_hidden_names(path);
-    let mut entries = Vec::new();
+    let mut entries = Vec::with_capacity(1024);
     let mut truncated = false;
     for child in children {
         if cancellable.is_cancelled() {
@@ -536,7 +585,9 @@ fn scan_native_directory(
         }
         let child = match child {
             Ok(child) => child,
-            Err(error) => return NativeEnumeration::Failed(error.to_string()),
+            Err(error) => {
+                return NativeEnumeration::Failed(crate::services::io_error_message(&error));
+            }
         };
         let native_name = child.file_name();
         let is_hidden = is_hidden_name(&native_name, &hidden_names);
@@ -547,7 +598,9 @@ fn scan_native_directory(
         let file_type = match child.file_type() {
             Ok(file_type) => file_type,
             Err(error) if error.kind() == ErrorKind::NotFound => continue,
-            Err(error) => return NativeEnumeration::Failed(error.to_string()),
+            Err(error) => {
+                return NativeEnumeration::Failed(crate::services::io_error_message(&error));
+            }
         };
         let path = child.path();
         let kind = native_kind(file_type, &path);
@@ -566,6 +619,7 @@ fn scan_native_directory(
             child_count: MetadataValue::Unknown,
             duration_seconds: MetadataValue::Unknown,
             is_hidden,
+            recent_uri: None,
         };
         if let Some(details) = cached_details {
             details.apply_to_entry(&mut entry);
@@ -802,8 +856,16 @@ impl RecentEnumerationSource for GioRecentEnumerationSource {
             if files.is_empty() {
                 return Ok(None);
             }
+            // Delete the registry handle, never standard::target-uri (the real file).
+            let files_with_uri: Vec<(gio::FileInfo, String)> = files
+                .into_iter()
+                .map(|info| {
+                    let uri = enumerator.child(&info).uri().to_string();
+                    (info, uri)
+                })
+                .collect();
             Ok(Some(
-                resolve_recent_batch(files, include_metadata, deadline).await,
+                resolve_recent_batch(files_with_uri, include_metadata, deadline).await,
             ))
         })
     }
@@ -928,6 +990,75 @@ fn enumerate_recent_with_source(
     LoadHandle::new(move || task.abort())
 }
 
+trait RecentRemovalBackend {
+    fn delete(&self, uri: &str) -> RecentEnumerationFuture<Result<(), String>>;
+}
+
+// GVfs recent deletion removes the registry entry without touching its target.
+struct GioRecentRemovalBackend;
+
+impl RecentRemovalBackend for GioRecentRemovalBackend {
+    fn delete(&self, uri: &str) -> RecentEnumerationFuture<Result<(), String>> {
+        let file = gio::File::for_uri(uri);
+        Box::pin(async move {
+            file.delete_future(glib::Priority::DEFAULT)
+                .await
+                .map_err(|error| error.to_string())
+        })
+    }
+}
+
+#[derive(Clone, Default)]
+pub(crate) struct RecentRemovalState {
+    in_flight: Rc<RefCell<HashSet<String>>>,
+}
+
+impl RecentRemovalState {
+    pub(crate) fn new() -> Self {
+        Self::default()
+    }
+}
+
+fn recent_remove_entries_with_backend(
+    state: &RecentRemovalState,
+    backend: &Rc<dyn RecentRemovalBackend>,
+    uris: impl IntoIterator<Item = String>,
+) {
+    for uri in uris {
+        if !gio::File::for_uri(&uri).has_uri_scheme("recent") {
+            tracing::warn!("refusing to remove a non-recent URI from the registry");
+            continue;
+        }
+        if !state.in_flight.borrow_mut().insert(uri.clone()) {
+            tracing::debug!(uri = %uri, "recent removal already in flight, skipping duplicate");
+            continue;
+        }
+        tracing::debug!(uri = %uri, "removing recent entry");
+        let in_flight = state.in_flight.clone();
+        let backend = backend.clone();
+        glib::MainContext::default().spawn_local(async move {
+            let result = backend.delete(&uri).await;
+            in_flight.borrow_mut().remove(&uri);
+            match result {
+                Ok(()) => tracing::debug!(uri = %uri, "removed recent entry"),
+                Err(error) => tracing::warn!(
+                    uri = %uri,
+                    error = %error,
+                    "failed to remove recent entry; leaving it in the list"
+                ),
+            }
+        });
+    }
+}
+
+pub(crate) fn recent_remove_entries(
+    state: &RecentRemovalState,
+    uris: impl IntoIterator<Item = String>,
+) {
+    let backend: Rc<dyn RecentRemovalBackend> = Rc::new(GioRecentRemovalBackend);
+    recent_remove_entries_with_backend(state, &backend, uris);
+}
+
 impl FileSource for LocalFileSource {
     fn validate_location(&self, location: &Location) -> Result<(), LocationValidationError> {
         if let Some(path) = location.native_path() {
@@ -943,7 +1074,7 @@ impl FileSource for LocalFileSource {
         let file = gio::File::for_uri(
             location
                 .uri_value()
-                .ok_or_else(|| LocationValidationError::Unavailable("invalid URI".into()))?,
+                .ok_or(LocationValidationError::InvalidUri)?,
         );
         uri_validation_result(
             location,
@@ -1094,8 +1225,7 @@ impl FileSource for LocalFileSource {
                         let mut entries: Vec<_> = files
                             .into_iter()
                             .filter_map(|info| {
-                                let child = directory.child(info.name());
-                                Some(entry_from_info(location_for_file(&child)?, info))
+                                listed_entry(request_id, &location, &directory, info)
                             })
                             .collect();
                         let remaining_capacity = request.max_entries.saturating_sub(total_entries);
@@ -1256,7 +1386,6 @@ impl FileSource for LocalFileSource {
         include_hidden: bool,
         notify: Rc<dyn Fn(DirectoryChange)>,
     ) -> Option<LoadHandle> {
-        let _ = include_hidden;
         let file = gio_file_for_location(&location);
         let monitor = match file.monitor_directory(
             gio::FileMonitorFlags::WATCH_MOVES,
@@ -1298,9 +1427,14 @@ impl FileSource for LocalFileSource {
                 other_file.and_then(location_for_file),
                 event,
             );
-            let Some(change) = change else {
+            let Some(change) =
+                change.and_then(|change| visible_monitor_change(&watched, change, include_hidden))
+            else {
                 return;
             };
+            if matches!(change, PendingMonitorChange::Rescan) {
+                tracing::debug!(?event, "directory monitor requested reconciliation");
+            }
             let key = match &change {
                 PendingMonitorChange::Upsert(location) | PendingMonitorChange::Remove(location) => {
                     Some(location.clone())
@@ -1312,18 +1446,17 @@ impl FileSource for LocalFileSource {
                 return;
             }
 
-            if let Some(source) = timeout_for_change.take() {
-                source.remove();
+            if timeout_for_change.borrow().is_none() {
+                let pending = pending_for_change.clone();
+                let timeout = timeout_for_change.clone();
+                let notify = notify.clone();
+                let cancelled = cancelled_for_change.clone();
+                let source = glib::timeout_add_local_once(Duration::from_millis(100), move || {
+                    timeout.take();
+                    flush_monitor_changes(&pending, &notify, &cancelled);
+                });
+                timeout_for_change.replace(Some(source));
             }
-            let pending = pending_for_change.clone();
-            let timeout = timeout_for_change.clone();
-            let notify = notify.clone();
-            let cancelled = cancelled_for_change.clone();
-            let source = glib::timeout_add_local_once(Duration::from_millis(100), move || {
-                timeout.take();
-                flush_monitor_changes(&pending, &notify, &cancelled);
-            });
-            timeout_for_change.replace(Some(source));
         });
 
         Some(LoadHandle::new(move || {
@@ -1334,6 +1467,51 @@ impl FileSource for LocalFileSource {
             pending.borrow_mut().clear();
             let _cancelled = monitor.cancel();
         }))
+    }
+
+    fn query_location_identity(
+        &self,
+        location: Location,
+        emit: Rc<dyn Fn(Option<LocationIdentity>)>,
+    ) -> LoadHandle {
+        let Some(path) = location.native_path().map(Path::to_path_buf) else {
+            emit(None);
+            return LoadHandle::new(|| {});
+        };
+        // A hung network mount must not stall the window.
+        let task = glib::MainContext::default().spawn_local(async move {
+            let identity = gio::spawn_blocking(move || {
+                fs::symlink_metadata(&path)
+                    .ok()
+                    .and_then(|metadata| folder_identity(&metadata))
+            })
+            .await
+            .ok()
+            .flatten();
+            emit(identity);
+        });
+        LoadHandle::new(move || task.abort())
+    }
+
+    fn find_by_identity(
+        &self,
+        parent: Location,
+        identity: LocationIdentity,
+        emit: Rc<dyn Fn(Option<Location>)>,
+    ) -> LoadHandle {
+        let Some(directory) = parent.native_path().map(Path::to_path_buf) else {
+            emit(None);
+            return LoadHandle::new(|| {});
+        };
+        let task = glib::MainContext::default().spawn_local(async move {
+            let found =
+                gio::spawn_blocking(move || native_entry_with_identity(&directory, identity))
+                    .await
+                    .ok()
+                    .flatten();
+            emit(found.map(Location::local));
+        });
+        LoadHandle::new(move || task.abort())
     }
 }
 
@@ -1773,6 +1951,74 @@ fn log_directory_load_started(request_id: RequestId, location: &Location) {
     );
 }
 
+fn folder_identity(metadata: &fs::Metadata) -> Option<LocationIdentity> {
+    metadata.is_dir().then(|| LocationIdentity {
+        device: metadata.dev(),
+        inode: metadata.ino(),
+        created: metadata.created().ok(),
+    })
+}
+
+fn native_entry_with_identity(directory: &Path, identity: LocationIdentity) -> Option<PathBuf> {
+    use std::os::unix::fs::DirEntryExt;
+    let entries: Vec<fs::DirEntry> = fs::read_dir(directory).ok()?.flatten().collect();
+    let matches = |entry: &&fs::DirEntry| {
+        entry
+            .metadata()
+            .ok()
+            .and_then(|metadata| folder_identity(&metadata))
+            .is_some_and(|candidate| identity.matches(&candidate))
+    };
+    // Btrfs subvolumes, overlayfs and FUSE can list a different inode than stat reports.
+    entries
+        .iter()
+        .filter(|entry| entry.ino() == identity.inode)
+        .find(matches)
+        .or_else(|| {
+            entries
+                .iter()
+                .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
+                .find(matches)
+        })
+        .map(fs::DirEntry::path)
+}
+
+fn monitor_location_is_hidden(location: &Location) -> bool {
+    location
+        .file_name()
+        .is_some_and(|name| name.as_encoded_bytes().first() == Some(&b'.'))
+}
+
+fn visible_monitor_change(
+    watched: &Location,
+    change: PendingMonitorChange,
+    include_hidden: bool,
+) -> Option<PendingMonitorChange> {
+    if include_hidden {
+        return Some(change);
+    }
+    match change {
+        // The open folder's own departure counts even when its name is hidden.
+        PendingMonitorChange::Remove(location) if location == *watched => {
+            Some(PendingMonitorChange::Remove(location))
+        }
+        PendingMonitorChange::Upsert(location) if monitor_location_is_hidden(&location) => None,
+        PendingMonitorChange::Remove(location) if monitor_location_is_hidden(&location) => None,
+        PendingMonitorChange::Move { from, to } => {
+            match (
+                monitor_location_is_hidden(&from),
+                monitor_location_is_hidden(&to),
+            ) {
+                (true, true) => None,
+                (true, false) => Some(PendingMonitorChange::Upsert(to)),
+                (false, true) => Some(PendingMonitorChange::Remove(from)),
+                (false, false) => Some(PendingMonitorChange::Move { from, to }),
+            }
+        }
+        change => Some(change),
+    }
+}
+
 fn pending_monitor_change(
     watched: &Location,
     changed: Option<Location>,
@@ -1846,6 +2092,10 @@ fn queue_monitor_change(
         })
         .or_insert(change);
     if pending.len() > MAX_PENDING_MONITOR_CHANGES {
+        tracing::debug!(
+            pending = pending.len(),
+            "directory monitor burst requested reconciliation"
+        );
         pending.clear();
         pending.insert(None, PendingMonitorChange::Rescan);
     }

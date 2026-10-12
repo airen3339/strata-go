@@ -14,16 +14,17 @@ pub(crate) mod trash_restore;
 mod volume;
 
 pub(crate) use file_manager1::{RevealRequest, export_file_manager};
-pub(crate) use gio_location::{gio_file_for_location, location_for_file};
+pub(crate) use gio_location::{gio_file_for_location, location_for_file, reveal_target_for_file};
 pub(crate) use local_actions::{LocalActionStore, resolve_executable as resolve_action_executable};
 pub use local_files::LocalFileSource;
 pub(crate) use local_files::query_file_entry;
+pub(crate) use local_files::{RecentRemovalState, recent_remove_entries};
 pub(crate) use local_jobs::LocalActionRunner;
 pub use local_operations::LocalOperationProvider;
 pub(crate) use local_operations::{
     ARCHIVE_PREVIEW_FAILED_MESSAGE, ARCHIVE_TOO_LARGE_MESSAGE, ARCHIVE_UNSUPPORTED_MESSAGE,
-    INVALID_ARCHIVE, MAX_ARCHIVE_PASSWORD_BYTES, archive_payload_valid, encode_archive_result,
-    flush_filesystem, list_archive_entries_direct,
+    INVALID_ARCHIVE, MAX_ARCHIVE_PASSWORD_BYTES, MAYBE_BAD_PASSWORD, PASSWORD_REQUIRED,
+    archive_payload_valid, encode_archive_result, flush_filesystem, list_archive_entries_direct,
 };
 #[cfg(test)]
 pub(crate) use local_operations::{
@@ -35,5 +36,8 @@ pub(crate) use local_operations::{
     sync_probe_len, sync_probe_observations,
 };
 pub use local_preview::LocalPreviewProvider;
-pub(crate) use volume::MountTable;
 pub(crate) use volume::{DropVolumeQuery, DropVolumes, lookup_drop_volumes};
+pub(crate) use volume::{
+    MountTable, RemovableRoot, invalidate_mount_snapshot, mount_can_unplug, mount_is_removable,
+    volume_can_unplug, with_mount_snapshot,
+};

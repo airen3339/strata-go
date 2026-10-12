@@ -12,7 +12,7 @@ use crate::ui::browser::collection::{
     search_result_navigation_position,
 };
 use crate::ui::browser::context_menu::{install_folder_context_menu, install_item_context_menu};
-use crate::ui::browser::entry::{entry_filter, entry_model_value, format_file_size};
+use crate::ui::browser::entry::{entry_filter, entry_model_value};
 use crate::ui::browser::find::{
     HitRanges, highlight_hit_name, highlight_listing_name, search_hit_ranges,
 };
@@ -24,7 +24,11 @@ use crate::ui::browser::paths::is_trash_root;
 use crate::ui::browser::presentation::LoadPresentation;
 use crate::ui::browser_modes::{ClickActivation, ClickCount};
 use crate::ui::entry_list_model::EntryListModel;
-use crate::ui::motion::{animations_enabled, emphasized_deceleration};
+use crate::ui::keys::{
+    self,
+    bindings::{DOWN, UP},
+};
+use crate::ui::motion::{animations_enabled, emphasized_acceleration, emphasized_deceleration};
 use gtk::prelude::*;
 use gtk::{gio, glib};
 use std::cell::{Cell, RefCell};
@@ -71,22 +75,64 @@ pub(super) fn install_horizontal_scroll(state: &Rc<ViewState>) {
     state.scroller.add_controller(controller);
 }
 
-const RESIZE_EDGE_RIGHT: f64 = 6.0;
+/// How far a column's resize edge reaches either side of its line; the
+/// column's scrollbar is inset by the same distance.
+const RESIZE_EDGE_REACH: f64 = 6.0;
+
+fn meets_viewport_end(state: &ViewState, shell: &gtk::Box) -> bool {
+    shell.compute_bounds(&state.scroller).is_some_and(|bounds| {
+        (f64::from(bounds.x() + bounds.width()) - f64::from(state.scroller.width())).abs() <= 1.0
+    })
+}
+
+/// During a drag the width request leads the allocation, so the edge follows the request.
+fn column_edge(shell: &gtk::Box) -> crate::ui::resize_feedback::EdgePoint {
+    let shell = shell.downgrade();
+    Rc::new(move |overlay| {
+        let shell = shell.upgrade()?;
+        let bounds = shell.compute_bounds(overlay)?;
+        let width = match shell.width_request() {
+            requested if requested > 0 => requested as f32,
+            _ => bounds.width(),
+        };
+        Some((bounds.x() + width, bounds.y()))
+    })
+}
+
+/// The preview divider is drawn over the edge of the column that meets it.
+fn preview_divider(state: &ViewState) -> Option<gtk::Widget> {
+    let split = std::iter::successors(state.scroller.parent(), gtk::Widget::parent)
+        .find(|widget| widget.has_css_class("preview-split"))
+        .and_downcast::<gtk::Paned>()?;
+    crate::ui::preview::separator(&split)
+}
 
 fn resize_edge(state: &ViewState, x: f64, y: f64) -> Option<gtk::Box> {
     state.columns.borrow().iter().find_map(|column| {
         let bounds = column.shell.compute_bounds(&state.scroller)?;
         let right = f64::from(bounds.x() + bounds.width());
-        (x >= right - 1.0
-            && x < right + RESIZE_EDGE_RIGHT
+        (x >= right - RESIZE_EDGE_REACH
+            && x < right + RESIZE_EDGE_REACH
             && y >= f64::from(bounds.y())
             && y < f64::from(bounds.y() + bounds.height()))
         .then(|| column.shell.clone())
     })
 }
 
+struct ColumnResize {
+    shell: gtk::Box,
+    /// Restored if the drag is cancelled.
+    requested: i32,
+    initial: i32,
+    start: f64,
+    /// Captured once so the bound cannot creep as the preview slot yields mid-drag.
+    cap: Option<i32>,
+}
+
 pub(super) fn install_resize_edges(state: &Rc<ViewState>) {
+    let hint = Rc::new(crate::ui::resize_feedback::EdgeHint::default());
     let motion = gtk::EventControllerMotion::new();
+    let hint_for_motion = hint.clone();
     motion.set_propagation_phase(gtk::PropagationPhase::Capture);
     let weak = Rc::downgrade(state);
     motion.connect_motion(move |_, x, y| {
@@ -99,16 +145,40 @@ pub(super) fn install_resize_edges(state: &Rc<ViewState>) {
                     column.resize_handle.remove_css_class("resize-hover");
                 }
             }
+            if let Some(divider) = preview_divider(&state) {
+                if hovered
+                    .as_ref()
+                    .is_some_and(|shell| meets_viewport_end(&state, shell))
+                {
+                    divider.add_css_class("resize-hover");
+                } else {
+                    divider.remove_css_class("resize-hover");
+                }
+            }
+            // A drag keeps its caption even where the edge stops following the pointer.
+            if !state.column_resizing.get() {
+                match &hovered {
+                    Some(shell) => hint_for_motion.hover(shell, "Column width", column_edge(shell)),
+                    None => hint_for_motion.hide(),
+                }
+            }
             state
                 .scroller
                 .set_cursor_from_name(hovered.map(|_| "col-resize"));
         }
     });
     let weak = Rc::downgrade(state);
+    let hint_for_leave = hint.clone();
     motion.connect_leave(move |_| {
         if let Some(state) = weak.upgrade() {
+            if !state.column_resizing.get() {
+                hint_for_leave.hide();
+            }
             for column in state.columns.borrow().iter() {
                 column.resize_handle.remove_css_class("resize-hover");
+            }
+            if let Some(divider) = preview_divider(&state) {
+                divider.remove_css_class("resize-hover");
             }
             state.scroller.set_cursor(None);
         }
@@ -119,8 +189,9 @@ pub(super) fn install_resize_edges(state: &Rc<ViewState>) {
     resize.set_name(Some("column-resize"));
     resize.set_button(1);
     resize.set_propagation_phase(gtk::PropagationPhase::Capture);
-    let active = Rc::new(RefCell::new(None::<(gtk::Box, i32, f64)>));
+    let active = Rc::new(RefCell::new(None::<ColumnResize>));
     let last_press = Rc::new(RefCell::new(None::<(gtk::Box, u64)>));
+    let hint_for_begin = hint.clone();
     let weak = Rc::downgrade(state);
     let active_for_begin = active.clone();
     resize.connect_drag_begin(move |gesture, x, y| {
@@ -134,6 +205,17 @@ pub(super) fn install_resize_edges(state: &Rc<ViewState>) {
             return;
         };
         state.column_resizing.set(true);
+        let column = state
+            .columns
+            .borrow()
+            .iter()
+            .find(|c| c.shell == shell)
+            .cloned();
+        if let Some(column) = &column {
+            column
+                .animation_generation
+                .set(column.animation_generation.get().saturating_add(1));
+        }
         let now = glib::monotonic_time() as u64;
         let autofit = last_press
             .borrow()
@@ -143,14 +225,27 @@ pub(super) fn install_resize_edges(state: &Rc<ViewState>) {
             });
         *last_press.borrow_mut() = Some((shell.clone(), now));
         if autofit {
+            let Some(column) = column else {
+                gesture.set_state(gtk::EventSequenceState::Denied);
+                return;
+            };
+            let animation_id = column.animation_generation.get();
             let max_natural = shell
                 .first_child()
                 .and_downcast::<gtk::Overlay>()
                 .and_then(|overlay| overlay.child())
                 .map(|column| max_child_natural_width(&column))
                 .unwrap_or(COLUMN_WIDTH);
-            shell.set_size_request(max_natural.max(COLUMN_WIDTH), -1);
-            remember_column_width(&state, &shell);
+            let target_width = bound_column_width(max_natural, column_width_cap(&state));
+            column.remember_width(target_width);
+            animate_column_resize(
+                &shell,
+                &column.animation_generation,
+                animation_id,
+                shell.width().max(COLUMN_WIDTH),
+                target_width,
+            );
+            remember_column_width(&state, target_width);
             gesture.set_state(gtk::EventSequenceState::Claimed);
             return;
         }
@@ -158,37 +253,56 @@ pub(super) fn install_resize_edges(state: &Rc<ViewState>) {
             .current_event()
             .and_then(|event| event.position())
             .map_or(x, |(pointer_x, _)| pointer_x);
-        *active_for_begin.borrow_mut() =
-            Some((shell.clone(), shell.width().max(COLUMN_WIDTH), pointer_x));
+        *active_for_begin.borrow_mut() = Some(ColumnResize {
+            shell: shell.clone(),
+            requested: shell.width_request(),
+            initial: shell.width().max(COLUMN_WIDTH),
+            start: pointer_x,
+            cap: column_width_cap(&state),
+        });
+        hint_for_begin.show(&shell, "Column width", column_edge(&shell));
         gesture.set_state(gtk::EventSequenceState::Claimed);
     });
     let weak_for_end = Rc::downgrade(state);
     let active_for_update = active.clone();
     let active_for_end = active.clone();
     let active_for_cancel = active.clone();
+    let hint_for_update = hint.clone();
+    let hint_for_end = hint.clone();
+    let hint_for_cancel = hint;
     resize.connect_drag_update(move |gesture, fallback_offset_x, _| {
         let active = active_for_update.borrow();
-        let Some((shell, initial, start)) = active.as_ref() else {
+        let Some(drag) = active.as_ref() else {
             return;
         };
         let offset_x = gesture
             .current_event()
             .and_then(|event| event.position())
-            .map_or(fallback_offset_x, |(current, _)| current - start);
-        shell.set_size_request(resized_column_width(*initial, offset_x), -1);
+            .map_or(fallback_offset_x, |(current, _)| current - drag.start);
+        drag.shell
+            .set_size_request(resized_column_width(drag.initial, offset_x, drag.cap), -1);
+        hint_for_update.follow();
     });
     resize.connect_drag_end(move |_, _, _| {
+        hint_for_end.hide();
         let resized = active_for_end.borrow_mut().take();
         if let Some(state) = weak_for_end.upgrade() {
             state.column_resizing.set(false);
-            if let Some((shell, _, _)) = resized {
-                remember_column_width(&state, &shell);
+            if let Some(ColumnResize { shell, cap, .. }) = resized {
+                // A press without movement sends no update, so bound the width here too.
+                let width = cap_column_width(shell.width_request(), cap);
+                shell.set_size_request(width, -1);
+                remember_column_width(&state, width);
+                state.match_column_widths(&shell);
             }
         }
     });
     let weak_for_cancel = Rc::downgrade(state);
     resize.connect_cancel(move |_, _| {
-        active_for_cancel.borrow_mut().take();
+        if let Some(drag) = active_for_cancel.borrow_mut().take() {
+            drag.shell.set_size_request(drag.requested, -1);
+        }
+        hint_for_cancel.hide();
         if let Some(state) = weak_for_cancel.upgrade() {
             state.column_resizing.set(false);
         }
@@ -196,6 +310,87 @@ pub(super) fn install_resize_edges(state: &Rc<ViewState>) {
     state.scroller.add_controller(resize);
 }
 
+/// Swallows the second press of a double-click whose first click opened a folder.
+/// Opening scrolls the strip, so that press can land on any row or column.
+pub(super) fn install_double_click_guard(state: &Rc<ViewState>) {
+    let click = gtk::GestureClick::new();
+    click.set_button(1);
+    click.set_propagation_phase(gtk::PropagationPhase::Capture);
+    let paired = Rc::new(RefCell::new(None::<(FolderPress, (f64, f64))>));
+    let paired_for_press = paired.clone();
+    let weak = Rc::downgrade(state);
+    click.connect_pressed(move |gesture, _, _, _| {
+        let modified = gesture
+            .current_event_state()
+            .intersects(gtk::gdk::ModifierType::CONTROL_MASK | gtk::gdk::ModifierType::SHIFT_MASK);
+        let press = gesture.current_event().and_then(|event| event.position());
+        let first = weak.upgrade().and_then(|state| {
+            let first = state.folder_press.take()?;
+            let press = press.filter(|press| !modified && first.pairs_with(*press, &state))?;
+            state.cancel_click_rename();
+            Some((first, press))
+        });
+        gesture.set_state(if first.is_some() {
+            gtk::EventSequenceState::Claimed
+        } else {
+            gtk::EventSequenceState::Denied
+        });
+        paired_for_press.replace(first);
+    });
+    let paired_for_release = paired.clone();
+    let weak = Rc::downgrade(state);
+    click.connect_released(move |gesture, _, _, _| {
+        let Some((first, press)) = paired_for_release.take() else {
+            return;
+        };
+        let Some(state) = weak.upgrade() else {
+            return;
+        };
+        let threshold = state.scroller.settings().gtk_dnd_drag_threshold();
+        let moved = gesture
+            .current_event()
+            .and_then(|event| event.position())
+            .is_none_or(|release| {
+                crate::ui::pointer::exceeds_drag_threshold(press, release, threshold)
+            });
+        if !moved
+            && state
+                .browser
+                .entry_at(first.depth, first.position)
+                .is_some_and(|entry| entry.location == first.location)
+        {
+            state.activate_column_entry(first.depth, first.position);
+        }
+    });
+    click.connect_cancel(move |_, _| {
+        paired.take();
+    });
+    state.scroller.add_controller(click);
+}
+
+/// A plain press on a folder row, kept so the next press can complete a
+/// double-click on it even after the strip slid another row under the pointer.
+pub(super) struct FolderPress {
+    pub(super) at: Instant,
+    /// Window coordinates, which stay put while the strip scrolls.
+    pub(super) point: (f64, f64),
+    pub(super) depth: usize,
+    pub(super) position: usize,
+    pub(super) location: Location,
+}
+
+impl FolderPress {
+    fn pairs_with(&self, press: (f64, f64), state: &ViewState) -> bool {
+        let settings = state.scroller.settings();
+        let interval = Duration::from_millis(settings.gtk_double_click_time().max(0) as u64);
+        let distance = f64::from(settings.gtk_double_click_distance());
+        self.at.elapsed() < interval
+            && (press.0 - self.point.0).abs() <= distance
+            && (press.1 - self.point.1).abs() <= distance
+    }
+}
+
+#[derive(Clone)]
 pub(super) struct BoundRow {
     pub(super) item: glib::WeakRef<gtk::ListItem>,
     pub(super) row: glib::WeakRef<gtk::Box>,
@@ -220,6 +415,7 @@ struct PendingPointerActivation {
     pub(super) press: (f64, f64),
     pub(super) moved: bool,
     pub(super) kind: PendingActivationKind,
+    pub(super) location_hold: Option<super::tab_location::TabLocationHold>,
 }
 
 impl PendingPointerActivation {
@@ -239,6 +435,9 @@ pub(super) struct ColumnView {
     pub(super) resize_handle: gtk::Box,
     pub(super) reveal_button: gtk::Button,
     pub(super) animation_generation: Rc<Cell<u64>>,
+    /// The intended width in unscaled pixels: the saved default, then the last
+    /// drag or autofit. A text-size change scales this, not the capped width.
+    pub(super) unscaled_width: Rc<Cell<f64>>,
     pub(super) presentation: LoadPresentation,
     pub(super) model: EntryListModel,
     pub(super) filtered_model: gtk::FilterListModel,
@@ -281,6 +480,29 @@ pub(super) struct ColumnHits {
 }
 
 impl ColumnView {
+    fn remember_width(&self, width: i32) {
+        let scale = crate::ui::preferences::PreferenceManager::shared().interface_scale();
+        self.unscaled_width.set(f64::from(width) / scale);
+    }
+
+    /// Focuses the list, or the column surface while it shows an empty, error or
+    /// loading page.
+    pub(super) fn focus_surface(&self) -> bool {
+        crate::ui::loading_skeleton::focus_surface_or(&self.presentation.stack, &self.list)
+    }
+
+    /// The bound row GTK shows at `position`. A reload during an inline rename can leave
+    /// a detached row behind that still reports the position it had.
+    pub(super) fn shown_row_at(&self, position: u32) -> Option<(gtk::Box, BoundRow)> {
+        self.bound_rows.borrow().iter().find_map(|bound| {
+            let row = bound.row.upgrade()?;
+            (bound.item.upgrade()?.position() == position
+                && row.is_mapped()
+                && row.is_ancestor(&self.list))
+            .then(|| (row, bound.clone()))
+        })
+    }
+
     pub(super) fn refresh_name_highlights(&self, find: Option<&str>) {
         let searching = self.recursive_search_active.get();
         let results = self.search_results.borrow();
@@ -327,10 +549,7 @@ impl ColumnView {
             position.and_then(|position| self.map.view_position(position))
         };
         if let Some(position) = position {
-            let row = self.bound_rows.borrow().iter().find_map(|bound| {
-                let item = bound.item.upgrade()?;
-                (item.position() == position).then(|| bound.row.upgrade())?
-            })?;
+            let (row, _) = self.shown_row_at(position)?;
             let bounds = row.compute_bounds(&self.list)?;
             return Some((
                 self.item_context_trigger.clone(),
@@ -351,13 +570,7 @@ impl ColumnView {
 }
 
 pub(super) fn column_size_text(entry: Option<&FileEntry>) -> String {
-    entry
-        .filter(|entry| !entry.is_directory())
-        .and_then(|entry| match entry.size {
-            crate::model::MetadataValue::Known(bytes) => Some(format_file_size(bytes)),
-            crate::model::MetadataValue::Unknown | crate::model::MetadataValue::Unavailable => None,
-        })
-        .unwrap_or_default()
+    entry.map_or_else(String::new, crate::ui::browser_modes::entry_size)
 }
 
 const COLUMN_SPINNER_DELAY: std::time::Duration = std::time::Duration::from_millis(120);
@@ -479,11 +692,15 @@ pub(super) fn restore_column_cursor(column: &ColumnView, position: u32) {
             }
             let focused = list.root().and_then(|root| root.focus());
             // `is_ancestor` is true when the receiver sits inside the argument.
-            // Restore while focus is the list or one of its rows, and also while
-            // a parent of the list still holds focus. An inline name editor also
-            // sits inside a row and must keep the focus it took after this queued.
+            // Restore while focus is the list or one of its rows, while a parent of
+            // the list still holds focus, and while focus is on a row the update
+            // removed. An inline name editor also sits inside a row and must keep the
+            // focus it took after this queued.
             if !focused.as_ref().is_some_and(|focused| {
-                (focused == list || focused.is_ancestor(list) || list.is_ancestor(focused))
+                (focused == list
+                    || focused.is_ancestor(list)
+                    || list.is_ancestor(focused)
+                    || crate::ui::focus_navigation::focus_removed_from(list.upcast_ref(), focused))
                     && !crate::ui::focus_navigation::editable(focused)
             }) {
                 return glib::ControlFlow::Break;
@@ -519,29 +736,29 @@ pub(super) fn set_column_selections(column: &ColumnView, positions: &[u32]) {
     column.syncing_selection.set(false);
 }
 
+pub(super) fn select_all_in_column(column: &ColumnView) {
+    column.syncing_selection.set(true);
+    column.selection.select_all();
+    column.syncing_selection.set(false);
+}
+
 fn should_activate_single_click(
     press_count: i32,
     is_directory: bool,
     activation: ClickActivation,
     control: bool,
     shift: bool,
-    preserve_group: bool,
 ) -> bool {
     let configured = if is_directory {
         activation.folders
     } else {
         activation.files
     };
-    press_count == 1 && configured == ClickCount::One && !control && !shift && !preserve_group
+    press_count == 1 && configured == ClickCount::One && !control && !shift
 }
 
-fn should_preview_pointer_press(
-    press_count: i32,
-    control: bool,
-    shift: bool,
-    preserve_group: bool,
-) -> bool {
-    press_count == 1 && !control && !shift && !preserve_group
+fn should_preview_pointer_press(press_count: i32, control: bool, shift: bool) -> bool {
+    press_count == 1 && !control && !shift
 }
 
 pub(super) fn is_column_background(surface: &gtk::Widget, picked: &gtk::Widget) -> bool {
@@ -613,29 +830,72 @@ pub(super) fn set_mark_path_style(row: &gtk::Box, mark: super::clipboard::Clipbo
     }
 }
 
-fn animate_column_entry(column: &gtk::Box, generation: &Rc<Cell<u64>>) {
-    let animation_id = generation.get().saturating_add(1);
-    generation.set(animation_id);
-    column.remove_css_class("column-entering");
+/// Runs once per column, so its timeout owns the class outright; width
+/// animations keep their own generation.
+fn animate_column_entry(column: &gtk::Box, swapped: bool) {
     if !animations_enabled() {
         return;
     }
-
-    column.add_css_class("column-entering");
+    // A swapped-in sibling takes the old column's place, so it only fades.
+    let class = if swapped {
+        "column-swapping"
+    } else {
+        "column-entering"
+    };
+    column.add_css_class(class);
     let column = column.downgrade();
-    let generation = generation.clone();
     glib::timeout_add_local_once(COLUMN_TRANSITION, move || {
-        if generation.get() == animation_id
-            && let Some(column) = column.upgrade()
-        {
-            column.remove_css_class("column-entering");
+        if let Some(column) = column.upgrade() {
+            column.remove_css_class(class);
         }
     });
 }
 
-fn remember_column_width(state: &ViewState, shell: &gtk::Box) {
+fn animate_column_exit(state: &Rc<ViewState>, column: ColumnView, animation_id: u64) {
+    let ColumnView {
+        shell,
+        marquee,
+        animation_generation: generation,
+        ..
+    } = column;
+    let band = marquee.band();
+    shell.add_css_class("column-exiting");
+    // Its depth may already belong to a new column, so it must not take clicks or drops.
+    shell.set_can_target(false);
+    let weak = Rc::downgrade(state);
+    // Width and opacity are driven from the same tick (not a separate CSS
+    // keyframe) so they never drift out of lockstep.
+    let start_width = shell.width().max(shell.width_request()).max(0);
+    let started = Instant::now();
+    let weak_shell = shell.downgrade();
+    let _tick = shell.add_tick_callback(move |_, _| {
+        if generation.get() != animation_id {
+            return glib::ControlFlow::Break;
+        }
+        let Some(widget) = weak_shell.upgrade() else {
+            return glib::ControlFlow::Break;
+        };
+        let progress =
+            (started.elapsed().as_secs_f64() / COLUMN_TRANSITION.as_secs_f64()).clamp(0.0, 1.0);
+        let eased = emphasized_acceleration(progress);
+        let width = (f64::from(start_width) * (1.0 - eased)).round().max(0.0) as i32;
+        widget.set_size_request(width, -1);
+        widget.set_opacity(1.0 - eased);
+        if progress < 1.0 {
+            return glib::ControlFlow::Continue;
+        }
+        widget.set_size_request(0, -1);
+        if let Some(state) = weak.upgrade() {
+            state.columns_widget.remove(&widget);
+            state.overlay.remove_overlay(&band);
+        }
+        glib::ControlFlow::Break
+    });
+}
+
+fn remember_column_width(state: &ViewState, width: i32) {
     let preferences = crate::ui::preferences::PreferenceManager::shared();
-    let width = (f64::from(shell.width_request()) / preferences.interface_scale()).round() as i32;
+    let width = (f64::from(width) / preferences.interface_scale()).round() as i32;
     let width = Some(width.max(COLUMN_WIDTH));
     if state.browser.is_chooser_mode() {
         preferences.set_chooser_column_width(width);
@@ -654,10 +914,36 @@ fn initial_column_width(state: &ViewState) -> i32 {
     saved.map_or(COLUMN_WIDTH, |width| width.max(COLUMN_WIDTH))
 }
 
-fn resized_column_width(initial_width: i32, horizontal_offset: f64) -> i32 {
-    (f64::from(initial_width) + horizontal_offset)
-        .round()
-        .max(f64::from(COLUMN_WIDTH)) as i32
+/// The standard column width at the current text size, the narrowest the
+/// cap may make a column.
+pub(super) fn column_floor() -> i32 {
+    let scale = crate::ui::preferences::PreferenceManager::shared().interface_scale();
+    (f64::from(COLUMN_WIDTH) * scale).round() as i32
+}
+
+/// The visible browser area the preview layout publishes, or the columns
+/// viewport while no layout is attached; none before the first allocation.
+fn column_width_cap(state: &ViewState) -> Option<i32> {
+    state.column_width_limit.get().or_else(|| {
+        let page = state.scroller.hadjustment().page_size();
+        (page > 0.0).then(|| page.round() as i32)
+    })
+}
+
+fn cap_column_width(width: i32, cap: Option<i32>) -> i32 {
+    cap.map_or(width, |cap| width.min(cap.max(column_floor())))
+}
+
+/// Pointer-chosen widths (drag, autofit) keep the 300 px minimum.
+fn bound_column_width(width: i32, cap: Option<i32>) -> i32 {
+    cap_column_width(width.max(COLUMN_WIDTH), cap)
+}
+
+fn resized_column_width(initial_width: i32, horizontal_offset: f64, cap: Option<i32>) -> i32 {
+    bound_column_width(
+        (f64::from(initial_width) + horizontal_offset).round() as i32,
+        cap,
+    )
 }
 
 pub(in crate::ui) fn max_child_natural_width(widget: &gtk::Widget) -> i32 {
@@ -707,7 +993,63 @@ fn animate_horizontal_scroll(
     });
 }
 
+fn animate_column_resize(
+    shell: &gtk::Box,
+    generation: &Rc<Cell<u64>>,
+    animation_id: u64,
+    start_width: i32,
+    target_width: i32,
+) {
+    if !animations_enabled() || (target_width - start_width).abs() < 1 {
+        shell.set_size_request(target_width, -1);
+        return;
+    }
+    let started = Instant::now();
+    let shell = shell.downgrade();
+    let generation = generation.clone();
+    let _tick = shell.upgrade().map(|widget| {
+        widget.add_tick_callback(move |_, _| {
+            if generation.get() != animation_id {
+                return glib::ControlFlow::Break;
+            }
+            let Some(shell) = shell.upgrade() else {
+                return glib::ControlFlow::Break;
+            };
+            let progress =
+                (started.elapsed().as_secs_f64() / COLUMN_TRANSITION.as_secs_f64()).clamp(0.0, 1.0);
+            let eased = emphasized_deceleration(progress);
+            let width = start_width + ((target_width - start_width) as f64 * eased).round() as i32;
+            shell.set_size_request(width, -1);
+            if progress >= 1.0 {
+                shell.set_size_request(target_width, -1);
+                glib::ControlFlow::Break
+            } else {
+                glib::ControlFlow::Continue
+            }
+        })
+    });
+}
+
 impl ViewState {
+    fn match_column_widths(&self, resized: &gtk::Box) {
+        let width = resized.width_request().max(COLUMN_WIDTH);
+        for column in self.columns.borrow().iter() {
+            column.remember_width(width);
+            if column.shell == *resized {
+                continue;
+            }
+            let animation_id = column.animation_generation.get().saturating_add(1);
+            column.animation_generation.set(animation_id);
+            animate_column_resize(
+                &column.shell,
+                &column.animation_generation,
+                animation_id,
+                column.shell.width().max(COLUMN_WIDTH),
+                width,
+            );
+        }
+    }
+
     pub(super) fn clear_column_selections(&self) {
         let active = self.browser.active_depth();
         let selections: Vec<_> = self
@@ -751,7 +1093,7 @@ impl ViewState {
     }
 
     pub(super) fn rebuild_columns_from(self: &Rc<Self>, from_depth: usize) {
-        self.truncate(from_depth);
+        self.truncate_for_replacement(from_depth);
         let snapshots = (from_depth..)
             .map_while(|depth| self.browser.column_snapshot(depth))
             .collect::<Vec<_>>();
@@ -786,9 +1128,10 @@ impl ViewState {
                 // Rebuilt, already-loaded columns receive no finish event to cancel the timer.
                 stop_column_spinner(column);
                 if let Some(message) = snapshot.error.as_deref() {
-                    column
-                        .presentation
-                        .show_error(&format!("Unable to read this directory\n{message}"));
+                    column.presentation.show_error(&rust_i18n::t!(
+                        "Unable to read this directory\n%{message}",
+                        message = message
+                    ));
                 } else if snapshot.count == 0 {
                     column.presentation.show_empty();
                 } else {
@@ -796,6 +1139,23 @@ impl ViewState {
                 }
             }
         }
+    }
+
+    /// Reapplies the directory selection to rows that return unselected when a filter ends.
+    fn resync_column_selection(&self, depth: usize) {
+        let Ok(columns) = self.columns.try_borrow() else {
+            return;
+        };
+        let Some(column) = columns.get(depth) else {
+            return;
+        };
+        let positions: Vec<_> = self
+            .browser
+            .selected_positions(depth)
+            .into_iter()
+            .filter_map(|position| column.map.view_position(position))
+            .collect();
+        set_column_selections(column, &positions);
     }
 
     pub(super) fn focus_rebuilt_active_column(&self) {
@@ -817,12 +1177,22 @@ impl ViewState {
         if let Some(position) = position {
             scroll_column_to(column, position);
         }
-        column.list.grab_focus();
-        let list = column.list.downgrade();
+        column.focus_surface();
+        let column = column.clone();
         glib::idle_add_local_once(move || {
-            if let Some(list) = list.upgrade() {
-                list.grab_focus();
+            // A Ctrl+F, popover or dialog opened since the rebuild keeps focus.
+            let root = column.list.root();
+            let focused = root.as_ref().and_then(|root| root.focus());
+            if focused.is_some_and(|focused| {
+                crate::ui::focus_navigation::editable(&focused)
+                    || crate::ui::focus_navigation::in_popover(&focused)
+            }) || root
+                .and_downcast::<gtk::Window>()
+                .is_some_and(|window| crate::ui::window::visible_modal_layer(&window).is_some())
+            {
+                return;
             }
+            column.focus_surface();
         });
     }
 
@@ -842,6 +1212,49 @@ impl ViewState {
                 set_active_path_style(&row, active == Some(item.position()), immediate);
                 true
             });
+        }
+    }
+
+    pub(super) fn request_columns_folder_counts(&self) {
+        if self.mode_views.borrow().mode() != crate::ui::browser_modes::BrowserMode::Columns {
+            return;
+        }
+        let requests = self
+            .columns
+            .borrow()
+            .iter()
+            .enumerate()
+            .filter(|(_, column)| !column.recursive_search_active.get())
+            .flat_map(|(depth, column)| {
+                column
+                    .bound_rows
+                    .borrow()
+                    .iter()
+                    .filter_map(|bound| {
+                        let item = bound.item.upgrade()?;
+                        let row = bound.row.upgrade()?;
+                        let icon = row
+                            .first_child()
+                            .and_downcast::<crate::ui::thumbnail::ThumbnailSlot>()?;
+                        let position = column.map.source_position(item.position())?;
+                        let entry = self.browser.entry_at(depth, position)?;
+                        (entry.is_directory()
+                            && entry.child_count == crate::model::MetadataValue::Unknown)
+                            .then_some((depth, position, row, icon, entry.location))
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+        for (depth, position, row, icon, location) in requests {
+            crate::ui::thumbnail::request_metadata(
+                &icon,
+                &row,
+                &self.browser,
+                depth,
+                position,
+                location,
+                true,
+            );
         }
     }
 
@@ -892,9 +1305,9 @@ impl ViewState {
         truncated_hint.add_css_class("column-truncated-hint");
         crate::ui::accessibility::set_description(
             &truncated_hint,
-            Some(
+            Some(&crate::i18n::tr(
                 "This directory has more entries than could be loaded; showing a partial listing.",
-            ),
+            )),
         );
         truncated_hint.set_visible(false);
         heading_box.append(&heading);
@@ -920,7 +1333,7 @@ impl ViewState {
         header_actions.append(&column_sort_menu(&self.browser, depth));
 
         let (filter_entry, filter_revealer, filter_button) =
-            crate::ui::browser_modes::filter_controls("Filter this pane (Ctrl+F)");
+            crate::ui::browser_modes::filter_controls("Filter this pane (%{keys})");
         let weak_self = Rc::downgrade(self);
         filter_button.connect_toggled(move |button| {
             if button.is_active()
@@ -936,7 +1349,7 @@ impl ViewState {
         header_actions.append(&filter_button);
         if depth > 0 {
             let close = gtk::Button::builder()
-                .tooltip_text("Close this pane")
+                .tooltip_text(crate::i18n::tr("Close this pane"))
                 .build();
             close.set_child(Some(&crate::assets::chrome_icon(crate::assets::icons::X)));
             crate::ui::controls::pane_header_action(&close);
@@ -994,7 +1407,6 @@ impl ViewState {
         let recursive_search_active = Rc::new(Cell::new(false));
         let hits = Rc::new(RefCell::new(ColumnHits::default()));
         let syncing_selection = Rc::new(Cell::new(false));
-        let modified_selection = Rc::new(Cell::new(false));
         let focused_filtered = Rc::new(Cell::new(None::<u32>));
         let weak_selection_state = Rc::downgrade(self);
         let map_for_selection = map.clone();
@@ -1052,11 +1464,8 @@ impl ViewState {
                 .map(|(_, source_position)| *source_position)
                 .collect();
             focused_filtered_changed.set(focused);
-            let focused_source = focused.and_then(|position| {
-                mapped_positions
-                    .iter()
-                    .find_map(|(filtered, source)| (*filtered == position).then_some(*source))
-            });
+            let focused_source =
+                focused.and_then(|position| map_for_selection.source_position(position));
             if let Some(state) = weak_selection_state.upgrade() {
                 // Marquee and row-gesture writes own the selection. A later focus
                 // echo of the cursor does not, and must not replace a committed fill.
@@ -1133,6 +1542,7 @@ impl ViewState {
                         &model_for_search,
                     );
                     if let Some(state) = weak_state_for_search.upgrade() {
+                        state.resync_column_selection(depth_for_search);
                         state.refresh_name_highlights();
                         state.notify_filter_results_changed();
                     }
@@ -1234,12 +1644,12 @@ impl ViewState {
         let rows::ColumnRows {
             factory,
             bound_rows,
+            scrolling: column_scrolling,
         } = rows::column_rows(
             self,
             depth,
             &map,
             &selection,
-            &modified_selection,
             &recursive_search_active,
             &search_results,
             &hits,
@@ -1249,6 +1659,7 @@ impl ViewState {
         list.add_css_class("file-list");
         list.set_enable_rubberband(false);
         list.set_single_click_activate(false);
+        list.set_tab_behavior(gtk::ListTabBehavior::Item);
         list.set_vexpand(true);
         crate::ui::accessibility::describe_entry_container(&list, &location.display_name());
 
@@ -1264,23 +1675,23 @@ impl ViewState {
         let browser_for_navigation = Rc::downgrade(&self.browser);
         let results_for_navigation = search_results.clone();
         let navigation_state = Rc::downgrade(self);
-        search_navigation.connect_key_pressed(move |_, key, _, modifiers| {
+        keys::on_press(&search_navigation, move |_, press| {
             let filter_active = search_active_for_navigation.get()
                 || !query_for_navigation.borrow().trim().is_empty();
-            if !filter_active
-                || modifiers.intersects(
-                    gtk::gdk::ModifierType::CONTROL_MASK
-                        | gtk::gdk::ModifierType::ALT_MASK
-                        | gtk::gdk::ModifierType::SUPER_MASK
-                        | gtk::gdk::ModifierType::SHIFT_MASK,
-                )
-            {
+            if !filter_active {
+                return glib::Propagation::Proceed;
+            }
+            if press.is(UP) {
+                return glib::Propagation::Stop;
+            }
+            let activate = recursive_search_activation_key(press);
+            if !activate && !press.is(DOWN) {
                 return glib::Propagation::Proceed;
             }
             let current = bitset_positions(&selection_for_navigation.selection())
                 .last()
                 .copied();
-            if recursive_search_activation_key(key) {
+            if activate {
                 if search_active_for_navigation.get() {
                     return if current.is_some_and(|position| {
                         activate_recursive_search_result(
@@ -1303,11 +1714,6 @@ impl ViewState {
                 } else {
                     glib::Propagation::Proceed
                 };
-            }
-            match key {
-                gtk::gdk::Key::Down => {}
-                gtk::gdk::Key::Up => return glib::Propagation::Stop,
-                _ => return glib::Propagation::Proceed,
             }
             let Some(next) = current.or_else(|| {
                 search_result_navigation_position(None, selection_for_navigation.n_items(), 1)
@@ -1338,17 +1744,9 @@ impl ViewState {
         let result_selection = selection.clone();
         let query = filter_entry.downgrade();
         let navigation_state = Rc::downgrade(self);
-        return_to_filter.connect_key_pressed(move |controller, key, _, modifiers| {
+        keys::on_press(&return_to_filter, move |controller, press| {
             let filter_active = search_active.get() || !query_for_return.borrow().trim().is_empty();
-            if !filter_active
-                || !matches!(key, gtk::gdk::Key::Up | gtk::gdk::Key::Down)
-                || modifiers.intersects(
-                    gtk::gdk::ModifierType::CONTROL_MASK
-                        | gtk::gdk::ModifierType::SHIFT_MASK
-                        | gtk::gdk::ModifierType::ALT_MASK
-                        | gtk::gdk::ModifierType::SUPER_MASK,
-                )
-            {
+            if !filter_active || !press.is_any(&[UP, DOWN]) {
                 return glib::Propagation::Proceed;
             }
             if controller
@@ -1363,9 +1761,7 @@ impl ViewState {
             if let Some(state) = navigation_state.upgrade() {
                 super::BrowserView { state }.keyboard_navigation();
             }
-            if key != gtk::gdk::Key::Up
-                || bitset_positions(&result_selection.selection()).as_slice() != [0]
-            {
+            if !press.is(UP) || bitset_positions(&result_selection.selection()).as_slice() != [0] {
                 return glib::Propagation::Proceed;
             }
             query
@@ -1374,22 +1770,6 @@ impl ViewState {
                 .map_or(glib::Propagation::Proceed, |_| glib::Propagation::Stop)
         });
         list.add_controller(return_to_filter);
-
-        let selection_keys = gtk::EventControllerKey::new();
-        selection_keys.set_propagation_phase(gtk::PropagationPhase::Capture);
-        let modified_for_key = modified_selection.clone();
-        selection_keys.connect_key_pressed(move |_, _, _, modifiers| {
-            modified_for_key.set(
-                modifiers.contains(gtk::gdk::ModifierType::CONTROL_MASK)
-                    || modifiers.contains(gtk::gdk::ModifierType::SHIFT_MASK),
-            );
-            glib::Propagation::Proceed
-        });
-        let modified_for_key = modified_selection.clone();
-        selection_keys.connect_key_released(move |_, _, _, _| {
-            modified_for_key.set(false);
-        });
-        list.add_controller(selection_keys);
 
         let weak_browser = Rc::downgrade(&self.browser);
         let weak_state_for_activate = Rc::downgrade(self);
@@ -1408,11 +1788,11 @@ impl ViewState {
                 );
                 return;
             }
-            let source_position = map_for_activation.source_position(position);
-            if let (Some(browser), Some(source_position)) =
-                (weak_browser.upgrade(), source_position)
-            {
-                browser.activate(depth, source_position);
+            if let (Some(state), Some(source_position)) = (
+                weak_state_for_activate.upgrade(),
+                map_for_activation.source_position(position),
+            ) {
+                state.activate_column_entry(depth, source_position);
             }
         });
 
@@ -1423,7 +1803,24 @@ impl ViewState {
             .build();
         scroll.add_css_class("browser-listing-scroll");
         crate::ui::scrolling::install_autoscroll(&scroll, &self.overlay);
-        let retry = gtk::Button::with_label("Retry");
+        {
+            let timer_source: Rc<RefCell<Option<glib::SourceId>>> = Rc::new(RefCell::new(None));
+            scroll.vadjustment().connect_value_changed(move |_| {
+                column_scrolling.set(true);
+                if let Some(source) = timer_source.borrow_mut().take() {
+                    source.remove();
+                }
+                let scrolling_reset = column_scrolling.clone();
+                let timer_holder = timer_source.clone();
+                let source_id =
+                    glib::timeout_add_local_once(Duration::from_millis(150), move || {
+                        timer_holder.borrow_mut().take();
+                        scrolling_reset.set(false);
+                    });
+                *timer_source.borrow_mut() = Some(source_id);
+            });
+        }
+        let retry = gtk::Button::with_label(&crate::i18n::tr("Retry"));
         retry.add_css_class("retry-button");
         let weak_browser = Rc::downgrade(&self.browser);
         retry.connect_clicked(move |_| {
@@ -1431,7 +1828,11 @@ impl ViewState {
                 browser.retry_column(depth);
             }
         });
-        let presentation = LoadPresentation::new(&scroll, Some(retry));
+        let presentation = LoadPresentation::new(&scroll, Some(retry)).with_focus_fallback(
+            &location.display_name(),
+            &list,
+            &self.browser,
+        );
         let rows_for_marquee = bound_rows.clone();
         let weak_for_clear = Rc::downgrade(self);
         let returning_to_column = Rc::new(Cell::new(false));
@@ -1494,11 +1895,12 @@ impl ViewState {
             marquee.group_background_click(click);
         }
 
-        presentation.stack.set_focusable(true);
         let focus = gtk::EventControllerFocus::new();
         let weak = Rc::downgrade(self);
         focus.connect_enter(move |_| {
+            // The strip is one Tab stop: Tab from outside lands on the active column.
             if let Some(state) = weak.upgrade()
+                && !state.land_tab_crossing()
                 && state
                     .context_menu_column
                     .get()
@@ -1598,15 +2000,44 @@ impl ViewState {
         });
         shell.add_controller(filter_focus);
 
-        shell.set_size_request(initial_column_width(self), -1);
-        let previous_scale = Cell::new(1.0);
-        crate::ui::preferences::PreferenceManager::shared().bind_interface_scale(
-            &shell,
-            move |shell, scale| {
-                let ratio = scale / previous_scale.replace(scale);
-                shell.set_width_request((f64::from(shell.width_request()) * ratio).round() as i32);
-            },
+        let preferences = crate::ui::preferences::PreferenceManager::shared();
+        let unscaled_width = Rc::new(Cell::new(f64::from(initial_column_width(self))));
+        let animation_generation = Rc::new(Cell::new(0u64));
+        let scale = preferences.interface_scale();
+        shell.set_size_request(
+            cap_column_width(
+                (unscaled_width.get() * scale).round() as i32,
+                column_width_cap(self),
+            ),
+            -1,
         );
+        let previous_scale = Cell::new(scale);
+        let weak_state = Rc::downgrade(self);
+        let unscaled_for_scale = unscaled_width.clone();
+        let generation_for_scale = animation_generation.clone();
+        preferences.bind_interface_scale(&shell, move |shell, scale| {
+            // Also called for unrelated changes; those must not narrow a column
+            // after the window shrank.
+            if previous_scale.replace(scale) == scale {
+                return;
+            }
+            let Some(state) = weak_state.upgrade() else {
+                return;
+            };
+            if !state.columns.borrow().iter().any(|c| c.shell == *shell) {
+                return;
+            }
+            generation_for_scale.set(generation_for_scale.get().saturating_add(1));
+            let width = (unscaled_for_scale.get() * scale).round() as i32;
+            if state.column_width_limit.get().is_some() {
+                // The sidebar scales too, so the published area is stale until the
+                // next frame; that limit narrows the column once.
+                shell.set_width_request(width);
+                state.clamp_to_next_column_limit.set(true);
+            } else {
+                shell.set_width_request(cap_column_width(width, column_width_cap(&state)));
+            }
+        });
         shell.set_vexpand(true);
         shell.set_overflow(gtk::Overflow::Hidden);
         let column_overlay = gtk::Overlay::new();
@@ -1637,9 +2068,12 @@ impl ViewState {
         reveal_button.set_visible(false);
         crate::ui::accessibility::set_label(
             &reveal_button,
-            &format!("Reveal {} column", location.display_name()),
+            &rust_i18n::t!("Reveal %{value1} column", value1 = location.display_name()),
         );
-        reveal_button.set_tooltip_text(Some(&format!("Reveal {}", location.display_path())));
+        reveal_button.set_tooltip_text(Some(&rust_i18n::t!(
+            "Reveal %{value1}",
+            value1 = location.display_path()
+        )));
         let weak = Rc::downgrade(self);
         let revealed_location = location.clone();
         reveal_button.connect_clicked(move |_| {
@@ -1670,7 +2104,6 @@ impl ViewState {
             install_directory_drop_target(self, &resize_handle, location.clone());
         }
         column_overlay.add_overlay(&reveal_button);
-        let animation_generation = Rc::new(Cell::new(0));
         let previous = depth
             .checked_sub(1)
             .and_then(|previous| self.columns.borrow().get(previous).cloned())
@@ -1681,7 +2114,8 @@ impl ViewState {
             shell: shell.clone(),
             resize_handle: resize_handle.clone(),
             reveal_button,
-            animation_generation: animation_generation.clone(),
+            animation_generation,
+            unscaled_width,
             presentation,
             model,
             filtered_model,
@@ -1721,7 +2155,8 @@ impl ViewState {
             arm_column_spinner(column);
         }
         self.refresh_active_path_rows();
-        animate_column_entry(&column, &animation_generation);
+        let swapped = self.swap_slot.take() == Some(depth);
+        animate_column_entry(&column, swapped);
         self.reveal_column(shell);
     }
 
@@ -1805,20 +2240,34 @@ impl ViewState {
         let Some(active_pos) = active else {
             return;
         };
-        for bound in column.bound_rows.borrow().iter() {
-            if bound.item.upgrade().map(|item| item.position()) == Some(active_pos) {
-                if let Some(row) = bound.row.upgrade() {
+        if let Some((row, _)) = column.shown_row_at(active_pos) {
+            row.remove_css_class("flash-active-path");
+            row.add_css_class("flash-active-path");
+            let weak_row = row.downgrade();
+            glib::timeout_add_local_once(Duration::from_millis(420), move || {
+                if let Some(row) = weak_row.upgrade() {
                     row.remove_css_class("flash-active-path");
-                    row.add_css_class("flash-active-path");
-                    let weak_row = row.downgrade();
-                    glib::timeout_add_local_once(Duration::from_millis(420), move || {
-                        if let Some(row) = weak_row.upgrade() {
-                            row.remove_css_class("flash-active-path");
-                        }
-                    });
                 }
-                break;
-            }
+            });
+        }
+    }
+
+    /// Reopening an open folder lands where opening it did: its column focused and in view.
+    pub(super) fn activate_column_entry(self: &Rc<Self>, depth: usize, position: usize) {
+        let reopening = self.browser.entry_at(depth, position).is_some_and(|entry| {
+            entry.is_directory() && self.browser.is_open_child(depth, &entry.location)
+        });
+        self.browser.activate(depth, position);
+        if !reopening {
+            return;
+        }
+        let shell = self
+            .columns
+            .borrow()
+            .get(depth + 1)
+            .map(|column| column.shell.clone());
+        if let Some(shell) = shell {
+            self.reveal_column(shell);
         }
     }
 
@@ -1885,7 +2334,27 @@ impl ViewState {
         });
     }
 
+    pub(super) fn truncate_for_replacement(self: &Rc<Self>, len: usize) {
+        self.truncate_impl(len, None);
+    }
+
     pub(super) fn truncate(self: &Rc<Self>, len: usize) {
+        self.truncate_impl(len, Some(len));
+    }
+
+    /// Makes room for a sibling opening at `len`. The column in that slot goes at
+    /// once so its replacement fades in where it stood; deeper columns of the old
+    /// branch shrink away, so the strip slides instead of snapping.
+    pub(super) fn swap_columns_from(self: &Rc<Self>, len: usize) {
+        let replaced = self.columns.borrow().len() > len;
+        self.truncate_impl(len, Some(len.saturating_add(1)));
+        if replaced {
+            self.swap_slot.set(Some(len));
+        }
+    }
+
+    fn truncate_impl(self: &Rc<Self>, len: usize, animate_from: Option<usize>) {
+        self.swap_slot.set(None);
         self.columns_widget.set_margin_end(0);
         cancel_source(&self.pending_peek);
         self.peek_anchor.take();
@@ -1908,17 +2377,21 @@ impl ViewState {
             let Some(column) = self.columns.borrow_mut().pop() else {
                 break;
             };
-            column
-                .animation_generation
-                .set(column.animation_generation.get().saturating_add(1));
+            let animate = animate_from.is_some_and(|from| self.columns.borrow().len() >= from);
+            let animation_id = column.animation_generation.get().saturating_add(1);
+            column.animation_generation.set(animation_id);
             column.query_binding.take();
             column.search_session.cancel();
             column.syncing_selection.set(true);
             column.selection.set_model(None::<&gio::ListModel>);
             column.filtered_model.set_model(None::<&gio::ListModel>);
             detach_collection_view(&column.list);
-            self.columns_widget.remove(&column.shell);
-            self.overlay.remove_overlay(&column.marquee.band());
+            if animate && animations_enabled() {
+                animate_column_exit(self, column, animation_id);
+            } else {
+                self.columns_widget.remove(&column.shell);
+                self.overlay.remove_overlay(&column.marquee.band());
+            }
         }
         let retained = self
             .columns
@@ -1935,5 +2408,8 @@ pub(super) mod drag_scroll;
 mod reveal;
 mod rows;
 mod search;
+
+#[cfg(test)]
+mod tests;
 
 pub(super) use reveal::ColumnSpan;

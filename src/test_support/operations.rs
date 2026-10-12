@@ -27,6 +27,7 @@ pub(crate) fn entry(location: crate::model::Location) -> crate::model::FileEntry
         image_dimensions: MetadataValue::Unknown,
         child_count: MetadataValue::Unknown,
         duration_seconds: MetadataValue::Unknown,
+        recent_uri: None,
     }
 }
 
@@ -44,6 +45,8 @@ pub(crate) struct HeldOperations {
     callbacks: RefCell<HashMap<OperationRequestId, Callback>>,
     cancelled: Rc<RefCell<HashSet<OperationRequestId>>>,
     pub(crate) before_return: RefCell<Option<BeforeReturn>>,
+    /// Every held delete as `(id, permanent, entry count)`, in request order.
+    pub(crate) delete_requests: RefCell<Vec<(OperationRequestId, bool, usize)>>,
 }
 
 impl HeldOperations {
@@ -101,7 +104,9 @@ impl OperationProvider for HeldOperations {
         });
         load
     }
-    unsupported!(rename, RenameRequest);
+    fn rename(&self, request: RenameRequest, callback: Callback) -> LoadHandle {
+        self.hold(request.id, callback)
+    }
     unsupported!(create_directory, CreateDirectoryRequest);
     unsupported!(create_file, CreateFileRequest);
     unsupported!(undo_move, UndoMoveRequest);
@@ -109,6 +114,11 @@ impl OperationProvider for HeldOperations {
     unsupported!(undo_copy, UndoCopyRequest);
     unsupported!(undo_merge, UndoMergeRequest);
     fn delete(&self, request: DeleteRequest, callback: Callback) -> LoadHandle {
+        self.delete_requests.borrow_mut().push((
+            request.id,
+            request.permanent,
+            request.entries.len(),
+        ));
         self.hold(request.id, callback)
     }
     unsupported!(restore, RestoreRequest);

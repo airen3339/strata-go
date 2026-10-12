@@ -40,6 +40,31 @@ mod sync;
 mod trash_capabilities;
 mod undo;
 
+thread_local! {
+    static COPY_ACTIVITY: Cell<(usize, usize)> = const { Cell::new((0, 0)) };
+}
+
+pub(super) struct CopyActivity;
+
+impl CopyActivity {
+    pub(super) fn start() -> Self {
+        COPY_ACTIVITY.with(|activity| {
+            let (active, peak) = activity.get();
+            activity.set((active + 1, peak.max(active + 1)));
+        });
+        Self
+    }
+}
+
+impl Drop for CopyActivity {
+    fn drop(&mut self) {
+        COPY_ACTIVITY.with(|activity| {
+            let (active, peak) = activity.get();
+            activity.set((active - 1, peak));
+        });
+    }
+}
+
 fn copy_recursively_fat_family(
     source: gio::File,
     target: gio::File,
@@ -59,16 +84,16 @@ fn copy_recursively_fat_family(
 }
 
 use super::{
-    FAT32_MAX_FILE_SIZE, LocalDeleteRoot, LocalFileIdentity, LocalOperationProvider, MergeHooks,
-    MergePlan, MountTable, RestoreEntry, StageCopy, StageOverwrite, StagedOriginalLookup,
-    TransferProgressTracker, TransferStop, await_cancellable, bounded_local_delete_worker_count,
-    copy_failure_after_cleanup, copy_failure_on_fat32, copy_new_recursively,
+    FAT32_MAX_FILE_SIZE, FailedAction, LocalDeleteRoot, LocalFileIdentity, LocalOperationProvider,
+    MergeHooks, MergePlan, MountTable, RestoreEntry, StageCopy, StageOverwrite,
+    StagedOriginalLookup, TRANSFER_PROGRESS_INTERVAL, TransferProgressTracker, TransferStop,
+    await_cancellable, copy_failure_after_cleanup, copy_failure_on_fat32, copy_new_recursively,
     copy_new_recursively_with_progress, copy_new_remote_file_with, copy_recursively,
     copy_recursively_with_progress, deletion_error_message, deletion_error_summary,
     duplicate_candidate_name, fat_sanitized_name, fat32_file_size_limit, home_trash_entries_at,
-    io_error, is_trash_unsupported_failure, local_file_identity, merge_local, merge_local_with,
-    move_local, move_local_with, open_local_parent_directory, operation_error_summary,
-    parallel_delete_local, parse_copy_suffix, permanently_delete_local,
+    io_error, is_trash_unsupported_failure, join_local_tasks, local_file_identity, merge_local,
+    merge_local_with, move_local, move_local_with, open_local_parent_directory,
+    operation_error_summary, parallel_delete_local, parse_copy_suffix, permanently_delete_local,
     permanently_delete_local_path_if_unchanged, replace_local, replace_local_with, run_merge_undo,
     set_force_cross_volume_for_test, set_removable_roots_for_test, set_sync_observer,
     stop_transfer, sync_probe_observations, target_is_fat_family, transfer_is_noop, transfer_sizes,
@@ -114,6 +139,28 @@ fn terminal_transfer(events: &[OperationEvent]) -> Option<&OperationEvent> {
                 | OperationEvent::Cancelled { .. }
         )
     })
+}
+
+fn item_moves(events: &[OperationEvent]) -> Vec<(Location, Location)> {
+    events
+        .iter()
+        .filter_map(|event| match event {
+            OperationEvent::ItemMoved { from, to, .. } => Some((from.clone(), to.clone())),
+            _ => None,
+        })
+        .collect()
+}
+
+fn trashed_items(events: &[OperationEvent]) -> Vec<(Location, TrashedOriginal)> {
+    events
+        .iter()
+        .filter_map(|event| match event {
+            OperationEvent::ItemTrashed {
+                location, identity, ..
+            } => Some((location.clone(), *identity)),
+            _ => None,
+        })
+        .collect()
 }
 
 fn pump_until_transfer(events: &RefCell<Vec<OperationEvent>>) {
@@ -162,6 +209,7 @@ fn file_entry(path: &std::path::Path) -> FileEntry {
         image_dimensions: MetadataValue::Unknown,
         child_count: MetadataValue::Unknown,
         duration_seconds: MetadataValue::Unknown,
+        recent_uri: None,
     }
 }
 
@@ -247,6 +295,19 @@ fn drive_until_transfer_settles(events: &Rc<RefCell<Vec<OperationEvent>>>) {
 fn run_paste_collecting_created(
     request: PasteRequest,
 ) -> Result<Vec<Option<Location>>, Box<dyn Error>> {
+    let created = run_paste(request)
+        .iter()
+        .filter_map(|event| match event {
+            OperationEvent::TransferProgress {
+                created_location, ..
+            } => Some(created_location.clone()),
+            _ => None,
+        })
+        .collect();
+    Ok(created)
+}
+
+fn run_paste(request: PasteRequest) -> Vec<OperationEvent> {
     let events = Rc::new(RefCell::new(Vec::new()));
     let emitted = events.clone();
     let _operation = LocalOperationProvider.paste(
@@ -261,21 +322,11 @@ fn run_paste_collecting_created(
         )
     });
 
-    let created = events
-        .borrow()
-        .iter()
-        .filter_map(|event| match event {
-            OperationEvent::TransferProgress {
-                created_location, ..
-            } => Some(created_location.clone()),
-            _ => None,
-        })
-        .collect();
     assert!(matches!(
         events.borrow().last(),
         Some(OperationEvent::Pasted { .. })
     ));
-    Ok(created)
+    events.take()
 }
 
 fn sequential_delete_local(

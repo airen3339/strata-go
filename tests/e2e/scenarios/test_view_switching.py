@@ -3,7 +3,13 @@
 
 from __future__ import annotations
 
+import math
+import time
+
 import pytest
+from harness.interaction import SEPARATE_CLICK_GAP
+
+from harness.keyboard_layout import AZERTY, US
 
 MODES = ["Columns", "Icons", "List"]
 MODE_SHORTCUTS = {"Columns": "ctrl+1", "Icons": "ctrl+2", "List": "ctrl+3"}
@@ -27,11 +33,16 @@ def test_appearance_menu_switches_presentation(strata, mode):
     )
 
 
-def test_shortcut_round_trip_preserves_selection_and_updates_the_appearance_menu(strata):
+# AZERTY types & é " on the digit row without Shift; the row still switches views.
+@pytest.mark.parametrize("layout", [US, AZERTY], ids=lambda layout: layout.name)
+def test_shortcut_round_trip_preserves_selection_and_updates_the_appearance_menu(
+    strata, keyboard_layout, layout
+):
     strata.select_entry("todo.txt")
     for mode in ["Icons", "List", "Columns"]:
-        strata.keyboard.press(MODE_SHORTCUTS[mode])
-        strata.wait_for_view(mode)
+        with keyboard_layout(layout):
+            strata.keyboard.press(MODE_SHORTCUTS[mode])
+            strata.wait_for_view(mode)
         assert strata.pane_names()[0] == strata.fixture.root.name
         assert "documents" in strata.entry_names()
         strata.wait(
@@ -41,15 +52,15 @@ def test_shortcut_round_trip_preserves_selection_and_updates_the_appearance_menu
 
         strata.open_appearance_menu()
         for candidate in MODES:
-            option = strata.window.find(role="button", name=candidate)
+            option = strata.window.find(role="radio menu item", name=candidate)
             assert option is not None
-            assert _has_check_mark(option) == (candidate == mode), (mode, candidate)
-        grouping = strata.window.find(role="button", name="Group by file type")
+            assert option.has_state("checked") == (candidate == mode), (mode, candidate)
+        grouping = strata.window.find(role="check menu item", name="Group by file type")
         assert grouping is not None
         assert ("sensitive" in grouping.states) == (mode == "List")
         strata.keyboard.press("Escape")
         strata.wait(
-            lambda: strata.window.find(role="button", name="Columns") is None,
+            lambda: strata.window.find(role="radio menu item", name="Columns") is None,
             "the appearance menu to close",
         )
 
@@ -89,7 +100,8 @@ def test_switching_preserves_directory_selection_and_sort(strata):
     strata.wait_for_focused_entry("diagram.txt")
 
 
-def test_switching_preserves_the_pane_filter(strata):
+@pytest.mark.parametrize("start", ["input", "result"])
+def test_switching_preserves_the_pane_filter(strata, start):
     strata.keyboard.press("ctrl+f")
     field = strata.editable_field()
     strata.keyboard.type_text("todo")
@@ -98,6 +110,9 @@ def test_switching_preserves_the_pane_filter(strata):
         lambda: strata.matches() == ["todo.txt"],
         "the filter to narrow the listing",
     )
+    if start == "result":
+        strata.keyboard.press("Down")
+        strata.wait_for_focused_entry("todo.txt")
 
     for mode in ["Icons", "List", "Columns"]:
         strata.keyboard.press(MODE_SHORTCUTS[mode])
@@ -113,6 +128,16 @@ def test_switching_preserves_the_pane_filter(strata):
             lambda: strata.matches() == ["todo.txt"],
             "the narrowed listing to survive the switch",
         )
+        if start == "input":
+            field = strata.editable_field()
+            assert field.text == "todo"
+            # Down from the field reaches a result, not the footer.
+            strata.keyboard.press("Down")
+            strata.wait_for_focused_entry("todo.txt")
+            strata.keyboard.press("Up")
+            strata.editable_field()
+        else:
+            strata.wait_for_focused_entry("todo.txt")
 
 
 def test_list_column_resize_tracks_the_pointer_without_an_initial_jump(strata):
@@ -133,10 +158,72 @@ def test_list_column_resize_tracks_the_pointer_without_an_initial_jump(strata):
         )
 
 
-def _has_check_mark(option) -> bool:
-    """A chosen appearance option shows a trailing check image."""
+STANDARD_COLUMN_WIDTH = 300
 
-    images = option.find_all(role="image")
-    # The leading image is the option's own icon; a visible second image is the
-    # check mark.
-    return len(images) > 1
+
+def _saved_column_width(strata) -> int:
+    return int(strata.environment.read_preferences().get("browser_column_width", 0))
+
+
+def test_column_autofit_and_drag_stay_inside_the_browser_area(strata):
+    long_name = "x" * 216
+    strata.fixture.path(long_name).write_text("")
+    strata.entry(long_name)
+    pane = strata.pane()
+    column = pane.screen_bounds()
+    middle = column.y + column.height // 2
+    window = strata.window_bounds()
+    # A fresh column has the standard width times the interface scale, and
+    # saved widths are unscaled.
+    scale = column.width / STANDARD_COLUMN_WIDTH
+    # The root column starts at the browser area's left edge; the preview slot
+    # yields to a column, so the area runs to the window's right edge.
+    area = math.ceil((window.x + window.width - column.x) / scale)
+
+    strata.pointer.double_click(pane, at=(column.x + column.width - 3, middle))
+    fitted = strata.wait(
+        lambda: (width := _saved_column_width(strata)) > STANDARD_COLUMN_WIDTH and width,
+        "autofit to save the fitted width",
+    )
+    assert fitted <= area, f"autofit saved {fitted}, wider than the browser area ({area} unscaled px)"
+
+    # Narrow the column first so the outward drag has room to save a change.
+    time.sleep(SEPARATE_CLICK_GAP)
+    edge = strata.pane().screen_bounds()
+    start = (edge.x + edge.width - 3, middle)
+    strata.pointer.drag_points(start, (start[0] - 200, middle))
+    narrowed = strata.wait(
+        lambda: (width := _saved_column_width(strata)) < fitted and width,
+        "the inward drag to save a narrower width",
+    )
+
+    time.sleep(SEPARATE_CLICK_GAP)
+    edge = strata.pane().screen_bounds()
+    start = (edge.x + edge.width - 3, middle)
+    strata.pointer.drag_points(start, (window.x + window.width + 300, middle))
+    dragged = strata.wait(
+        lambda: (width := _saved_column_width(strata)) > narrowed and width,
+        "the outward drag to save a wider width",
+    )
+    assert dragged <= area, f"the drag saved {dragged}, wider than the browser area ({area} unscaled px)"
+
+
+@pytest.mark.preferences(browser_column_width=1729)
+def test_an_oversized_saved_column_width_opens_inside_the_window(strata):
+    pane = strata.pane()
+    refresh = strata.wait(
+        lambda: pane.find(role="button", name="Refresh (F5)"),
+        "the column's header actions",
+    )
+    window = strata.window_bounds()
+    window_right = window.x + window.width
+    # Let the startup layout (sidebar budget, preview reservation) settle.
+    time.sleep(SEPARATE_CLICK_GAP)
+    column = pane.screen_bounds()
+    actions = refresh.screen_bounds()
+    assert column.x + column.width <= window_right, (
+        f"the column's resize edge at {column.x + column.width} is past the window edge {window_right}"
+    )
+    assert actions.x + actions.width <= window_right, (
+        f"the header actions end at {actions.x + actions.width}, past the window edge {window_right}"
+    )

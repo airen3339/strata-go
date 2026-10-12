@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import functools
 import os
 import signal
 import sys
@@ -20,6 +21,7 @@ from harness.display import HeadlessDisplay  # noqa: E402
 from harness.environment import TestEnvironment  # noqa: E402
 from harness.fixtures import FixtureTree  # noqa: E402
 from harness.interaction import Keyboard, Pointer  # noqa: E402
+from harness.keyboard_layout import switched  # noqa: E402
 from harness.xtest import XTestConnection  # noqa: E402
 
 # Retry infrastructure startup only, never interaction assertions.
@@ -109,6 +111,13 @@ def keyboard(xtest: XTestConnection) -> Keyboard:
 @pytest.fixture
 def pointer(xtest: XTestConnection) -> Pointer:
     return Pointer(xtest)
+
+
+@pytest.fixture
+def keyboard_layout(xtest: XTestConnection):
+    """Switch the private display's layout live: `with keyboard_layout(RUSSIAN): ...`."""
+
+    return functools.partial(switched, xtest)
 
 
 @pytest.fixture

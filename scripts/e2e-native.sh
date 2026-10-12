@@ -9,7 +9,7 @@ suite="$repository/tests/e2e"
 venv="${STRATA_E2E_VENV:-$repository/target/e2e-venv}"
 
 missing=()
-for tool in Xvfb dbus-daemon dbus-send import; do
+for tool in Xvfb dbus-daemon dbus-send import setxkbmap; do
   command -v "$tool" >/dev/null 2>&1 || missing+=("$tool")
 done
 if ! python3 -c 'import gi; gi.require_version("Atspi", "2.0"); from gi.repository import Atspi' 2>/dev/null; then

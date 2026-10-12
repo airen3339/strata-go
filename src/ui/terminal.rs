@@ -3,7 +3,10 @@
 use std::ffi::{OsStr, OsString};
 use std::io::ErrorKind;
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
+
+#[cfg(test)]
+mod tests;
 
 pub(super) const PREFERRED_LAUNCHER: &str = "xdg-terminal-exec";
 
@@ -190,22 +193,58 @@ impl Terminal {
     pub(super) fn launch_failure(&self, error: &std::io::Error) -> String {
         let program = self.program.to_string_lossy();
         if error.kind() == ErrorKind::NotFound {
-            return format!("Terminal “{program}” was not found on your PATH");
+            return rust_i18n::t!(
+                "Terminal “%{program}” was not found on your PATH",
+                program = program
+            )
+            .into_owned();
         }
-        format!("Terminal “{program}” could not be started: {error}")
+        rust_i18n::t!(
+            "Terminal “%{program}” could not be started: %{error}",
+            program = program,
+            error = crate::services::io_error_detail(error)
+        )
+        .into_owned()
     }
 }
 
 pub(super) fn no_terminal_message() -> String {
+    // Program names are identifiers, so they keep ASCII separators that wrap between names
+    // even in languages whose list separator has no space; they start on their own line.
     let fallbacks = KNOWN_TERMINALS
         .iter()
         .skip(1)
         .map(|known| known.program)
         .collect::<Vec<_>>()
         .join(", ");
-    format!(
-        "No terminal emulator was found. Install “{PREFERRED_LAUNCHER}” with a configured ~/.config/xdg-terminals.list, set $TERMINAL, or install one of: {fallbacks}"
-    )
+    let fallbacks = format!("\n{fallbacks}");
+    rust_i18n::t!("No terminal emulator was found. Install “%{PREFERRED_LAUNCHER}” with a configured ~/.config/xdg-terminals.list, set $TERMINAL, or install one of: %{fallbacks}", PREFERRED_LAUNCHER = PREFERRED_LAUNCHER, fallbacks = fallbacks).into_owned()
+}
+
+/// Reaps the child off-thread so exited launchers never linger as defunct.
+pub(super) fn spawn_reaped(mut command: Command) -> std::io::Result<()> {
+    let program = command.get_program().to_owned();
+    let child = command.spawn()?;
+    reap_in_background(child, program);
+    Ok(())
+}
+
+fn reap_in_background(mut child: Child, program: OsString) {
+    let label = program.to_string_lossy().into_owned();
+    let spawned = std::thread::Builder::new()
+        .name("process-reaper".into())
+        .spawn(move || {
+            if let Err(error) = child.wait() {
+                tracing::warn!(
+                    %error,
+                    program = %program.to_string_lossy(),
+                    "unable to reap child process"
+                );
+            }
+        });
+    if let Err(error) = spawned {
+        tracing::warn!(%error, program = %label, "unable to start reaper thread");
+    }
 }
 
 fn explicit_terminal(path_var: Option<&OsStr>, terminal_var: Option<&OsStr>) -> Option<Terminal> {

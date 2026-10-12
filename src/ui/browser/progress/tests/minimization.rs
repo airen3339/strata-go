@@ -19,6 +19,8 @@ use std::{
     time::{Duration, Instant},
 };
 
+mod deletion;
+
 struct Fixture {
     temp: tempfile::TempDir,
     view: BrowserView,
@@ -54,6 +56,44 @@ impl Fixture {
             operations,
         }
     }
+    fn prepare_deletion(&self) -> (crate::model::FileEntry, gtk::Widget) {
+        crate::ui::motion::set_reduce_motion(false);
+        gtk::Settings::default()
+            .expect("GTK settings")
+            .set_gtk_enable_animations(true);
+        let path = self.temp.path().join("delete-me.txt");
+        std::fs::write(&path, "delete fixture").expect("deletion fixture file");
+        let deleted = entry(Location::local(path));
+        self.view
+            .browser()
+            .navigate(Location::local(self.temp.path()));
+        let state = &self.view.state;
+        pump_until(|| {
+            let Some(source) = state.delete_animation_source() else {
+                return false;
+            };
+            let Some(dissolve) = crate::ui::browser::dissolve_delete::prepare_dissolve(
+                &source,
+                std::slice::from_ref(&deleted),
+            ) else {
+                return false;
+            };
+            state.pending_delete_dissolve.replace(Some((
+                state
+                    .browser
+                    .active_depth()
+                    .expect("active deletion column"),
+                dissolve,
+            )));
+            true
+        });
+        (
+            deleted,
+            state
+                .delete_animation_source()
+                .expect("deletion animation source"),
+        )
+    }
     fn transfer(&self, name: &str, moving: bool) -> OperationRequestId {
         self.view.browser().transfer(
             Location::local(self.temp.path()),
@@ -69,16 +109,18 @@ impl Fixture {
             .last_started_operation()
             .expect("transfer started")
     }
-    fn progress(&self, id: OperationRequestId) -> Rc<FileProgressState> {
-        let progress = self
-            .view
+    fn progress_state(&self, id: OperationRequestId) -> Rc<FileProgressState> {
+        self.view
             .state
             .background_file_progress
             .borrow()
             .get(&id)
             .expect("automatically docked job")
             .progress
-            .clone();
+            .clone()
+    }
+    fn progress(&self, id: OperationRequestId) -> Rc<FileProgressState> {
+        let progress = self.progress_state(id);
         pump_until(|| progress.file_progress_view.borrow().is_some());
         progress
     }
@@ -264,7 +306,15 @@ fn docked_copy_archive_and_deletion_update_and_cancel_independently() {
                 .expect("archive started");
             let archive_progress = fixture.progress(archive);
             let deleted = entry(Location::local(fixture.temp.path().join("deleted.txt")));
-            fixture.view.browser().delete(vec![deleted.clone()], false);
+            fixture.view.browser().delete(
+                vec![
+                    deleted.clone(),
+                    entry(Location::local(
+                        fixture.temp.path().join("another-deleted.txt"),
+                    )),
+                ],
+                false,
+            );
             let deletion = fixture
                 .view
                 .browser()
@@ -284,7 +334,22 @@ fn docked_copy_archive_and_deletion_update_and_cancel_independently() {
             assert_eq!(progress_card(&first_progress).status.text(), "25%");
             let second_card = progress_card(&second_progress);
             assert_eq!(second_card.status.text(), "65%");
+            fixture.update(second, "second.txt", 70);
+            pump_until(|| second_card.status.text() == "70%");
             assert_eq!(progress_card(&archive_progress).status.text(), "50%");
+            assert_eq!(progress_card(&archive_progress).meta.text(), "1 / 2 files");
+            fixture.operations.emit(
+                deletion,
+                OperationEvent::DeleteProgress {
+                    request_id: deletion,
+                    completed: 1,
+                    total: 2,
+                    deleted_locations: vec![deleted.location.clone()],
+                },
+            );
+            let deletion_card = progress_card(&deletion_progress);
+            assert_eq!(deletion_card.status.text(), "50%");
+            assert!(deletion_card.meta.text().is_empty());
             assert_eq!(
                 progress_card(&deletion_progress).destination.text(),
                 "→ Trash"
@@ -352,10 +417,8 @@ fn background_failure_preserves_an_exclusive_foreground_move() {
                     .is_some()
             });
             fixture.update(next, "moving.txt", 50);
-            assert!(
-                fixture.blur.imp().blurred.get(),
-                "foreground progress should retain modal blur"
-            );
+            let foreground_layer = crate::ui::window::visible_modal_layer(&fixture.window)
+                .expect("exclusive foreground progress remains modal");
             fixture.operations.emit(
                 first,
                 OperationEvent::TransferFailed {
@@ -364,6 +427,7 @@ fn background_failure_preserves_an_exclusive_foreground_move() {
                     completed_locations: Vec::new(),
                 },
             );
+            assert!(foreground_layer.parent().is_some());
             assert!(fixture.view.browser().is_current_operation(next));
             assert!(!fixture.operations.cancelled(next));
             assert_eq!(
@@ -448,6 +512,108 @@ fn archive_activity_is_retained_before_display_and_while_a_large_member_is_runni
                     original: None,
                 },
             );
+        },
+    );
+}
+
+fn labels(root: &gtk::Widget) -> Vec<String> {
+    let mut found = Vec::new();
+    if let Some(label) = root.downcast_ref::<gtk::Label>() {
+        found.push(
+            label
+                .text()
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" "),
+        );
+    }
+    let mut child = root.first_child();
+    while let Some(widget) = child {
+        child = widget.next_sibling();
+        found.extend(labels(&widget));
+    }
+    found
+}
+
+fn focused_button_label(window: &gtk::Window) -> Option<String> {
+    gtk::prelude::RootExt::focus(window)?
+        .downcast::<gtk::Button>()
+        .ok()?
+        .label()
+        .map(String::from)
+}
+
+#[test]
+fn docked_deletion_without_trash_support_explains_and_focuses_cancel() {
+    crate::test_support::gtk_test(
+        "ui::browser::progress::tests::minimization::docked_deletion_without_trash_support_explains_and_focuses_cancel",
+        || {
+            let fixture = Fixture::new();
+            let path = fixture.temp.path().join("deleted.txt");
+            std::fs::write(&path, "keep").expect("deletion fixture file");
+            let deleted = entry(Location::local(&path));
+            fixture
+                .view
+                .state
+                .request_delete(vec![deleted.clone()], false);
+            let id = fixture
+                .view
+                .browser()
+                .last_started_operation()
+                .expect("trash attempt");
+            fixture.progress(id);
+            fixture.operations.emit(
+                id,
+                OperationEvent::CompletedWithErrors {
+                    request_id: id,
+                    deleted_locations: Vec::new(),
+                    retryable_locations: vec![deleted.location.clone()],
+                    has_non_retryable_failures: false,
+                    message: "deleted.txt: This location doesn't support Trash. Delete permanently instead.".into(),
+                },
+            );
+            pump_until(|| {
+                crate::ui::window::visible_modal_layer(&fixture.window).is_some_and(|layer| {
+                    labels(&layer).iter().any(|text| {
+                        text.contains(" · ") && text.ends_with("will be permanently deleted")
+                    })
+                })
+            });
+            let start = Instant::now();
+            pump_until(|| start.elapsed() >= Duration::from_millis(300));
+            let layer =
+                crate::ui::window::visible_modal_layer(&fixture.window).expect("retry dialog");
+            assert_eq!(
+                (
+                    labels(&layer)
+                        .iter()
+                        .any(|text| text.contains("doesn't support Trash")),
+                    focused_button_label(&fixture.window).as_deref(),
+                ),
+                (true, Some("Cancel")),
+                "(explains missing Trash, focus after the size summary)"
+            );
+
+            let controllers = layer.observe_controllers();
+            let keys = (0..controllers.n_items())
+                .filter_map(|index| controllers.item(index))
+                .find_map(|controller| controller.downcast::<gtk::EventControllerKey>().ok())
+                .expect("dialog key controller");
+            assert!(keys.emit_by_name::<bool>(
+                "key-pressed",
+                &[
+                    &gtk::gdk::Key::Return,
+                    &0u32,
+                    &gtk::gdk::ModifierType::empty()
+                ],
+            ));
+            pump_until(|| crate::ui::window::visible_modal_layer(&fixture.window).is_none());
+            assert_eq!(
+                fixture.operations.delete_requests.borrow().as_slice(),
+                [(id, false, 1)],
+                "Enter cancels without starting a permanent deletion"
+            );
+            assert!(path.exists());
         },
     );
 }

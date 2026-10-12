@@ -21,6 +21,7 @@ fn a_completed_trash_operation_can_be_undone_once() {
         image_dimensions: MetadataValue::Unknown,
         child_count: MetadataValue::Unknown,
         duration_seconds: MetadataValue::Unknown,
+        recent_uri: None,
     };
 
     browser.delete(vec![entry], false);
@@ -52,6 +53,7 @@ fn pending_trash_undo_reports_original_locations_until_claimed() {
         image_dimensions: MetadataValue::Unknown,
         child_count: MetadataValue::Unknown,
         duration_seconds: MetadataValue::Unknown,
+        recent_uri: None,
     };
 
     browser.delete(vec![entry], false);
@@ -82,6 +84,7 @@ fn another_browser_can_undo_the_latest_trash_operation() {
         image_dimensions: MetadataValue::Unknown,
         child_count: MetadataValue::Unknown,
         duration_seconds: MetadataValue::Unknown,
+        recent_uri: None,
     };
 
     deleting_browser.delete(vec![entry], false);
@@ -546,6 +549,7 @@ fn permanent_delete_preserves_the_previous_trash_undo() {
         image_dimensions: MetadataValue::Unknown,
         child_count: MetadataValue::Unknown,
         duration_seconds: MetadataValue::Unknown,
+        recent_uri: None,
     };
     let permanently_deleted = FileEntry {
         location: Location::local("/fixture/draft.txt"),
@@ -844,6 +848,7 @@ fn failed_rename_undo_releases_its_claim_and_remains_retryable() {
     emit(OperationEvent::Failed {
         request_id,
         message: "occupied".to_owned(),
+        password_failure: None,
     });
 
     assert_eq!(pending_undo_entry(), Some(expected));
@@ -1127,9 +1132,71 @@ fn a_completed_compression_records_the_archive_for_undo() {
 }
 
 #[test]
+fn a_completed_extraction_records_created_entries_for_undo() {
+    let emit = Rc::new(RefCell::new(None));
+    let request_id = Rc::new(Cell::new(None));
+    let provider = Rc::new(HeldExtractProvider {
+        cancelled: Rc::new(Cell::new(false)),
+        emit: emit.clone(),
+        request_id: request_id.clone(),
+    });
+    let browser = Browser::new(Rc::new(FakeFileSource));
+    browser.set_operation_provider(provider);
+    browser.extract(
+        fixture_entry("/fixture/archive.zip"),
+        Location::local("/fixture"),
+        false,
+        None,
+    );
+
+    let request_id = request_id.get().expect("extract request");
+    let callback = emit.borrow().clone().expect("extract callback");
+    let created = vec![Location::local("/fixture/readme.txt")];
+    callback(OperationEvent::Extracted {
+        request_id,
+        first_name: Some("readme.txt".into()),
+        created: created.clone(),
+    });
+
+    assert_eq!(pending_undo_entry(), Some(UndoEntry::Copy(created)));
+}
+
+#[test]
+fn an_empty_extraction_records_no_undo() {
+    let emit = Rc::new(RefCell::new(None));
+    let request_id = Rc::new(Cell::new(None));
+    let provider = Rc::new(HeldExtractProvider {
+        cancelled: Rc::new(Cell::new(false)),
+        emit: emit.clone(),
+        request_id: request_id.clone(),
+    });
+    let browser = Browser::new(Rc::new(FakeFileSource));
+    browser.set_operation_provider(provider);
+    browser.extract(
+        fixture_entry("/fixture/archive.zip"),
+        Location::local("/fixture"),
+        false,
+        None,
+    );
+
+    let request_id = request_id.get().expect("extract request");
+    let callback = emit.borrow().clone().expect("extract callback");
+    callback(OperationEvent::Extracted {
+        request_id,
+        first_name: None,
+        created: Vec::new(),
+    });
+
+    assert_eq!(pending_undo_entry(), None);
+}
+
+#[test]
 fn an_undone_trash_operation_can_be_redone() {
     let browser = Browser::new(Rc::new(FakeFileSource));
     browser.set_operation_provider(Rc::new(ImmediateOperationProvider));
+    let events = Rc::new(RefCell::new(Vec::new()));
+    let observed = events.clone();
+    browser.observe(move |event| observed.borrow_mut().push(event.clone()));
     let location = Location::local("/fixture/report.txt");
     browser.delete(vec![fixture_entry("/fixture/report.txt")], false);
 
@@ -1148,6 +1215,14 @@ fn an_undone_trash_operation_can_be_redone() {
     assert_eq!(
         pending_undo_entry(),
         Some(UndoEntry::Trash(vec![location.clone()]))
+    );
+    assert_eq!(
+        location_changes(&events.borrow()),
+        [
+            removed(&location),
+            LocationChange::Restored(location.clone()),
+            removed(&location)
+        ]
     );
     UNDO_COPY_REQUESTS.with(|requests| {
         assert_eq!(&*requests.borrow(), &vec![vec![location]]);
@@ -1175,6 +1250,9 @@ fn a_new_operation_clears_the_redo() {
 fn an_undone_move_can_be_redone() {
     let browser = Browser::new(Rc::new(FakeFileSource));
     browser.set_operation_provider(Rc::new(ImmediateOperationProvider));
+    let events = Rc::new(RefCell::new(Vec::new()));
+    let observed = events.clone();
+    browser.observe(move |event| observed.borrow_mut().push(event.clone()));
     browser.transfer(
         Location::local("/fixture/archive"),
         vec![PasteItem {
@@ -1226,6 +1304,15 @@ fn an_undone_move_can_be_redone() {
     assert_eq!(
         pending_undo_entry(),
         Some(UndoEntry::Move(vec![record.clone()]))
+    );
+    assert_eq!(
+        location_changes(&events.borrow()),
+        [
+            relocated(&record.original, &record.current),
+            relocated(&record.current, &record.original),
+            relocated(&record.original, &record.current),
+        ],
+        "a move, its undo and its redo each relocate the item"
     );
     UNDO_MOVE_REQUESTS.with(|requests| {
         assert_eq!(
@@ -1570,6 +1657,7 @@ fn a_failed_undo_offers_no_redo() {
     emit(OperationEvent::Failed {
         request_id,
         message: "restore failed".into(),
+        password_failure: None,
     });
 
     assert_eq!(pending_redo_entry(), None);
@@ -1618,6 +1706,7 @@ fn a_failed_rename_undo_offers_no_redo() {
     emit(OperationEvent::Failed {
         request_id,
         message: "rename failed".into(),
+        password_failure: None,
     });
 
     assert_eq!(pending_redo_entry(), None);

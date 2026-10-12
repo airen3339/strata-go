@@ -120,6 +120,7 @@ fn cross_row_selection_copies_full_middle_units_from_the_model() {
         source("last line", "last line"),
     ]);
     let mut state = VirtualPreviewState {
+        list: Default::default(),
         tables: Default::default(),
         media_cache: crate::ui::document_media::MediaCache::new(None),
         units,
@@ -192,6 +193,7 @@ fn cross_row_selection_copies_full_middle_units_from_the_model() {
 fn selection_does_not_invent_newlines_between_line_chunks() {
     let units = Rc::new(vec![source("abcd", "abcd"), source("ef", "ef\n")]);
     let state = VirtualPreviewState {
+        list: Default::default(),
         units,
         wrapped: std::cell::Cell::new(false),
         selection: std::cell::Cell::new(Some(DocumentSelection {
@@ -210,6 +212,61 @@ fn selection_does_not_invent_newlines_between_line_chunks() {
     };
 
     assert_eq!(selection_text(&state).as_deref(), Some("cde"));
+    let state = Rc::new(state);
+    let matches = state.find_matches("CDE");
+    assert_eq!(matches.len(), 1);
+    state.select_match(matches[0]);
+    assert_eq!(selection_text(&state).as_deref(), Some("cde"));
+}
+
+#[test]
+fn document_caret_keys_take_ctrl_and_shift_but_not_alt() {
+    gtk_test(
+        "ui::virtual_preview::tests::document_caret_keys_take_ctrl_and_shift_but_not_alt",
+        || {
+            use gtk::gdk::{Key, ModifierType as Modifiers};
+            let (_root, state) = source_document("one two\nthree\n", false, false);
+            let list = state.list.upgrade().expect("document list");
+            let keys = list
+                .observe_controllers()
+                .iter::<gtk::glib::Object>()
+                .filter_map(Result::ok)
+                .find_map(|controller| controller.downcast::<gtk::EventControllerKey>().ok())
+                .expect("document key controller");
+            let press = |key: Key, modifiers: Modifiers| {
+                keys.emit_by_name::<bool>("key-pressed", &[&key, &0u32, &modifiers])
+            };
+            let last = state.units.len() - 1;
+            let start = SelectionPoint { unit: 0, offset: 0 };
+            let whole = Some(DocumentSelection {
+                anchor: start,
+                focus: SelectionPoint {
+                    unit: last,
+                    offset: state.units[last].selection_len(),
+                },
+            });
+
+            assert!(press(
+                Key::End,
+                Modifiers::CONTROL_MASK | Modifiers::SHIFT_MASK
+            ));
+            assert_eq!(state.selection.get(), whole, "Ctrl+Shift+End extends");
+            assert!(
+                !press(Key::Left, Modifiers::ALT_MASK),
+                "Alt+Left is history"
+            );
+            assert_eq!(state.selection.get(), whole);
+            assert!(press(Key::KP_Home, Modifiers::CONTROL_MASK));
+            assert_eq!(
+                state.selection.get(),
+                Some(DocumentSelection {
+                    anchor: start,
+                    focus: start,
+                }),
+                "keypad Ctrl+Home returns to the start"
+            );
+        },
+    );
 }
 
 #[test]
@@ -232,6 +289,7 @@ fn table_selection_is_atomic_and_copies_tsv() {
         last: true,
     })]);
     let state = VirtualPreviewState {
+        list: Default::default(),
         units,
         wrapped: std::cell::Cell::new(false),
         selection: std::cell::Cell::new(Some(DocumentSelection {

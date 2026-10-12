@@ -12,10 +12,17 @@ use crate::ui::browser::entry::item_count_label;
 use crate::ui::browser::paths::{can_remove_location, compact_display_path, is_trash_location};
 use crate::ui::controls::{
     ModalTone, focus_button, form_check_button, message_dialog_description, message_dialog_layout,
+    stack_actions_when_constrained, wrap_button_label,
+};
+use crate::ui::keys::{
+    self,
+    bindings::{ENTER_ANY, ESCAPE_ANY},
 };
 use crate::ui::modal::{ModalHost, dismiss_modal_layer, modal_layer, show_error_dialog};
 use gtk::prelude::*;
 use gtk::{gio, glib};
+use std::collections::HashSet;
+use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::Duration;
@@ -125,11 +132,37 @@ fn transfer_is_noop(source: &Location, destination: &Location, move_sources: boo
                 .is_some_and(|parent| parent.equal(&destination)))
 }
 
+#[derive(Eq, Hash, PartialEq)]
+enum DestinationNameKey {
+    Folded(String),
+    Native(OsString),
+}
+
+fn destination_name_key(name: &OsStr) -> DestinationNameKey {
+    name.to_str().map_or_else(
+        || DestinationNameKey::Native(name.to_owned()),
+        |name| DestinationNameKey::Folded(glib::casefold(name).into()),
+    )
+}
+
+fn destination_name_candidates(path: &Path) -> Option<HashSet<DestinationNameKey>> {
+    Some(
+        std::fs::read_dir(path)
+            .ok()?
+            .filter_map(|entry| {
+                entry
+                    .ok()
+                    .map(|entry| destination_name_key(&entry.file_name()))
+            })
+            .collect(),
+    )
+}
+
 fn transfer_collision(source: &Location, destination: &Location) -> Option<TransferCollision> {
     let source_file = gio_file_for_location(source);
     let destination_file = gio_file_for_location(destination);
-    let name = source_file.basename()?;
-    let target = destination_file.child(name);
+    let name = source.file_name()?;
+    let target = destination_file.child(&name);
     if source_file.equal(&target)
         || source_file.equal(&destination_file)
         || destination_file.has_prefix(&source_file)
@@ -212,8 +245,8 @@ impl ViewState {
         else {
             show_error_dialog(
                 &self.overlay,
-                "Unable to transfer",
-                "The transfer could not be confirmed.",
+                &crate::i18n::tr("Unable to transfer"),
+                &crate::i18n::tr("The transfer could not be confirmed."),
             );
             return;
         };
@@ -221,21 +254,21 @@ impl ViewState {
         let count = sources.len();
         let layout = message_dialog_layout(
             crate::assets::icons::COPY,
-            "Copy or move?",
-            &format!(
-                "{} to {}",
-                item_count_label(count),
-                compact_display_path(&destination)
+            &crate::i18n::tr("Copy or move?"),
+            &rust_i18n::t!(
+                "%{items} to %{destination}",
+                items = item_count_label(count),
+                destination = compact_display_path(&destination)
             ),
-            "Copy",
+            &crate::i18n::tr("Copy"),
             ModalTone::Accent,
         );
         layout
             .body
-            .append(&message_dialog_description(cross_volume_drop_description(
-                volume,
+            .append(&message_dialog_description(&crate::i18n::tr(
+                cross_volume_drop_description(volume),
             )));
-        let move_button = gtk::Button::with_label("Move");
+        let move_button = gtk::Button::with_label(&crate::i18n::tr("Move"));
         move_button.add_css_class("action-dialog-cancel");
         layout
             .actions
@@ -282,8 +315,8 @@ impl ViewState {
         let escaped_layer = layer.clone();
         let escaped_overlay = window_overlay;
         let escaped_root = blurred_root;
-        escape.connect_key_pressed(move |_, key, _, _| {
-            if key == gtk::gdk::Key::Escape {
+        keys::on_press(&escape, move |_, press| {
+            if press.is(ESCAPE_ANY) {
                 dismiss_modal_layer(&escaped_layer, &escaped_overlay, escaped_root.as_ref());
                 glib::Propagation::Stop
             } else {
@@ -337,8 +370,8 @@ impl ViewState {
         let Some(destination) = resolve(id) else {
             show_error_dialog(
                 &self.overlay,
-                "Destination unavailable",
-                "The removable device is no longer available.",
+                &crate::i18n::tr("Destination unavailable"),
+                &crate::i18n::tr("The removable device is no longer available."),
             );
             return;
         };
@@ -374,8 +407,8 @@ impl ViewState {
         if !crate::ui::preferences::is_valid_send_to_relative_path(relative) {
             show_error_dialog(
                 &self.overlay,
-                "Destination unavailable",
-                "The removable device or folder is no longer available.",
+                &crate::i18n::tr("Destination unavailable"),
+                &crate::i18n::tr("The removable device or folder is no longer available."),
             );
             return;
         }
@@ -384,8 +417,8 @@ impl ViewState {
         else {
             show_error_dialog(
                 &self.overlay,
-                "Destination unavailable",
-                "The removable device or folder is no longer available.",
+                &crate::i18n::tr("Destination unavailable"),
+                &crate::i18n::tr("The removable device or folder is no longer available."),
             );
             return;
         };
@@ -395,24 +428,24 @@ impl ViewState {
         ) else {
             show_error_dialog(
                 &self.overlay,
-                "Destination unavailable",
-                "The removable device or folder is no longer available.",
+                &crate::i18n::tr("Destination unavailable"),
+                &crate::i18n::tr("The removable device or folder is no longer available."),
             );
             return;
         };
         let Ok(relative_destination) = destination.strip_prefix(&current_root) else {
             show_error_dialog(
                 &self.overlay,
-                "Destination unavailable",
-                "The removable device or folder is no longer available.",
+                &crate::i18n::tr("Destination unavailable"),
+                &crate::i18n::tr("The removable device or folder is no longer available."),
             );
             return;
         };
         if !crate::ui::preferences::is_valid_send_to_relative_path(relative_destination) {
             show_error_dialog(
                 &self.overlay,
-                "Destination unavailable",
-                "The removable device or folder is no longer available.",
+                &crate::i18n::tr("Destination unavailable"),
+                &crate::i18n::tr("The removable device or folder is no longer available."),
             );
             return;
         }
@@ -447,47 +480,26 @@ impl ViewState {
 
     fn send_to_success_text(device_name: &str, item_count: usize) -> String {
         if item_count == 1 {
-            format!("Copied to {device_name}")
+            rust_i18n::t!("Copied to %{device_name}", device_name = device_name).into_owned()
         } else {
-            format!("{item_count} items copied to {device_name}")
+            rust_i18n::t!(
+                "%{items} copied to %{device_name}",
+                items = crate::i18n::count("items", item_count),
+                device_name = device_name
+            )
+            .into_owned()
         }
     }
 
     /// Shows transient success feedback for a fast Send-to whose transfer
-    /// finished before the normal progress UI became visible. Replaces any
-    /// still-visible notice and restarts its dismissal timer.
-    pub(super) fn show_send_to_success(self: &Rc<Self>, device_name: &str, item_count: usize) {
-        if let Some(widget) = self.send_to_success_widget.take() {
-            self.overlay.remove_overlay(&widget);
-        }
-        let generation = self.send_to_success_generation.get().saturating_add(1);
-        self.send_to_success_generation.set(generation);
-        let row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-        row.add_css_class("send-to-success");
-        row.set_halign(gtk::Align::Center);
-        row.set_valign(gtk::Align::Start);
-        row.set_can_target(false);
-        let icon = crate::assets::primary_icon(crate::assets::icons::CHECK, 16);
-        icon.set_can_target(false);
-        row.append(&icon);
-        let label = gtk::Label::new(Some(&Self::send_to_success_text(device_name, item_count)));
-        label.set_can_target(false);
-        row.append(&label);
-        self.overlay.add_overlay(&row);
-        self.send_to_success_widget
-            .replace(Some(row.clone().upcast()));
-        let weak_state = Rc::downgrade(self);
-        let weak_row = row.downgrade();
-        glib::timeout_add_local_once(SEND_TO_SUCCESS_DURATION, move || {
-            let (Some(state), Some(row)) = (weak_state.upgrade(), weak_row.upgrade()) else {
-                return;
-            };
-            if state.send_to_success_generation.get() != generation {
-                return;
-            }
-            state.send_to_success_widget.take();
-            state.overlay.remove_overlay(&row);
-        });
+    /// finished before the normal progress UI became visible.
+    pub(super) fn show_send_to_success(&self, device_name: &str, item_count: usize) {
+        crate::ui::notice::show_notice(
+            &self.overlay,
+            None,
+            &Self::send_to_success_text(device_name, item_count),
+            SEND_TO_SUCCESS_DURATION,
+        );
     }
 
     fn start_drop_transfer(
@@ -563,13 +575,21 @@ impl ViewState {
         }
         let mut accepted = Vec::new();
         let mut collisions = Vec::new();
+        let destination_names = destination
+            .native_path()
+            .and_then(destination_name_candidates);
         for source in sources {
-            match transfer_collision(&source, &destination) {
-                Some(collision) => collisions.push(collision),
-                None => accepted.push(PasteItem {
+            let may_collide = match (&destination_names, source.file_name()) {
+                (Some(existing), Some(name)) => existing.contains(&destination_name_key(&name)),
+                _ => true,
+            };
+            if may_collide && let Some(collision) = transfer_collision(&source, &destination) {
+                collisions.push(collision);
+            } else {
+                accepted.push(PasteItem {
                     source,
                     conflict: TransferConflict::FailIfExists,
-                }),
+                });
             }
         }
         self.resolve_transfer_collisions(
@@ -639,15 +659,18 @@ impl ViewState {
         // Merge stays copy-only: undoing a merged move cannot tell which
         // destination contents the source actually owned.
         let allow_merge = collision.mergeable && !move_sources;
+        let folder = compact_display_path(&destination);
         let explanation = if allow_merge {
-            format!(
-                "A folder named \u{201c}{name}\u{201d} already exists in {}. Merging combines the contents of both folders; incoming items overwrite items with the same name.",
-                compact_display_path(&destination)
+            rust_i18n::t!(
+                "A folder named “%{name}” already exists in %{folder}. Merging combines the contents of both folders; incoming items overwrite items with the same name.",
+                name = name,
+                folder = folder
             )
         } else {
-            format!(
-                "An item named \u{201c}{name}\u{201d} already exists in {}. Replacing it will overwrite its contents.",
-                compact_display_path(&destination)
+            rust_i18n::t!(
+                "An item named “%{name}” already exists in %{folder}. Replacing it will overwrite its contents.",
+                name = name,
+                folder = folder
             )
         };
         let state = self.clone();
@@ -870,11 +893,20 @@ impl ViewState {
         };
         let name = destination.display_name();
         let parent = destination.parent().unwrap_or_else(|| destination.clone());
-        let action = if redo { "Redoing" } else { "Undoing" };
-        let explanation = format!(
-            "An item named \u{201c}{name}\u{201d} already exists in {}. {action} the move will overwrite its contents.",
-            compact_display_path(&parent)
-        );
+        let folder = compact_display_path(&parent);
+        let explanation = if redo {
+            rust_i18n::t!(
+                "An item named “%{name}” already exists in %{folder}. Redoing the move will overwrite its contents.",
+                name = name,
+                folder = folder
+            )
+        } else {
+            rust_i18n::t!(
+                "An item named “%{name}” already exists in %{folder}. Undoing the move will overwrite its contents.",
+                name = name,
+                folder = folder
+            )
+        };
         let state = self.clone();
         let apply_to_all_visible = !collisions.is_empty();
         let skip_visible = !accepted.is_empty() || !collisions.is_empty();
@@ -938,29 +970,33 @@ impl ViewState {
 
         let layout = message_dialog_layout(
             crate::assets::icons::COPY,
-            "File already exists",
+            &crate::i18n::tr("File already exists"),
             name,
-            "Replace",
+            &crate::i18n::tr("Replace"),
             ModalTone::Danger,
         );
         layout.body.append(&message_dialog_description(explanation));
-        let apply_all = form_check_button("Apply to All");
+        let apply_all = form_check_button(&crate::i18n::tr("Apply to All"));
         apply_all.set_visible(apply_to_all_visible);
-        layout.actions.prepend(&apply_all);
-        let skip = gtk::Button::with_label("Skip");
+        layout.body.append(&apply_all);
+        let skip = gtk::Button::with_label(&crate::i18n::tr("Skip"));
         skip.add_css_class("action-dialog-cancel");
         skip.set_visible(skip_visible);
         layout
             .actions
             .insert_child_after(&skip, Some(&layout.cancel));
-        let keep_both = gtk::Button::with_label("Keep Both");
+        let keep_both = gtk::Button::with_label(&crate::i18n::tr("Keep Both"));
         keep_both.add_css_class("action-dialog-cancel");
         keep_both.set_visible(actions.keep_both);
         layout.actions.insert_child_after(&keep_both, Some(&skip));
-        let merge = gtk::Button::with_label("Merge");
+        let merge = gtk::Button::with_label(&crate::i18n::tr("Merge"));
         merge.add_css_class("action-dialog-cancel");
         merge.set_visible(actions.merge);
         layout.actions.insert_child_after(&merge, Some(&keep_both));
+        for button in [&layout.cancel, &skip, &keep_both, &merge, &layout.confirm] {
+            wrap_button_label(button);
+        }
+        stack_actions_when_constrained(&layout);
         let content = layout.content;
         let cancel = layout.cancel;
         let replace = layout.confirm;
@@ -1019,11 +1055,11 @@ impl ViewState {
             cancel,
             layout.close,
         ];
-        escape.connect_key_pressed(move |_, key, _, _| {
-            if key == gtk::gdk::Key::Escape {
+        keys::on_press(&escape, move |_, press| {
+            if press.is(ESCAPE_ANY) {
                 dismiss_modal_layer(&escaped_layer, &escaped_overlay, escaped_root.as_ref());
                 glib::Propagation::Stop
-            } else if key == gtk::gdk::Key::Return || key == gtk::gdk::Key::KP_Enter {
+            } else if press.is(ENTER_ANY) {
                 if let Some(button) = enter_buttons.iter().find(|button| button.has_focus()) {
                     button.emit_clicked();
                     glib::Propagation::Stop
@@ -1093,8 +1129,8 @@ impl ViewState {
         else {
             show_error_dialog(
                 &self.overlay,
-                "Destination unavailable",
-                "The removable device is no longer available.",
+                &crate::i18n::tr("Destination unavailable"),
+                &crate::i18n::tr("The removable device is no longer available."),
             );
             return;
         };
@@ -1133,9 +1169,9 @@ impl ViewState {
             TransferDialogCompletion::CopyMove { move_sources: true }
         );
         let title = match &completion {
-            TransferDialogCompletion::SendTo { .. } => "Send to folder",
-            _ if move_sources => "Move to",
-            _ => "Copy to",
+            TransferDialogCompletion::SendTo { .. } => crate::i18n::tr("Send to folder"),
+            _ if move_sources => crate::i18n::tr("Move to"),
+            _ => crate::i18n::tr("Copy to"),
         };
         let validation_completion = completion.clone();
         let validate = Rc::new(move |path: &Path| {
@@ -1149,32 +1185,33 @@ impl ViewState {
                     .and_then(|root| {
                         crate::ui::browser::destination::canonical_existing_directory(&root)
                     })
-                    .ok_or_else(|| "The removable device is no longer available.".to_string())?;
+                    .ok_or_else(|| {
+                        crate::i18n::tr("The removable device is no longer available.")
+                    })?;
                 crate::ui::browser::destination::rebind_directory_within_root(
                     opened_root,
                     path,
                     &current_root,
                 )
                 .ok_or_else(|| {
-                    "Choose an existing folder inside this removable device.".to_string()
+                    crate::i18n::tr("Choose an existing folder inside this removable device.")
                 })
             } else if path.is_dir() {
                 Ok(path.to_path_buf())
             } else {
-                Err("Choose an existing folder.".to_string())
+                Err(crate::i18n::tr("Choose an existing folder."))
             }
         });
         let state = self.clone();
         crate::ui::chooser::present_destination_chooser(
             crate::ui::chooser::DestinationRequest {
                 parent,
-                title: title.into(),
-                accept_label: if move_sources {
+                title,
+                accept_label: crate::i18n::tr(if move_sources {
                     "Move here"
                 } else {
                     "Copy here"
-                }
-                .into(),
+                }),
                 initial_directory: base,
                 root_limit,
                 allow_create,
@@ -1193,8 +1230,8 @@ impl ViewState {
                     }) else {
                         show_error_dialog(
                             &state.overlay,
-                            "Destination unavailable",
-                            "The removable device is no longer available.",
+                            &crate::i18n::tr("Destination unavailable"),
+                            &crate::i18n::tr("The removable device is no longer available."),
                         );
                         return;
                     };
@@ -1206,8 +1243,10 @@ impl ViewState {
                     else {
                         show_error_dialog(
                             &state.overlay,
-                            "Destination unavailable",
-                            "Choose an existing folder inside this removable device.",
+                            &crate::i18n::tr("Destination unavailable"),
+                            &crate::i18n::tr(
+                                "Choose an existing folder inside this removable device.",
+                            ),
                         );
                         return;
                     };

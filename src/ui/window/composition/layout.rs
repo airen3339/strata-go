@@ -11,8 +11,8 @@ use crate::{
     adapters::LocalPreviewProvider,
     assets::{self, icons},
     ui::{
-        browser::BrowserView, preferences::PreferenceManager, preview::PreviewDrawer,
-        shortcut_footer::ShortcutFooter,
+        browser::BrowserView, marquee::OriginClick, preferences::PreferenceManager,
+        preview::PreviewDrawer, shortcut_footer::ShortcutFooter,
     },
 };
 
@@ -23,11 +23,16 @@ use super::super::{
 
 pub(super) struct Header {
     widget: gtk::HeaderBar,
+    pub(super) actions: gtk::Box,
+    pub(super) new_tab: gtk::Button,
     pub(super) content: gtk::Box,
     pub(super) sidebar_toggle: gtk::ToggleButton,
     pub(super) search: gtk::Button,
     pub(super) settings: gtk::Button,
     #[cfg(test)]
+    pub(super) minimize: gtk::Button,
+    #[cfg(test)]
+    pub(super) maximize: gtk::Button,
     pub(super) close: gtk::Button,
 }
 
@@ -39,18 +44,25 @@ impl Header {
         preferences: &Rc<PreferenceManager>,
     ) -> Self {
         let widget = gtk::HeaderBar::new();
+        widget.add_css_class("browser-header");
         widget.set_show_title_buttons(false);
-        let sidebar_toggle = gtk::ToggleButton::builder()
-            .active(true)
-            .tooltip_text("Toggle sidebar (Ctrl+B)")
-            .build();
+        let sidebar_toggle = gtk::ToggleButton::builder().active(true).build();
+        preferences.bind_preference(
+            &sidebar_toggle,
+            PreferenceManager::tenxer_mode,
+            |toggle, tenxer| {
+                toggle.set_tooltip_text(Some(
+                    &crate::ui::shortcut_reference::sidebar_toggle_tooltip(tenxer),
+                ));
+            },
+        );
         sidebar_toggle.set_child(Some(&assets::primary_icon(icons::PANEL_LEFT, 17)));
         sidebar_toggle.add_css_class("sidebar-toggle");
         sidebar_toggle.set_cursor_from_name(Some("pointer"));
         {
             let toggle = sidebar_toggle.downgrade();
             preferences.bind_preference(
-                window,
+                &sidebar_toggle,
                 PreferenceManager::sidebar_expanded,
                 move |_, expanded| {
                     if let Some(toggle) = toggle.upgrade() {
@@ -67,23 +79,73 @@ impl Header {
         }
         let location = browser.location_widget();
         location.set_hexpand(true);
-        let search = header_action(icons::SEARCH, "Search (Ctrl+K)");
+        let search = header_action(
+            icons::SEARCH,
+            &crate::ui::shortcut_reference::with_keys(
+                "Search (%{keys})",
+                crate::ui::keys::Keys::One(crate::ui::keys::bindings::SEARCH),
+            ),
+        );
         crate::ui::tenxer_mode::hide_while_enabled(&search);
         let appearance =
             build_appearance_menu(browser, &browser.browser(), preferences.clone(), preview);
-        let settings = header_action(icons::SETTINGS, "Settings");
-        let close = header_action(icons::X, "Close window");
+        let settings = header_action(icons::SETTINGS, &crate::i18n::tr("Settings"));
+        let minimize_label = crate::i18n::tr("Minimize window");
+        let minimize = header_action(icons::MINUS, &minimize_label);
+        crate::ui::accessibility::set_label(&minimize, &minimize_label);
+        let minimizing_window = window.downgrade();
+        minimize.connect_clicked(move |_| {
+            if let Some(window) = minimizing_window.upgrade() {
+                window.minimize();
+            }
+        });
+        let maximize = header_action(icons::MAXIMIZE, &crate::i18n::tr("Maximize window"));
+        let maximizing_window = window.downgrade();
+        maximize.connect_clicked(move |_| {
+            let Some(window) = maximizing_window.upgrade() else {
+                return;
+            };
+            if window.is_maximized() {
+                window.unmaximize();
+            } else {
+                window.maximize();
+            }
+        });
+        bind_maximize_icon(window, &maximize);
+        let close = header_action(icons::X, &crate::i18n::tr("Close window"));
         let closing_window = window.downgrade();
         close.connect_clicked(move |_| {
             if let Some(window) = closing_window.upgrade() {
                 window.close();
             }
         });
+        for (button, read) in [
+            (
+                &minimize,
+                PreferenceManager::window_show_minimize as fn(&PreferenceManager) -> bool,
+            ),
+            (&maximize, PreferenceManager::window_show_maximize),
+            (&close, PreferenceManager::window_show_close),
+        ] {
+            preferences
+                .bind_preference(button, read, |widget, visible| widget.set_visible(visible));
+        }
         let actions = gtk::Box::new(gtk::Orientation::Horizontal, 0);
         actions.add_css_class("header-actions");
+        let new_tab = header_action(
+            icons::PLUS,
+            &crate::ui::shortcut_reference::with_keys(
+                "New tab (%{keys})",
+                crate::ui::keys::Keys::One(crate::ui::keys::bindings::TAB_NEW),
+            ),
+        );
+        crate::ui::accessibility::set_label(&new_tab, &crate::i18n::tr("New tab"));
+        actions.append(&new_tab);
         actions.append(&search);
         actions.append(&appearance);
         actions.append(&settings);
+        actions.append(&minimize);
+        actions.append(&maximize);
         actions.append(&close);
         let content = gtk::Box::new(gtk::Orientation::Horizontal, 0);
         content.set_hexpand(true);
@@ -99,12 +161,42 @@ impl Header {
             search,
             settings,
             #[cfg(test)]
+            minimize,
+            #[cfg(test)]
+            maximize,
             close,
+            actions,
+            new_tab,
         }
     }
 }
 
-fn header_action(icon: &str, tooltip: &str) -> gtk::Button {
+fn bind_maximize_icon(window: &gtk::ApplicationWindow, button: &gtk::Button) {
+    let weak_button = button.downgrade();
+    let update = move |window: &gtk::ApplicationWindow| {
+        let Some(image) = weak_button
+            .upgrade()
+            .and_then(|button| button.child())
+            .and_downcast::<gtk::Image>()
+        else {
+            return;
+        };
+        let (icon, tooltip) = if window.is_maximized() {
+            (icons::MINIMIZE, crate::i18n::tr("Restore window"))
+        } else {
+            (icons::MAXIMIZE, crate::i18n::tr("Maximize window"))
+        };
+        assets::set_primary_icon(&image, icon);
+        if let Some(button) = weak_button.upgrade() {
+            button.set_tooltip_text(Some(&tooltip));
+            crate::ui::accessibility::set_label(&button, &tooltip);
+        }
+    };
+    update(window);
+    window.connect_maximized_notify(move |window| update(window));
+}
+
+pub(super) fn header_action(icon: &str, tooltip: &str) -> gtk::Button {
     let button = gtk::Button::builder().tooltip_text(tooltip).build();
     button.set_child(Some(&assets::chrome_icon(icon)));
     button.add_css_class("header-action");
@@ -113,13 +205,14 @@ fn header_action(icon: &str, tooltip: &str) -> gtk::Button {
 }
 
 pub(super) fn preview(browser: &BrowserView, preferences: &Rc<PreferenceManager>) -> PreviewDrawer {
-    let preferences = preferences.clone();
+    let backend = preferences.clone();
     let preview = PreviewDrawer::new(
         Rc::new(LocalPreviewProvider::new(Rc::new(move || {
-            preferences.media_preview_backend()
+            backend.media_preview_backend()
         }))),
         true,
     );
+    preview.bind_find_shortcut(preferences);
     preview.observe_browser(&browser.browser());
     preview
 }
@@ -138,7 +231,8 @@ pub(super) fn browser_layout(
     let content = browser_split(browser, sidebar, &header.sidebar_toggle, preview);
     let preview_split = gtk::Paned::new(gtk::Orientation::Horizontal);
     preview_split.add_css_class("preview-split");
-    preview_split.set_wide_handle(false);
+    // The column beside the divider keeps its resize edge; the preview grip moves it.
+    preview_split.set_wide_handle(true);
     preview_split.set_resize_start_child(true);
     preview_split.set_resize_end_child(false);
     preview_split.set_shrink_start_child(false);
@@ -148,7 +242,11 @@ pub(super) fn browser_layout(
     preview_split.set_position(i32::MAX);
     preview_split.set_vexpand(true);
     preview.attach_split(&preview_split, &content, browser, Some(sidebar));
-    browser.add_marquee_origin(&preview.widget(), gtk::PackType::End);
+    browser.add_marquee_origin(
+        &preview.widget(),
+        gtk::PackType::End,
+        OriginClick::keeps_selection_within(&preview.pane_widget()),
+    );
     root.append(&preview_split);
     root
 }
@@ -187,7 +285,11 @@ fn browser_split(
     content.set_position(SIDEBAR_WIDTH);
     content.set_vexpand(true);
     sidebar.widget.set_size_request(MIN_SIDEBAR_WIDTH, -1);
-    browser.add_marquee_origin(&sidebar.widget, gtk::PackType::Start);
+    browser.add_marquee_origin(
+        &sidebar.widget,
+        gtk::PackType::Start,
+        OriginClick::ClearsSelection,
+    );
     content.set_start_child(Some(&sidebar.widget));
     content.set_end_child(Some(&browser.widget()));
     bind_sidebar_toggle(&content, sidebar, toggle, preview);

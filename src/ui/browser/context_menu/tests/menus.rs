@@ -26,34 +26,41 @@ impl FileSource for MenuSource {
                 "archive.zip",
                 "archive.rar",
                 "folder",
+                "photos.zip",
             ]
             .into_iter()
-            .map(|name| FileEntry {
-                location: if request.location.is_recent_root() && name == "notes.txt" {
-                    Location::local("/fixture/notes.txt")
-                } else {
-                    crate::adapters::location_for_file(&parent.child(name)).expect("location")
-                },
-                native_name: name.into(),
-                thumbnail_path: None,
-                display_name: name.into(),
-                kind: if name == "folder" {
-                    EntryKind::Directory
-                } else {
-                    EntryKind::File
-                },
-                size: MetadataValue::Known(5),
-                modified_unix_seconds: MetadataValue::Known(0),
-                mode: MetadataValue::Known(if matches!(name, "run-me" | "folder") {
-                    0o755
-                } else {
-                    0o644
-                }),
-                recent_unix_seconds: MetadataValue::Unknown,
-                is_hidden: false,
-                image_dimensions: MetadataValue::Unknown,
-                child_count: MetadataValue::Unknown,
-                duration_seconds: MetadataValue::Unknown,
+            .map(|name| {
+                let in_recent = request.location.is_recent_root() && name == "notes.txt";
+                FileEntry {
+                    location: if in_recent {
+                        Location::local("/fixture/notes.txt")
+                    } else {
+                        crate::adapters::location_for_file(&parent.child(name)).expect("location")
+                    },
+                    native_name: name.into(),
+                    thumbnail_path: None,
+                    display_name: name.into(),
+                    kind: if matches!(name, "folder" | "photos.zip") {
+                        EntryKind::Directory
+                    } else {
+                        EntryKind::File
+                    },
+                    size: MetadataValue::Known(5),
+                    modified_unix_seconds: MetadataValue::Known(0),
+                    mode: MetadataValue::Known(
+                        if matches!(name, "run-me" | "folder" | "photos.zip") {
+                            0o755
+                        } else {
+                            0o644
+                        },
+                    ),
+                    recent_unix_seconds: MetadataValue::Unknown,
+                    is_hidden: false,
+                    image_dimensions: MetadataValue::Unknown,
+                    child_count: MetadataValue::Unknown,
+                    duration_seconds: MetadataValue::Unknown,
+                    recent_uri: in_recent.then(|| "recent:///notes.txt".to_owned()),
+                }
             })
             .collect();
             emit(DirectoryEvent::Batch {
@@ -267,11 +274,20 @@ fn context_hints_follow_the_active_map() {
             let menu = open_menu(&view, Some("notes.txt"));
             let hints = label_texts(&menu);
             assert!(hints.iter().any(|hint| hint == "Space"), "{hints:?}");
-            assert!(hints.iter().any(|hint| hint == "Y"), "{hints:?}");
+            assert!(hints.iter().any(|hint| hint == "y"), "{hints:?}");
+            let properties = hints
+                .iter()
+                .position(|hint| hint == "Properties")
+                .and_then(|index| hints.get(index + 1));
+            assert_eq!(
+                properties.map(String::as_str),
+                Some("Alt+Enter"),
+                "{hints:?}"
+            );
             manager.set_type_to_search(true);
             let hints = label_texts(&menu);
             assert!(
-                !hints.iter().any(|hint| hint == "Y"),
+                !hints.iter().any(|hint| hint == "y"),
                 "type-to-search claims y: {hints:?}"
             );
             menu.popdown();
@@ -288,11 +304,11 @@ fn context_hints_follow_the_active_map() {
                     .map(String::as_str)
             };
             for (label, hint) in [
-                ("Rename", "R"),
-                ("Cut", "X"),
-                ("Copy", "Y"),
-                ("Move to Trash", "D"),
-                ("Permanently delete", "Shift+D"),
+                ("Rename", "r"),
+                ("Cut", "x"),
+                ("Copy", "y"),
+                ("Move to Trash", "d"),
+                ("Permanently delete", "D"),
                 ("Copy path", "Copy name"),
             ] {
                 assert_eq!(after(label), Some(hint), "{hints:?}");
@@ -302,8 +318,8 @@ fn context_hints_follow_the_active_map() {
                 "{hints:?}"
             );
             assert!(
-                hints.iter().any(|hint| hint == "I"),
-                "GTK renders the i accelerator as I: {hints:?}"
+                hints.iter().any(|hint| hint == "i"),
+                "the menu shows Strata's label, not GTK's rendering of the accelerator: {hints:?}"
             );
             menu.popdown();
             view.browser().clear_observer();
@@ -327,13 +343,25 @@ fn archive_extraction_actions_follow_build_support() {
                 .build();
             window.present();
             view.browser().navigate(Location::local(fixture.path()));
-            wait_until(|| label(&view.widget(), "archive.rar").is_some());
+            wait_until(|| {
+                label(&view.widget(), "archive.rar").is_some()
+                    && label(&view.widget(), "photos.zip").is_some()
+            });
             for (name, supported) in [
                 ("archive.zip", true),
                 ("archive.rar", cfg!(feature = "rar")),
+                ("photos.zip", false),
             ] {
                 let menu = open_menu(&view, Some(name));
                 let labels = label_texts(&menu);
+                if name == "photos.zip" {
+                    assert!(
+                        labels
+                            .iter()
+                            .any(|label| label == "Open in Terminal" || label == "Pin to sidebar"),
+                        "{labels:?}"
+                    );
+                }
                 for action in ["Extract here", "Extract to…"] {
                     assert_eq!(
                         labels.iter().any(|label| label == action),
@@ -348,6 +376,107 @@ fn archive_extraction_actions_follow_build_support() {
             window.destroy();
         },
     );
+}
+
+#[test]
+fn remove_from_recent_is_gated_on_the_recent_location() {
+    crate::test_support::gtk_test(
+        "ui::browser::context_menu::tests::menus::remove_from_recent_is_gated_on_the_recent_location",
+        || {
+            let fixture = tempfile::tempdir().expect("menu fixture");
+            let view = BrowserView::new(Rc::new(MenuSource), PeekBehavior::default());
+            let window = gtk::Window::builder()
+                .child(&view.widget())
+                .default_width(1000)
+                .default_height(850)
+                .build();
+            window.present();
+
+            view.browser().navigate(Location::local(fixture.path()));
+            wait_until(|| label(&view.widget(), "notes.txt").is_some());
+            let menu = open_menu(&view, Some("notes.txt"));
+            assert!(
+                !label_texts(&menu)
+                    .iter()
+                    .any(|text| text == "Remove from Recent"),
+                "{:?}",
+                label_texts(&menu)
+            );
+            menu.popdown();
+            wait_until(|| !menu.is_mapped());
+
+            view.browser().navigate(Location::uri("recent:///"));
+            wait_until(|| label(&view.widget(), "notes.txt").is_some());
+            let menu = open_menu(&view, Some("notes.txt"));
+            let labels = label_texts(&menu);
+            assert!(
+                labels.iter().any(|text| text == "Remove from Recent"),
+                "{labels:?}"
+            );
+            assert!(labels.iter().any(|text| text == "Open"), "{labels:?}");
+            assert!(labels.iter().any(|text| text == "Copy"), "{labels:?}");
+            menu.popdown();
+            wait_until(|| !menu.is_mapped());
+
+            view.browser().clear_observer();
+            window.destroy();
+        },
+    );
+}
+
+#[test]
+fn directory_rows_offer_the_open_in_submenu() {
+    crate::test_support::gtk_test(
+        "ui::browser::context_menu::tests::menus::directory_rows_offer_the_open_in_submenu",
+        || {
+            let manager = crate::ui::preferences::PreferenceManager::shared();
+            manager.set_tenxer_mode(false);
+            manager.set_type_to_search(false);
+            let fixture = tempfile::tempdir().expect("menu fixture");
+            let view = BrowserView::new(Rc::new(MenuSource), PeekBehavior::default());
+            view.set_operation_provider(Rc::new(crate::adapters::LocalOperationProvider));
+            let window = gtk::Window::builder()
+                .child(&view.widget())
+                .default_width(1000)
+                .default_height(850)
+                .build();
+            window.present();
+            view.browser().navigate(Location::local(fixture.path()));
+            wait_until(|| label(&view.widget(), "folder").is_some());
+
+            let menu = open_menu(&view, Some("folder"));
+            let labels = tree_label_texts(&menu);
+            for entry in ["Open", "Open in…", "New Tab", "New Window"] {
+                assert!(labels.iter().any(|text| text == entry), "{labels:?}");
+            }
+            for hint in ["Ctrl+Enter", "Shift+Enter"] {
+                assert!(labels.iter().any(|text| text == hint), "{labels:?}");
+            }
+            menu.popdown();
+            wait_until(|| !menu.is_mapped());
+
+            let menu = open_menu(&view, Some("notes.txt"));
+            let labels = tree_label_texts(&menu);
+            assert!(labels.iter().any(|text| text == "Open"), "{labels:?}");
+            for entry in ["Open in…", "New Tab", "New Window"] {
+                assert!(!labels.iter().any(|text| text == entry), "{labels:?}");
+            }
+            menu.popdown();
+
+            view.browser().clear_observer();
+            window.destroy();
+        },
+    );
+}
+
+/// Includes collapsed submenu entries, which stay in the widget tree.
+fn tree_label_texts(menu: &gtk::Popover) -> Vec<String> {
+    descendants(menu.upcast_ref())
+        .into_iter()
+        .filter_map(|widget| widget.downcast::<gtk::Label>().ok())
+        .filter(|label| !label.text().is_empty())
+        .map(|label| label.text().to_string())
+        .collect()
 }
 
 fn label_texts(menu: &gtk::Popover) -> Vec<String> {

@@ -473,7 +473,11 @@ fn install_result_interactions(
         source.set_actions(crate::ui::browser::drag_actions_for_modifiers(
             source.current_event_state(),
         ));
-        source.set_icon(Some(&gtk::WidgetPaintable::new(Some(&widget))), 0, 0);
+        if let Some((texture, hot_x, hot_y)) =
+            crate::ui::browser::drag_preview_icon(&widget, &entries)
+        {
+            source.set_icon(Some(&texture), hot_x, hot_y);
+        }
         crate::ui::browser::file_drag_content(&entries)
     });
     widget.add_controller(drag.clone());
@@ -673,6 +677,7 @@ pub(super) fn build_collection(
             grid.set_max_columns(max_columns);
             grid.set_enable_rubberband(false);
             grid.set_single_click_activate(false);
+            grid.set_tab_behavior(gtk::ListTabBehavior::Item);
             grid.set_vexpand(false);
             grid.upcast()
         }
@@ -681,12 +686,13 @@ pub(super) fn build_collection(
             list.add_css_class("file-list");
             list.set_enable_rubberband(false);
             list.set_single_click_activate(false);
+            list.set_tab_behavior(gtk::ListTabBehavior::Item);
             list.set_vexpand(true);
             list.upcast()
         }
     };
     view.add_css_class("search-results");
-    crate::ui::accessibility::set_label(&view, SEARCH_RESULTS_LABEL);
+    crate::ui::accessibility::set_label(&view, &crate::i18n::tr(SEARCH_RESULTS_LABEL));
     if let ResultKind::Icons { thumbnail_size } = &kind {
         let last_size = Cell::new(thumbnail_size.get());
         let thumbnail_size = thumbnail_size.clone();
