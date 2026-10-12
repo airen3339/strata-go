@@ -531,6 +531,47 @@ fn digit_row_keys_are_digits_by_position() {
     assert!(de_mac_backslash.is(Binding::ctrl(Key::backslash)));
 }
 
+/// cn(altgr-pinyin), recorded from GDK: AltGr+1–4 are the pinyin tone dead keys
+/// and Shift+AltGr+6 is ¨. Its levels 0 and 1 are US, as all of plain cn is.
+#[test]
+fn dead_keys_on_the_digit_row_are_text_input() {
+    let macron = press(
+        &[US],
+        0,
+        10,
+        2,
+        Key::dead_macron,
+        (Key::dead_macron, NONE),
+        NONE,
+    );
+    let ctrl_macron = press(
+        &[US],
+        0,
+        10,
+        2,
+        Key::dead_macron,
+        (Key::dead_macron, CTRL),
+        CTRL,
+    );
+    let ctrl_shift_diaeresis = press(
+        &[US],
+        0,
+        15,
+        3,
+        Key::dead_diaeresis,
+        (Key::dead_diaeresis, CTRL),
+        CTRL_SHIFT,
+    );
+    let tab_step = Digits::after(Binding::plain(Key::t), 9, true);
+    assert_eq!(macron.digit_in(tab_step), None);
+    assert_eq!(macron.text(), None, "a dead key types nothing by itself");
+    assert!(!ctrl_macron.is(Binding::ctrl(Key::_1)));
+    assert_eq!(
+        ctrl_shift_diaeresis.digit_in(Digits::new(CTRL_SHIFT, 9, true)),
+        None
+    );
+}
+
 #[test]
 fn keypad_digits_count_only_with_num_lock() {
     let digit = press(&[US], 0, 87, 0, Key::KP_1, (Key::KP_1, CTRL), CTRL);
