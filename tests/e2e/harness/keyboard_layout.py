@@ -27,12 +27,13 @@ class LayoutError(RuntimeError):
 
 @dataclass(frozen=True)
 class Layout:
-    """`name` is the test id."""
+    """`name` is the test id. `variants` lists one XKB variant per layout."""
 
     name: str
     layouts: str
     group: int = 0
     caps_lock: bool = False
+    variants: str = ""
 
 
 US = Layout("us", "us")
@@ -43,6 +44,9 @@ RUSSIAN_ONLY = Layout("ru-only", "ru")
 AZERTY = Layout("fr", "fr")
 QWERTZ = Layout("de", "de")
 CAPS_LOCK = Layout("caps-lock", "us", caps_lock=True)
+# Plain cn is US. Its Hanyu Pinyin variant types the tone marks with AltGr dead
+# keys on the digit row (AltGr+1–4) and ü with AltGr+v.
+PINYIN = Layout("cn-altgr-pinyin", "cn", variants="altgr-pinyin")
 
 
 @contextmanager
@@ -52,7 +56,8 @@ def switched(connection: XTestConnection, layout: Layout) -> Iterator[None]:
     """
 
     try:
-        _setxkbmap(connection, "-layout", layout.layouts)
+        variants = ("-variant", layout.variants) if layout.variants else ()
+        _setxkbmap(connection, "-layout", layout.layouts, *variants)
         connection.lock_group(layout.group)
         if layout.caps_lock:
             connection.lock_modifiers(LOCK_MASK, LOCK_MASK)
@@ -61,13 +66,18 @@ def switched(connection: XTestConnection, layout: Layout) -> Iterator[None]:
         # setxkbmap keeps locks, so release them before restoring the layout.
         connection.lock_group(0)
         connection.lock_modifiers(ALL_MODIFIERS, 0)
+        # A new layout without -variant also clears the variants.
         _setxkbmap(connection, "-layout", DEFAULT_LAYOUT)
-        restored = _query(connection).get("layout")
+        restored = _query(connection)
         state = connection.keyboard_state()
-        if restored != DEFAULT_LAYOUT or state != KeyboardState(0, 0, 0):
+        if (
+            restored.get("layout") != DEFAULT_LAYOUT
+            or restored.get("variant")
+            or state != KeyboardState(0, 0, 0)
+        ):
             raise LayoutError(
                 f"the keyboard was not restored after {layout.name}: "
-                f"layout {restored!r}, {state}"
+                f"layout {restored.get('layout')!r}, variant {restored.get('variant')!r}, {state}"
             )
 
 
