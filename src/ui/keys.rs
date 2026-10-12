@@ -11,6 +11,7 @@ use gtk::{
 };
 
 pub(crate) mod bindings;
+mod composition;
 mod label;
 
 #[cfg(test)]
@@ -200,11 +201,17 @@ impl KeyPress {
     }
 }
 
+/// The handler never sees a key while the focused text field is composing with
+/// an input method; the key goes to the input method.
 pub(crate) fn on_press(
     controller: &gtk::EventControllerKey,
     handler: impl Fn(&gtk::EventControllerKey, &KeyPress) -> Propagation + 'static,
 ) -> glib::SignalHandlerId {
+    composition::follow();
     signals::pressed(controller, move |controller, keyval, keycode, state| {
+        if composition::pending(controller) {
+            return Propagation::Proceed;
+        }
         handler(controller, &read(controller, keyval, keycode, state))
     })
 }

@@ -6,6 +6,7 @@ import pytest
 from PIL import Image, ImageColor
 
 from harness.fixtures import FixtureTree
+from harness.keyboard_layout import PINYIN
 from harness.modes import ALL_MODES
 
 
@@ -352,6 +353,21 @@ def test_filtered_item_menu_actions_use_the_real_location(strata, mode, trigger,
                 "the actual nested file to be copied")
     assert strata.fixture.path("match-note.txt").read_text() == "root decoy\n"
     assert strata.fixture.path("alpha/match-note.txt").read_text() == "alpha source\n"
+
+
+def test_space_completes_a_composition_instead_of_previewing_the_selected_result(
+    strata, keyboard_layout
+):
+    field = filter_results(strata)
+    row = strata.wait(lambda: result(strata, "beta/match-note.txt"), "the beta result")
+    strata.pointer.click(row, modifiers=("ctrl",))
+    strata.pointer.click(field)
+    strata.keyboard.press("End")
+    with keyboard_layout(PINYIN):
+        strata.keyboard.press("altgr+1")
+        strata.keyboard.press("space")
+        strata.wait(lambda: field.text == "match-note¯", "Space to complete the tone mark")
+    assert strata.preview() is None
 
 
 @pytest.mark.parametrize("mode", ALL_MODES)

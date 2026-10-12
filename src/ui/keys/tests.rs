@@ -573,6 +573,55 @@ fn dead_keys_on_the_digit_row_are_text_input() {
 }
 
 #[test]
+fn key_handlers_yield_to_a_composition_in_the_focused_field() {
+    crate::test_support::gtk_test(
+        "ui::keys::tests::key_handlers_yield_to_a_composition_in_the_focused_field",
+        || {
+            use gtk::prelude::*;
+            use std::{cell::Cell, rc::Rc};
+
+            let window = gtk::Window::new();
+            let fields = gtk::Box::new(gtk::Orientation::Vertical, 0);
+            let composing = gtk::Text::new();
+            let other = gtk::Text::new();
+            fields.append(&composing);
+            fields.append(&other);
+            window.set_child(Some(&fields));
+            let keys = gtk::EventControllerKey::new();
+            keys.set_propagation_phase(gtk::PropagationPhase::Capture);
+            let handled = Rc::new(Cell::new(0));
+            let count = handled.clone();
+            super::on_press(&keys, move |_, _| {
+                count.set(count.get() + 1);
+                gtk::glib::Propagation::Stop
+            });
+            window.add_controller(keys.clone());
+            window.present();
+            let escape = || {
+                keys.emit_by_name::<bool>("key-pressed", &[&Key::Escape, &9u32, &NONE]);
+            };
+
+            assert!(composing.grab_focus());
+            composing.emit_preedit_changed("ˇ");
+            escape();
+            assert_eq!(handled.get(), 0, "Escape must reach the input method");
+            assert!(other.grab_focus());
+            escape();
+            assert_eq!(
+                handled.get(),
+                1,
+                "only the focused field's composition holds keys"
+            );
+            assert!(composing.grab_focus());
+            composing.emit_preedit_changed("");
+            escape();
+            assert_eq!(handled.get(), 2, "a finished composition releases the keys");
+            window.destroy();
+        },
+    );
+}
+
+#[test]
 fn keypad_digits_count_only_with_num_lock() {
     let digit = press(&[US], 0, 87, 0, Key::KP_1, (Key::KP_1, CTRL), CTRL);
     let end = press(&[US], 0, 87, 0, Key::KP_End, (Key::KP_End, CTRL), CTRL);
