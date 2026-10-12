@@ -16,6 +16,11 @@ fn detects_supported_locales_and_honors_posix_precedence() {
         ("", "", "", "pt_BR.UTF-8", "pt-BR"),
         ("", "", "", "pt-PT", "pt-BR"),
         ("", "", "", "es_MX@variant", "es"),
+        ("", "", "", "zh_CN.GB18030", "zh-CN"),
+        ("", "", "", "zh_TW.UTF-8", "zh-CN"),
+        ("", "zh_HK.UTF-8", "", "en_US", "zh-CN"),
+        ("zh-Hans", "", "", "en_US.UTF-8", "zh-CN"),
+        ("xx:zh-Hant:ja", "", "", "de_DE", "zh-CN"),
         ("", "", "", "IT_it.utf8", "it"),
         ("", "", "", "unsupported", "en"),
         ("", "", "", "", "en"),
@@ -41,6 +46,7 @@ fn manual_language_does_not_depend_on_system_locale() {
         (Language::Vietnamese, "vi"),
         (Language::Italian, "it"),
         (Language::Russian, "ru"),
+        (Language::SimplifiedChinese, "zh-CN"),
     ] {
         assert_eq!(choice.locale(), locale);
         assert_eq!(
@@ -81,6 +87,7 @@ fn plural_categories_cover_russian_teens_and_invariant_asian_forms() {
         ("ja", vec![(0, "other"), (1, "other"), (2, "other")]),
         ("ko", vec![(1, "other")]),
         ("vi", vec![(1, "other")]),
+        ("zh-CN", vec![(1, "other")]),
     ] {
         for (count, expected) in values {
             assert_eq!(plural_category(locale, count), expected, "{locale}/{count}");
@@ -101,6 +108,7 @@ fn lists_use_the_language_separator() {
     let items = || ["2 folders", "3 files", "1 link"].map(str::to_owned);
     assert_eq!(list_in("en", items()), "2 folders, 3 files, 1 link");
     assert_eq!(list_in("ja", items()), "2 folders、3 files、1 link");
+    assert_eq!(list_in("zh-CN", items()), "2 folders、3 files、1 link");
     assert_eq!(list_in("en", []), "");
     assert_eq!(
         capitalize_first("с ошибкой: 1 элемент, не обработано: 0 элементов".to_owned()),
@@ -111,6 +119,17 @@ fn lists_use_the_language_separator() {
         "Thất bại 2 mục"
     );
     assert_eq!(capitalize_first("0 件完了".to_owned()), "0 件完了");
+}
+
+#[test]
+fn sentences_join_without_a_space_after_a_full_width_stop() {
+    for (first, second, expected) in [
+        ("复制失败。", "请重试。", "复制失败。请重试。"),
+        ("确定吗？", "此操作无法撤销。", "确定吗？此操作无法撤销。"),
+        ("权限不足", "请重试。", "权限不足。请重试。"),
+    ] {
+        assert_eq!(join_sentences_in("zh-CN", first, second), expected);
+    }
 }
 
 #[test]
@@ -171,8 +190,10 @@ fn counts_and_numbers_group_digits_by_language() {
     assert_eq!(count_in("es", "files", 60_000), "60.000 archivos");
     assert_eq!(count_in("fr", "files", 60_000), "60\u{202f}000 fichiers");
     assert_eq!(count_in("ru", "files", 60_000), "60\u{a0}000 файлов");
+    assert_eq!(count_in("zh-CN", "files", 3_000), "3,000 个文件");
     assert_eq!(decimal_in("de", 1_234_567.3, 1), "1.234.567,3");
     assert_eq!(decimal_in("en", 400.0, 1), "400.0");
+    assert_eq!(decimal_in("zh-CN", 1_234_567.3, 1), "1,234,567.3");
     assert_eq!(percent_in("en", 42), "42%");
     assert_eq!(percent_in("fr", 100), "100\u{202f}%");
     assert_eq!(percent_in("de", 7), "7\u{a0}%");
@@ -187,6 +208,9 @@ fn durations_use_the_language_units() {
         ("de", 2, "2 s"),
         ("ru", 125, "2 мин 5 с"),
         ("ja", 3_725, "1時間2分"),
+        ("zh-CN", 45, "45秒"),
+        ("zh-CN", 125, "2分5秒"),
+        ("zh-CN", 3_725, "1小时2分"),
     ] {
         assert_eq!(duration_in(locale, seconds), expected, "{locale}/{seconds}");
     }

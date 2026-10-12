@@ -226,6 +226,14 @@ impl SearchDialog {
                 begin_query(&state, &field.text());
             }
         });
+        // Enter reaches the field only after an input method commits and passes
+        // it back; otherwise the key handler below opens the result.
+        let entered = Rc::downgrade(&state);
+        state.field.connect_activate(move |_| {
+            if let Some(state) = entered.upgrade() {
+                activate_selected(&state);
+            }
+        });
         let activated = Rc::downgrade(&state);
         state.list.connect_row_activated(move |_, row| {
             if let Some(state) = activated.upgrade() {

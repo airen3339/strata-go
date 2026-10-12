@@ -17,7 +17,7 @@ const TARGETS: &[Target] = &[
         id: "language",
         page: "general",
         title: "Language",
-        aliases: "locale translation auto detect restart English Français Deutsch Español 日本語 Português 한국어 Tiếng Việt Italiano Русский",
+        aliases: "locale translation auto detect restart English Français Deutsch Español 日本語 Português 한국어 Tiếng Việt Italiano Русский 简体中文",
     },
     Target {
         id: "custom-actions",
@@ -362,11 +362,28 @@ fn distance(a: &str, b: &str) -> usize {
     previous[b.len()]
 }
 
+/// Kana and Han ideographs.
+fn is_unspaced_script(character: char) -> bool {
+    matches!(
+        character,
+        '\u{3040}'..='\u{30ff}'
+            | '\u{3400}'..='\u{4dbf}'
+            | '\u{4e00}'..='\u{9fff}'
+            | '\u{f900}'..='\u{faff}'
+            | '\u{20000}'..='\u{3134f}'
+    )
+}
+
 fn word_score(query: &str, word: &str) -> Option<i32> {
     if query == word {
         Some(80)
     } else if word.starts_with(query) {
         Some(60)
+    } else if query.chars().count() >= 2
+        && query.chars().any(is_unspaced_script)
+        && word.contains(query)
+    {
+        Some(40)
     } else if query.chars().count() >= 4
         && distance(query, word) <= if query.chars().count() >= 6 { 2 } else { 1 }
     {
@@ -380,6 +397,8 @@ fn score(query: &str, target: &Target) -> Option<i32> {
     let source_title = normalized(&super::translated_in("en", target.title));
     let localized_title = normalized(&super::translated(target.title));
     let title = format!("{source_title} {localized_title}");
+    // Chinese and Japanese queries run across the spaces titles put around Latin words.
+    let joined_title = localized_title.split_whitespace().collect::<String>();
     let aliases = normalized(&format!(
         "{} {} {} {} settings {}",
         target.aliases,
@@ -394,6 +413,7 @@ fn score(query: &str, target: &Target) -> Option<i32> {
     for query_word in query.split_whitespace() {
         let title_score = title
             .split_whitespace()
+            .chain([joined_title.as_str()])
             .filter_map(|word| word_score(query_word, word))
             .max();
         let alias_score = aliases

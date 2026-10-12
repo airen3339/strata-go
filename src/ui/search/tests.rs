@@ -345,6 +345,49 @@ fn deferred_scroll_restoration_yields_to_updates_wheel_scrollbar_and_query_reset
     );
 }
 
+#[test]
+fn enter_and_field_activation_open_the_selected_result() {
+    crate::test_support::gtk_test(
+        "ui::search::tests::enter_and_field_activation_open_the_selected_result",
+        || {
+            let routes: [fn(&SearchDialog); 2] = [
+                |dialog| {
+                    assert!(emit_key(
+                        dialog,
+                        gtk::gdk::Key::Return,
+                        gtk::gdk::ModifierType::empty()
+                    ));
+                },
+                |dialog| dialog.state.field.emit_activate(),
+            ];
+            for route in routes {
+                let opened = Rc::new(RefCell::new(Vec::new()));
+                let record = opened.clone();
+                let (dialog, window) =
+                    mapped_dialog(Rc::new(move |item| record.borrow_mut().push(item.path)));
+                dialog.state.field.set_text("navigation");
+                render_results(
+                    &dialog.state,
+                    search_items("navigation", 3),
+                    false,
+                    SearchCoverage::default(),
+                );
+                assert!(emit_key(
+                    &dialog,
+                    gtk::gdk::Key::Down,
+                    gtk::gdk::ModifierType::empty()
+                ));
+                route(&dialog);
+                assert_eq!(
+                    *opened.borrow(),
+                    [PathBuf::from("/search/navigation-001.txt")]
+                );
+                window.destroy();
+            }
+        },
+    );
+}
+
 fn mapped_dialog(activate: Rc<dyn Fn(SearchItem)>) -> (SearchDialog, gtk::Window) {
     let dialog = SearchDialog::new(activate, Rc::new(|_| {}), Rc::new(|| {}));
     let window = gtk::Window::builder()

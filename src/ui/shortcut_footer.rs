@@ -1271,6 +1271,10 @@ impl ShortcutFooter {
         self.prompt.candidates.position()
     }
 
+    pub(in crate::ui) fn connect_prompt_activated(&self, listener: impl Fn() + 'static) {
+        self.prompt.entry.connect_activate(move |_| listener());
+    }
+
     pub(in crate::ui) fn connect_candidate_activated(&self, listener: impl Fn(PathBuf) + 'static) {
         self.prompt.candidates.connect_activated(listener);
     }

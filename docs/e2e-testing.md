@@ -484,17 +484,24 @@ def test_search(strata, keyboard_layout):
         strata.editable_field()
 ```
 
-`setxkbmap -display` loads the layouts into the private Xvfb, and an XKB group
-lock selects the active one, as a layout switch shortcut does. Leaving the block
-unlocks the group and every modifier, restores the US layout, and fails the
+`setxkbmap -display` loads the layouts, and their XKB variants when a `Layout`
+names them, into the private Xvfb, and an XKB group lock selects the active
+one, as a layout switch shortcut does. Leaving the block unlocks the group and
+every modifier, restores the US layout without variants, and fails the
 scenario if the keyboard is not back in that state. Never change the desktop's
 layout, and never run `setxkbmap` without `-display`.
 
 XTest reads the keymap once, from the first group of the default US layout, so
 key names mean US key positions: under `RUSSIAN`, `press("ctrl+c")` presses the
-key that types с, and `type_text` types what those keys produce. Wait for each
+key that types с, and `type_text` types what those keys produce. The `altgr`
+modifier presses the US right Alt key, which layouts with AltGr turn into it:
+under `PINYIN`, `press("altgr+1")` types the macron dead key. Wait for each
 key's effect inside the block. GDK may read the keymap only when it handles the
 event, and by then a finished block has restored US.
+
+The harness runs no input method daemon. GTK's built-in input method composes
+dead keys in text fields, so a pending `PINYIN` tone mark stands in for an input
+method's unfinished composition when a scenario checks which keys reach it.
 
 ## Failure artifacts
 

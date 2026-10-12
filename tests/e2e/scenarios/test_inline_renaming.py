@@ -6,7 +6,7 @@ import time
 import pytest
 
 from harness.artifacts import ArtifactCollector
-from harness.keyboard_layout import RUSSIAN_ONLY, US
+from harness.keyboard_layout import PINYIN, RUSSIAN_ONLY, US
 from harness.modes import ALL_MODES, COLUMNS_AND_ONE
 from harness.screenshots import capture
 from harness.tree import Atspi
@@ -418,6 +418,23 @@ def test_repeated_renames_select_the_folder_name_or_file_stem(strata, mode, kind
         if kind == "file":
             assert strata.fixture.path(replacement).read_text() == "todo\n"
         original = replacement
+
+
+def test_escape_cancels_a_tone_mark_composition_before_the_rename(strata, keyboard_layout):
+    field, original = begin_edit(strata, "file", False)
+    with keyboard_layout(PINYIN):
+        strata.keyboard.type_text("m")
+        strata.keyboard.press("altgr+1")
+        strata.keyboard.type_text("a")
+        strata.wait(lambda: field.text == "mā", "AltGr+1 then a to type ā")
+        strata.keyboard.press("altgr+3")
+        strata.keyboard.press("Escape")
+        strata.keyboard.type_text("o")
+        strata.wait(lambda: field.text == "māo", "Escape to cancel only the pending tone mark")
+    strata.keyboard.press("Return")
+    strata.wait(lambda: strata.fixture.path("māo").exists(), "the composed name on disk")
+    wait_for_edit_closed(strata)
+    assert not strata.fixture.path(original).exists()
 
 
 # F5 reloads the rows each mode leases differently; the other shortcuts never

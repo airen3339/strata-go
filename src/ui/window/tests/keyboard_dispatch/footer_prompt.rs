@@ -216,6 +216,26 @@ fn tenxer_slash_covers_the_footer_with_a_focused_find_prompt() {
 }
 
 #[test]
+fn a_prompt_submits_from_its_activate_signal() {
+    crate::test_support::gtk_test(
+        "ui::window::tests::keyboard_dispatch::footer_prompt::a_prompt_submits_from_its_activate_signal",
+        || {
+            let fixture = KeyboardFixture::new();
+            seed_report_names(&fixture);
+            let _preferences = enable_tenxer(&fixture);
+            let browser = fixture.view.browser();
+            move_to_named(&fixture, &browser, "a.txt");
+
+            assert!(fixture.press(Key::slash, ModifierType::empty()));
+            fixture.shortcuts.prompt().set_text("REPORT");
+            fixture.shortcuts.prompt().emit_activate();
+            assert_eq!(fixture.shortcuts.open_prompt_kind(), None);
+            assert_eq!(focused_name(&browser), "alpha-report.txt");
+        },
+    );
+}
+
+#[test]
 fn tenxer_find_moves_between_matches_and_keeps_rows_visible() {
     crate::test_support::gtk_test(
         "ui::window::tests::keyboard_dispatch::footer_prompt::tenxer_find_moves_between_matches_and_keeps_rows_visible",

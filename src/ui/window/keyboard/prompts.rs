@@ -150,7 +150,7 @@ impl Dispatcher {
         Propagation::Stop
     }
 
-    fn submit_prompt(&self, browser: &Browser) {
+    pub(super) fn submit_prompt(&self, browser: &Browser) {
         let text = self.shortcuts.prompt_text();
         let found = match self.shortcuts.open_prompt_kind() {
             Some(Prompt::Filter) => {

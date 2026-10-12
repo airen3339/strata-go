@@ -234,10 +234,9 @@ fn marker_path_for_executable(executable: &Path) -> Option<PathBuf> {
 pub(crate) fn ensure_self_managed(source: &InstallSource) -> Result<(), String> {
     match source.managed() {
         None => Ok(()),
-        Some(managed) => Err(format!(
-            "{} {}",
-            managed.ownership_summary(),
-            managed.update_instruction()
+        Some(managed) => Err(crate::i18n::join_sentences(
+            &managed.ownership_summary(),
+            &managed.update_instruction(),
         )),
     }
 }

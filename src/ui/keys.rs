@@ -11,6 +11,7 @@ use gtk::{
 };
 
 pub(crate) mod bindings;
+mod composition;
 mod label;
 
 #[cfg(test)]
@@ -200,11 +201,31 @@ impl KeyPress {
     }
 }
 
+/// While the focused field is composing, the input method sees each key first;
+/// the handler gets only keys it passes back, like Escape after a Korean commit.
 pub(crate) fn on_press(
     controller: &gtk::EventControllerKey,
     handler: impl Fn(&gtk::EventControllerKey, &KeyPress) -> Propagation + 'static,
 ) -> glib::SignalHandlerId {
+    composition::follow();
+    let forwarded = std::rc::Rc::new(composition::Forwarded::default());
+    let releases = forwarded.clone();
+    signals::released(controller, move |controller, keyval, _, _| {
+        releases.release(controller, keyval);
+    });
     signals::pressed(controller, move |controller, keyval, keycode, state| {
+        if let Some(field) = composition::composing_field(controller) {
+            // Forwarding needs a real event, and forwarding from the field's own
+            // controller would run that controller again.
+            if controller.current_event().is_none() || controller.widget().as_ref() == Some(&field)
+            {
+                return Propagation::Proceed;
+            }
+            if controller.forward(&field) {
+                forwarded.press(keyval, &field);
+                return Propagation::Stop;
+            }
+        }
         handler(controller, &read(controller, keyval, keycode, state))
     })
 }

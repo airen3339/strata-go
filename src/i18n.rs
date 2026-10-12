@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-use std::collections::HashMap;
+use std::{borrow::Cow, collections::HashMap};
 
 use serde::{Deserialize, Serialize};
 
@@ -27,13 +27,15 @@ pub(crate) enum Language {
     Italian,
     #[serde(rename = "ru")]
     Russian,
+    #[serde(rename = "zh-CN")]
+    SimplifiedChinese,
     #[default]
     #[serde(other, rename = "auto")]
     Auto,
 }
 
 impl Language {
-    pub const CHOICES: [(&'static str, Self); 11] = [
+    pub const CHOICES: [(&'static str, Self); 12] = [
         ("Auto-detect", Self::Auto),
         ("English", Self::English),
         ("Français", Self::French),
@@ -45,6 +47,7 @@ impl Language {
         ("Tiếng Việt", Self::Vietnamese),
         ("Italiano", Self::Italian),
         ("Русский", Self::Russian),
+        ("简体中文", Self::SimplifiedChinese),
     ];
 
     pub fn locale(self) -> &'static str {
@@ -60,6 +63,7 @@ impl Language {
             Self::Vietnamese => "vi",
             Self::Italian => "it",
             Self::Russian => "ru",
+            Self::SimplifiedChinese => "zh-CN",
         }
     }
 }
@@ -82,6 +86,8 @@ fn supported_locale(value: &str) -> Option<&'static str> {
         "vi" => Some("vi"),
         "it" => Some("it"),
         "ru" => Some("ru"),
+        // Traditional Chinese locales also use the Simplified catalog.
+        "zh" => Some("zh-CN"),
         _ => None,
     }
 }
@@ -131,14 +137,24 @@ impl Catalogs {
 }
 
 impl rust_i18n::Backend for Catalogs {
-    fn available_locales(&self) -> Vec<&str> {
-        let mut locales: Vec<&str> = self.0.keys().copied().collect();
+    fn available_locales(&self) -> Vec<Cow<'_, str>> {
+        let mut locales: Vec<Cow<'_, str>> = self.0.keys().map(|&locale| locale.into()).collect();
         locales.sort_unstable();
         locales
     }
 
-    fn translate(&self, locale: &str, key: &str) -> Option<&str> {
-        self.0.get(locale)?.get(key).copied()
+    fn translate(&self, locale: &str, key: &str) -> Option<Cow<'_, str>> {
+        self.0.get(locale)?.get(key).map(|&text| text.into())
+    }
+
+    fn messages_for_locale(&self, locale: &str) -> Option<Vec<(Cow<'_, str>, Cow<'_, str>)>> {
+        let messages = self.0.get(locale)?;
+        Some(
+            messages
+                .iter()
+                .map(|(&key, &text)| (key.into(), text.into()))
+                .collect(),
+        )
     }
 }
 
@@ -151,6 +167,26 @@ pub(crate) fn tr(message: &str) -> String {
 /// Joins already translated items with the language's list separator.
 pub(crate) fn list(items: impl IntoIterator<Item = String>) -> String {
     list_in(&rust_i18n::locale(), items)
+}
+
+pub(crate) fn join_sentences(first: &str, second: &str) -> String {
+    join_sentences_in(&rust_i18n::locale(), first, second)
+}
+
+fn join_sentences_in(locale: &str, first: &str, second: &str) -> String {
+    if first.ends_with(['。', '！', '？']) {
+        format!("{first}{second}")
+    } else if first.ends_with(['.', '!', '?']) {
+        format!("{first} {second}")
+    } else {
+        rust_i18n::t!(
+            "%{first}. %{second}",
+            locale = locale,
+            first = first,
+            second = second
+        )
+        .into_owned()
+    }
 }
 
 /// Uppercases the first character, for lower-case list fragments that start a sentence.
@@ -179,7 +215,7 @@ fn list_in(locale: &str, items: impl IntoIterator<Item = String>) -> String {
 
 fn plural_category(locale: &str, count: u64) -> &'static str {
     match locale {
-        "ja" | "ko" | "vi" => "other",
+        "ja" | "ko" | "vi" | "zh-CN" => "other",
         "fr" | "pt-BR" if count <= 1 => "one",
         "ru" if count % 10 == 1 && count % 100 != 11 => "one",
         "ru" if (2..=4).contains(&(count % 10)) && !(12..=14).contains(&(count % 100)) => "few",
@@ -209,14 +245,14 @@ fn count_in(locale: &str, kind: &str, count: u64) -> String {
 
 fn decimal_separator(locale: &str) -> &'static str {
     match locale {
-        "en" | "ja" | "ko" => ".",
+        "en" | "ja" | "ko" | "zh-CN" => ".",
         _ => ",",
     }
 }
 
 fn group_separator(locale: &str) -> &'static str {
     match locale {
-        "en" | "ja" | "ko" => ",",
+        "en" | "ja" | "ko" | "zh-CN" => ",",
         "fr" => "\u{202f}",
         "ru" => "\u{a0}",
         _ => ".",

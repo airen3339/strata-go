@@ -14,6 +14,7 @@ fn localized_setting_titles_keep_stable_search_targets() {
                 ("ja", "言語"),
                 ("ko", "언어"),
                 ("ru", "Язык"),
+                ("zh-CN", "语言"),
             ] {
                 rust_i18n::set_locale(locale);
                 for query in [query, "Language"] {
@@ -35,11 +36,33 @@ fn localized_setting_titles_keep_stable_search_targets() {
                 );
             }
             rust_i18n::set_locale("ja");
+            // サイズを表示 ends the title カラム表示でサイズを表示.
+            for (query, id) in [
+                ("ダブルクリック", "opening"),
+                ("サイズを表示", "columns-sizes"),
+            ] {
+                assert!(
+                    find_matches(&normalized(query)).ids.contains(id),
+                    "ja: {query}"
+                );
+            }
+            // の is inside the title デフォルトのディレクトリ.
             assert!(
-                find_matches(&normalized("ダブルクリック"))
+                !find_matches(&normalized("の"))
                     .ids
-                    .contains("opening")
+                    .contains("default-directory")
             );
+            rust_i18n::set_locale("zh-CN");
+            // The titles are 显示“F1 快捷键”按钮 and Omarchy 主题变体.
+            for (query, id) in [
+                ("快捷键按钮", "hints"),
+                ("Omarchy主题变体", "omarchy-variant"),
+            ] {
+                assert!(
+                    find_matches(&normalized(query)).ids.contains(id),
+                    "zh-CN: {query}"
+                );
+            }
         },
     );
 }

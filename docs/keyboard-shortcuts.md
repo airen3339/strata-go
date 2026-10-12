@@ -60,6 +60,41 @@ Shortcuts follow the key's label first, then its physical position:
   and redo.
 - **Input methods** for Korean, Japanese, and Chinese run on a Latin layout and
   pass Ctrl shortcuts through, so the same rules apply without special cases.
+  While one is composing, it sees every key first; see
+  [Input methods and Chinese layouts](#input-methods-and-chinese-layouts).
+
+## Input methods and Chinese layouts
+
+- **Chinese keyboards use the US layout.** The XKB `cn` layout is US, so every
+  shortcut is the US one. Mandarin is typed with a pinyin input method, such as
+  fcitx5 or IBus, running on that layout.
+- **An unfinished composition sees each key first.** While the focused text
+  field shows an input method's unfinished text (the preedit, such as pinyin
+  waiting for a candidate), each key goes to the input method before any Strata
+  command. A key it uses never reaches Strata: Space and digits pick a
+  candidate, Enter commits the typed letters, Escape cancels, and arrows, Tab
+  and Backspace work in the composition. So Escape does not cancel a rename or
+  close the filter, the location bar, a footer prompt, global search, or the
+  F1 reference, and Space does not open quick preview from the filter. A key
+  the input method passes back works as usual after it: Korean input methods
+  such as fcitx5-hangul commit the current syllable and pass back Escape,
+  arrows and Ctrl shortcuts, so one press both commits and runs the command.
+  Keys the text field handles itself go to the field: Enter submits it, and
+  cursor keys move in it. On Wayland the input method runs in the compositor
+  and Strata never receives the keys it uses. Input methods that GTK loads into
+  Strata (`GTK_IM_MODULE=fcitx` or `ibus`, and every input method on X11),
+  GTK's own dead keys, and the Compose key would otherwise get each key after
+  Strata's handlers.
+- **Hanyu Pinyin with AltGr dead keys** (`cn(altgr-pinyin)`): AltGr+1 to
+  AltGr+4 are the tone dead keys that type ā á ǎ à, AltGr+6 and Shift+AltGr+6
+  are the ^ and ¨ dead keys, and AltGr+v types ü. These are text input, never
+  digits: **Ctrl+1** and **t 1** use the digit keys without AltGr, as on US.
+- **Type-to-search starts without the input method.** An input method composes
+  only in a focused text field. A key typed in the file list starts
+  type-to-search with the character the layout produced, so a pinyin letter
+  arrives as that Latin letter and a dead key starts nothing. To search with an
+  input method, open the filter with **Ctrl+F** (**f** in 10xer mode) and type
+  there.
 
 ## Shortcut labels
 
@@ -90,6 +125,17 @@ Install handlers with `keys::on_press(&controller, |controller, press| …)`,
 which returns a `Propagation`, and `keys::on_release(&controller,
 |controller, press| …)`. Each event is normalized once into a `KeyPress` and
 passed to the handler.
+
+While the focused text field is composing with an input method, `on_press`
+first forwards the key to that field, as GtkSearchEntry's key capture does,
+and calls the handler only if the field and its input method leave the key
+unhandled; the release of a key they took is forwarded too (see
+[Input methods and Chinese layouts](#input-methods-and-chinese-layouts)). A
+field that submits on Enter must also do so from its `activate` signal, which
+is how Enter arrives after an input method passes it back.
+`ui::keys` follows the preedit of each window's focused `gtk::Text` or
+`gtk::TextView` through `preedit-changed`, so handlers need no check of their
+own. Release handlers still run.
 
 `clippy.toml` lists `EventControllerKey::connect_key_pressed`,
 `EventControllerKey::connect_key_released`, and
@@ -283,7 +329,11 @@ the normalizer tests and end-to-end scenarios.
 
 `ui::keys::tests` drives the pure normalizer from hand-written keymap rows for
 US, Russian, Ukrainian, Greek, Hebrew, French AZERTY, German QWERTZ, Hungarian,
-Lithuanian, Dvorak, Caps Lock, and a Russian-only keymap. They also cover label rendering
+Lithuanian, Dvorak, Caps Lock, and a Russian-only keymap, plus a Hanyu Pinyin
+(`cn(altgr-pinyin)`) dead tone key recorded from GDK. Plain `cn` reports exactly
+the US keymap, so the US rows cover it. A GTK test delivers real key events to
+check that key handlers yield to a composition in the focused field and still get
+the keys its input method passes back. The tests also cover label rendering
 (notation, translated key names, chords, digit ranges) and catalog completeness:
 every catalog binding has a row of its own in each F1 map its catalog block
 names (`listed` for both, `default_only`, `tenxer_only`), a chord's second key
@@ -293,4 +343,8 @@ after changing key names.
 
 End-to-end scenarios switch layouts on the harness's private Xvfb: `setxkbmap`
 loads the layouts and an XKB group lock selects the active one. Never change the
-desktop's layout from a test. See [end-to-end testing](e2e-testing.md).
+desktop's layout from a test. Scenarios use US, Russian, Russian-only, French
+AZERTY, German QWERTZ, Caps Lock, and Hanyu Pinyin. With Hanyu Pinyin, GTK's
+own input method composes the AltGr tone keys in text fields, which stands in
+for a pinyin input method's composition. See
+[end-to-end testing](e2e-testing.md).

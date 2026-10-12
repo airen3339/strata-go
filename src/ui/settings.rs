@@ -1288,7 +1288,7 @@ fn managed_channel_description(managed: &ManagedInstall) -> String {
         None => crate::i18n::tr("The installed package decides the release channel."),
     };
     match managed.alternate_instruction() {
-        Some(alternate) => format!("{tracked} {alternate}"),
+        Some(alternate) => crate::i18n::join_sentences(&tracked, &alternate),
         None => tracked,
     }
 }
@@ -2928,11 +2928,7 @@ fn update_status_markup(message: String, result: &UpdateCheck, source: &InstallS
 }
 
 fn update_dialog_status(managed: &ManagedInstall) -> String {
-    format!(
-        "{} {}",
-        managed.ownership_summary(),
-        managed.update_instruction()
-    )
+    crate::i18n::join_sentences(&managed.ownership_summary(), &managed.update_instruction())
 }
 
 fn update_check_message(result: &UpdateCheck, update_method: UpdateMethod) -> String {
