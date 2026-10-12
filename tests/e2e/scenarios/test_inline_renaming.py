@@ -420,8 +420,6 @@ def test_repeated_renames_select_the_folder_name_or_file_stem(strata, mode, kind
         original = replacement
 
 
-# F5 reloads the rows each mode leases differently; the other shortcuts never
-# touch the listing, so one mode covers them.
 def test_escape_cancels_a_tone_mark_composition_before_the_rename(strata, keyboard_layout):
     field, original = begin_edit(strata, "file", False)
     with keyboard_layout(PINYIN):
@@ -439,6 +437,8 @@ def test_escape_cancels_a_tone_mark_composition_before_the_rename(strata, keyboa
     assert not strata.fixture.path(original).exists()
 
 
+# F5 reloads the rows each mode leases differently; the other shortcuts never
+# touch the listing, so one mode covers them.
 WINDOW_ACCELERATOR_CASES = [
     pytest.param("F5", mode.values[0], marks=mode.marks, id=f"f5-{mode.id}") for mode in ALL_MODES
 ] + [
