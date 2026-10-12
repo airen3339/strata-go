@@ -331,13 +331,13 @@ the normalizer tests and end-to-end scenarios.
 US, Russian, Ukrainian, Greek, Hebrew, French AZERTY, German QWERTZ, Hungarian,
 Lithuanian, Dvorak, Caps Lock, and a Russian-only keymap, plus a Hanyu Pinyin
 (`cn(altgr-pinyin)`) dead tone key recorded from GDK. Plain `cn` reports exactly
-the US keymap, so the US rows cover it. A GTK test checks that key handlers
-yield to a composition in the focused field. The
-tests also cover label rendering (notation, translated key names, chords, digit
-ranges) and catalog completeness: every catalog binding has a row of its own in
-each F1 map its catalog block names (`listed` for both, `default_only`,
-`tenxer_only`), a chord's second key right after its first, or is explicitly
-marked as unlisted. Run them with
+the US keymap, so the US rows cover it. A GTK test delivers real key events to
+check that key handlers yield to a composition in the focused field and still get
+the keys its input method passes back. The tests also cover label rendering
+(notation, translated key names, chords, digit ranges) and catalog completeness:
+every catalog binding has a row of its own in each F1 map its catalog block
+names (`listed` for both, `default_only`, `tenxer_only`), a chord's second key
+right after its first, or is explicitly marked as unlisted. Run them with
 `./scripts/test-headless.py keys::`, and run `./scripts/test-headless.py i18n::`
 after changing key names.
 
