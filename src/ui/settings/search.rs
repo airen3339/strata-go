@@ -362,7 +362,7 @@ fn distance(a: &str, b: &str) -> usize {
     previous[b.len()]
 }
 
-/// Han and kana, which Chinese and Japanese write without spaces between words.
+/// Kana and Han ideographs.
 fn is_unspaced_script(character: char) -> bool {
     matches!(
         character,
@@ -379,7 +379,10 @@ fn word_score(query: &str, word: &str) -> Option<i32> {
         Some(80)
     } else if word.starts_with(query) {
         Some(60)
-    } else if query.chars().any(is_unspaced_script) && word.contains(query) {
+    } else if query.chars().count() >= 2
+        && query.chars().any(is_unspaced_script)
+        && word.contains(query)
+    {
         Some(40)
     } else if query.chars().count() >= 4
         && distance(query, word) <= if query.chars().count() >= 6 { 2 } else { 1 }

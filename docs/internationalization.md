@@ -132,11 +132,11 @@ produces compact elapsed times such as "2m 5s". Exact byte counts use the
 `bytes` count message.
 
 Settings search indexes the translated title as well as the English title and
-aliases. A query in Han or kana also matches inside a word, and a title's words
-are also matched joined, since Chinese and Japanese queries are typed without
-the spaces a title has around Latin words. Stable source IDs remain independent
-of displayed language; do not use a translated label to dispatch an action,
-recognize a page, or sort type groups.
+aliases. A query of two or more Han or kana characters also matches inside a
+word, and a title's words are also matched joined, since Chinese and Japanese
+queries are typed without the spaces a title has around Latin words. Stable
+source IDs remain independent of displayed language; do not use a translated
+label to dispatch an action, recognize a page, or sort type groups.
 Shortcut descriptions and key names are translated when rendered, and F1 search
 also matches the English key names. A message that names a shortcut takes it as
 a placeholder, usually `%{keys}`, that `keys::label` fills from the binding
