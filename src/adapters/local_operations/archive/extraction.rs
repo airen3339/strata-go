@@ -598,10 +598,8 @@ fn entries_remain_in(folder: &str) -> String {
 }
 
 fn append_sentence(message: &str, sentence: &str) -> String {
-    if message.ends_with('。') {
-        format!("{message}{sentence}")
-    } else if message.ends_with(['.', '!', '?']) {
-        format!("{message} {sentence}")
+    if message.ends_with(['.', '!', '?', '。', '！', '？']) {
+        crate::i18n::join_sentences(message, sentence)
     } else {
         rust_i18n::t!("%{first}. %{second}", first = message, second = sentence).into_owned()
     }

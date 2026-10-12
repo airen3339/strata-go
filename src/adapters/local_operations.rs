@@ -464,7 +464,7 @@ async fn stop_transfer(
             request_id,
             completed_locations: stop.completed,
             message: failure.map_or(flush_error.clone(), |message| {
-                format!("{message} {flush_error}")
+                crate::i18n::join_sentences(&message, &flush_error)
             }),
         }),
         (Some(message), None) => emit(OperationEvent::TransferFailed {

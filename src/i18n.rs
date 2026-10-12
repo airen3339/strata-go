@@ -27,13 +27,15 @@ pub(crate) enum Language {
     Italian,
     #[serde(rename = "ru")]
     Russian,
+    #[serde(rename = "zh-CN")]
+    SimplifiedChinese,
     #[default]
     #[serde(other, rename = "auto")]
     Auto,
 }
 
 impl Language {
-    pub const CHOICES: [(&'static str, Self); 11] = [
+    pub const CHOICES: [(&'static str, Self); 12] = [
         ("Auto-detect", Self::Auto),
         ("English", Self::English),
         ("Français", Self::French),
@@ -45,6 +47,7 @@ impl Language {
         ("Tiếng Việt", Self::Vietnamese),
         ("Italiano", Self::Italian),
         ("Русский", Self::Russian),
+        ("简体中文", Self::SimplifiedChinese),
     ];
 
     pub fn locale(self) -> &'static str {
@@ -60,6 +63,7 @@ impl Language {
             Self::Vietnamese => "vi",
             Self::Italian => "it",
             Self::Russian => "ru",
+            Self::SimplifiedChinese => "zh-CN",
         }
     }
 }
@@ -82,6 +86,8 @@ fn supported_locale(value: &str) -> Option<&'static str> {
         "vi" => Some("vi"),
         "it" => Some("it"),
         "ru" => Some("ru"),
+        // Traditional Chinese locales also use the Simplified catalog.
+        "zh" => Some("zh-CN"),
         _ => None,
     }
 }
@@ -153,6 +159,15 @@ pub(crate) fn list(items: impl IntoIterator<Item = String>) -> String {
     list_in(&rust_i18n::locale(), items)
 }
 
+/// Joins two translated sentences. Chinese and Japanese put no space after a full-width stop.
+pub(crate) fn join_sentences(first: &str, second: &str) -> String {
+    if first.ends_with(['。', '！', '？']) {
+        format!("{first}{second}")
+    } else {
+        format!("{first} {second}")
+    }
+}
+
 /// Uppercases the first character, for lower-case list fragments that start a sentence.
 pub(crate) fn capitalize_first(text: String) -> String {
     let mut chars = text.chars();
@@ -179,7 +194,7 @@ fn list_in(locale: &str, items: impl IntoIterator<Item = String>) -> String {
 
 fn plural_category(locale: &str, count: u64) -> &'static str {
     match locale {
-        "ja" | "ko" | "vi" => "other",
+        "ja" | "ko" | "vi" | "zh-CN" => "other",
         "fr" | "pt-BR" if count <= 1 => "one",
         "ru" if count % 10 == 1 && count % 100 != 11 => "one",
         "ru" if (2..=4).contains(&(count % 10)) && !(12..=14).contains(&(count % 100)) => "few",
@@ -209,14 +224,14 @@ fn count_in(locale: &str, kind: &str, count: u64) -> String {
 
 fn decimal_separator(locale: &str) -> &'static str {
     match locale {
-        "en" | "ja" | "ko" => ".",
+        "en" | "ja" | "ko" | "zh-CN" => ".",
         _ => ",",
     }
 }
 
 fn group_separator(locale: &str) -> &'static str {
     match locale {
-        "en" | "ja" | "ko" => ",",
+        "en" | "ja" | "ko" | "zh-CN" => ",",
         "fr" => "\u{202f}",
         "ru" => "\u{a0}",
         _ => ".",

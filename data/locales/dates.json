@@ -10,7 +10,8 @@
     "ko": "1월",
     "vi": "tháng 1",
     "it": "gennaio",
-    "ru": "января"
+    "ru": "января",
+    "zh-CN": "1月"
   },
   "dates.month.2": {
     "en": "February",
@@ -22,7 +23,8 @@
     "ko": "2월",
     "vi": "tháng 2",
     "it": "febbraio",
-    "ru": "февраля"
+    "ru": "февраля",
+    "zh-CN": "2月"
   },
   "dates.month.3": {
     "en": "March",
@@ -34,7 +36,8 @@
     "ko": "3월",
     "vi": "tháng 3",
     "it": "marzo",
-    "ru": "марта"
+    "ru": "марта",
+    "zh-CN": "3月"
   },
   "dates.month.4": {
     "en": "April",
@@ -46,7 +49,8 @@
     "ko": "4월",
     "vi": "tháng 4",
     "it": "aprile",
-    "ru": "апреля"
+    "ru": "апреля",
+    "zh-CN": "4月"
   },
   "dates.month.5": {
     "en": "May",
@@ -58,7 +62,8 @@
     "ko": "5월",
     "vi": "tháng 5",
     "it": "maggio",
-    "ru": "мая"
+    "ru": "мая",
+    "zh-CN": "5月"
   },
   "dates.month.6": {
     "en": "June",
@@ -70,7 +75,8 @@
     "ko": "6월",
     "vi": "tháng 6",
     "it": "giugno",
-    "ru": "июня"
+    "ru": "июня",
+    "zh-CN": "6月"
   },
   "dates.month.7": {
     "en": "July",
@@ -82,7 +88,8 @@
     "ko": "7월",
     "vi": "tháng 7",
     "it": "luglio",
-    "ru": "июля"
+    "ru": "июля",
+    "zh-CN": "7月"
   },
   "dates.month.8": {
     "en": "August",
@@ -94,7 +101,8 @@
     "ko": "8월",
     "vi": "tháng 8",
     "it": "agosto",
-    "ru": "августа"
+    "ru": "августа",
+    "zh-CN": "8月"
   },
   "dates.month.9": {
     "en": "September",
@@ -106,7 +114,8 @@
     "ko": "9월",
     "vi": "tháng 9",
     "it": "settembre",
-    "ru": "сентября"
+    "ru": "сентября",
+    "zh-CN": "9月"
   },
   "dates.month.10": {
     "en": "October",
@@ -118,7 +127,8 @@
     "ko": "10월",
     "vi": "tháng 10",
     "it": "ottobre",
-    "ru": "октября"
+    "ru": "октября",
+    "zh-CN": "10月"
   },
   "dates.month.11": {
     "en": "November",
@@ -130,7 +140,8 @@
     "ko": "11월",
     "vi": "tháng 11",
     "it": "novembre",
-    "ru": "ноября"
+    "ru": "ноября",
+    "zh-CN": "11月"
   },
   "dates.month.12": {
     "en": "December",
@@ -142,7 +153,8 @@
     "ko": "12월",
     "vi": "tháng 12",
     "it": "dicembre",
-    "ru": "декабря"
+    "ru": "декабря",
+    "zh-CN": "12月"
   },
   "dates.short_month.1": {
     "en": "Jan",
@@ -154,7 +166,8 @@
     "ko": "1월",
     "vi": "Th1",
     "it": "gen",
-    "ru": "янв."
+    "ru": "янв.",
+    "zh-CN": "1月"
   },
   "dates.short_month.2": {
     "en": "Feb",
@@ -166,7 +179,8 @@
     "ko": "2월",
     "vi": "Th2",
     "it": "feb",
-    "ru": "февр."
+    "ru": "февр.",
+    "zh-CN": "2月"
   },
   "dates.short_month.3": {
     "en": "Mar",
@@ -178,7 +192,8 @@
     "ko": "3월",
     "vi": "Th3",
     "it": "mar",
-    "ru": "мар."
+    "ru": "мар.",
+    "zh-CN": "3月"
   },
   "dates.short_month.4": {
     "en": "Apr",
@@ -190,7 +205,8 @@
     "ko": "4월",
     "vi": "Th4",
     "it": "apr",
-    "ru": "апр."
+    "ru": "апр.",
+    "zh-CN": "4月"
   },
   "dates.short_month.5": {
     "en": "May",
@@ -202,7 +218,8 @@
     "ko": "5월",
     "vi": "Th5",
     "it": "mag",
-    "ru": "мая"
+    "ru": "мая",
+    "zh-CN": "5月"
   },
   "dates.short_month.6": {
     "en": "Jun",
@@ -214,7 +231,8 @@
     "ko": "6월",
     "vi": "Th6",
     "it": "giu",
-    "ru": "июн."
+    "ru": "июн.",
+    "zh-CN": "6月"
   },
   "dates.short_month.7": {
     "en": "Jul",
@@ -226,7 +244,8 @@
     "ko": "7월",
     "vi": "Th7",
     "it": "lug",
-    "ru": "июл."
+    "ru": "июл.",
+    "zh-CN": "7月"
   },
   "dates.short_month.8": {
     "en": "Aug",
@@ -238,7 +257,8 @@
     "ko": "8월",
     "vi": "Th8",
     "it": "ago",
-    "ru": "авг."
+    "ru": "авг.",
+    "zh-CN": "8月"
   },
   "dates.short_month.9": {
     "en": "Sep",
@@ -250,7 +270,8 @@
     "ko": "9월",
     "vi": "Th9",
     "it": "set",
-    "ru": "сент."
+    "ru": "сент.",
+    "zh-CN": "9月"
   },
   "dates.short_month.10": {
     "en": "Oct",
@@ -262,7 +283,8 @@
     "ko": "10월",
     "vi": "Th10",
     "it": "ott",
-    "ru": "окт."
+    "ru": "окт.",
+    "zh-CN": "10月"
   },
   "dates.short_month.11": {
     "en": "Nov",
@@ -274,7 +296,8 @@
     "ko": "11월",
     "vi": "Th11",
     "it": "nov",
-    "ru": "нояб."
+    "ru": "нояб.",
+    "zh-CN": "11月"
   },
   "dates.short_month.12": {
     "en": "Dec",
@@ -286,7 +309,8 @@
     "ko": "12월",
     "vi": "Th12",
     "it": "dic",
-    "ru": "дек."
+    "ru": "дек.",
+    "zh-CN": "12月"
   },
   "dates.weekday.1": {
     "en": "Monday",
@@ -298,7 +322,8 @@
     "ko": "월요일",
     "vi": "Thứ Hai",
     "it": "lunedì",
-    "ru": "понедельник"
+    "ru": "понедельник",
+    "zh-CN": "星期一"
   },
   "dates.weekday.2": {
     "en": "Tuesday",
@@ -310,7 +335,8 @@
     "ko": "화요일",
     "vi": "Thứ Ba",
     "it": "martedì",
-    "ru": "вторник"
+    "ru": "вторник",
+    "zh-CN": "星期二"
   },
   "dates.weekday.3": {
     "en": "Wednesday",
@@ -322,7 +348,8 @@
     "ko": "수요일",
     "vi": "Thứ Tư",
     "it": "mercoledì",
-    "ru": "среда"
+    "ru": "среда",
+    "zh-CN": "星期三"
   },
   "dates.weekday.4": {
     "en": "Thursday",
@@ -334,7 +361,8 @@
     "ko": "목요일",
     "vi": "Thứ Năm",
     "it": "giovedì",
-    "ru": "четверг"
+    "ru": "четверг",
+    "zh-CN": "星期四"
   },
   "dates.weekday.5": {
     "en": "Friday",
@@ -346,7 +374,8 @@
     "ko": "금요일",
     "vi": "Thứ Sáu",
     "it": "venerdì",
-    "ru": "пятница"
+    "ru": "пятница",
+    "zh-CN": "星期五"
   },
   "dates.weekday.6": {
     "en": "Saturday",
@@ -358,7 +387,8 @@
     "ko": "토요일",
     "vi": "Thứ Bảy",
     "it": "sabato",
-    "ru": "суббота"
+    "ru": "суббота",
+    "zh-CN": "星期六"
   },
   "dates.weekday.7": {
     "en": "Sunday",
@@ -370,7 +400,8 @@
     "ko": "일요일",
     "vi": "Chủ Nhật",
     "it": "domenica",
-    "ru": "воскресенье"
+    "ru": "воскресенье",
+    "zh-CN": "星期日"
   },
   "dates.long": {
     "en": "%B %-d, %Y, %H:%M",
@@ -382,7 +413,8 @@
     "ko": "%Y년 %-m월 %-d일 %H:%M",
     "vi": "%-d %B, %Y, %H:%M",
     "it": "%-d %B %Y, %H:%M",
-    "ru": "%-d %B %Y г., %H:%M"
+    "ru": "%-d %B %Y г., %H:%M",
+    "zh-CN": "%Y年%-m月%-d日 %H:%M"
   },
   "dates.recent": {
     "en": "%b %-d, %H:%M",
@@ -394,7 +426,8 @@
     "ko": "%-m월 %-d일 %H:%M",
     "vi": "%-d/%-m, %H:%M",
     "it": "%-d %b, %H:%M",
-    "ru": "%-d %b, %H:%M"
+    "ru": "%-d %b, %H:%M",
+    "zh-CN": "%-m月%-d日 %H:%M"
   },
   "dates.older": {
     "en": "%b %-d, %Y",
@@ -406,7 +439,8 @@
     "ko": "%Y년 %-m월 %-d일",
     "vi": "%-d/%-m/%Y",
     "it": "%-d %b %Y",
-    "ru": "%-d %b %Y г."
+    "ru": "%-d %b %Y г.",
+    "zh-CN": "%Y年%-m月%-d日"
   },
   "dates.full": {
     "en": "%b %-d, %Y, %-I:%M %p",
@@ -418,6 +452,7 @@
     "ko": "%Y년 %-m월 %-d일 %H:%M",
     "vi": "%-d/%-m/%Y, %H:%M",
     "it": "%-d %b %Y, %H:%M",
-    "ru": "%-d %b %Y г., %H:%M"
+    "ru": "%-d %b %Y г., %H:%M",
+    "zh-CN": "%Y年%-m月%-d日 %H:%M"
   }
 }

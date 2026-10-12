@@ -1288,7 +1288,7 @@ fn managed_channel_description(managed: &ManagedInstall) -> String {
         None => crate::i18n::tr("The installed package decides the release channel."),
     };
     match managed.alternate_instruction() {
-        Some(alternate) => format!("{tracked} {alternate}"),
+        Some(alternate) => crate::i18n::join_sentences(&tracked, &alternate),
         None => tracked,
     }
 }

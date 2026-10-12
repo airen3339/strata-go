@@ -257,10 +257,11 @@ preferences.
 
 **Settings → General → Language** offers **Auto-detect** (the default) and
 English, French, German, Spanish, Japanese, Brazilian Portuguese, Korean,
-Vietnamese, Italian, and Russian. Language names use their native spelling so
-the selector remains recognizable after an accidental choice. Save a manual
-choice as `language = "fr"`, for example, or `language = "auto"` to follow the
-system again. Missing and unknown language values recover to Auto-detect.
+Vietnamese, Italian, Russian, and Simplified Chinese. Language names use their
+native spelling so the selector remains recognizable after an accidental choice.
+Save a manual choice as `language = "fr"` or `language = "zh-CN"`, for example,
+or `language = "auto"` to follow the system again. Missing and unknown language
+values recover to Auto-detect.
 
 Changes are saved immediately and synchronize across Settings windows. Use
 **Restart now**, or fully quit all Strata windows and reopen it, to apply the
@@ -272,7 +273,9 @@ Auto-detect reads the colon-separated GNU `LANGUAGE` priority list, then the
 message locale selected by the first nonempty `LC_ALL`, `LC_MESSAGES`, or `LANG`.
 An explicit `C` or `POSIX` message locale means English and suppresses
 `LANGUAGE`. Encoding and modifier suffixes are ignored; regional variants use
-the supported base language (all Portuguese variants use Brazilian Portuguese).
+the supported base language (all Portuguese variants use Brazilian Portuguese,
+and every Chinese variant, including Traditional Chinese locales such as `zh_TW`
+and `zh_HK`, uses Simplified Chinese).
 Unsupported languages fall back to English. Strata does not modify the desktop
 locale or the environment inherited by launched programs. System/provider error
 messages, externally supplied content, and toolkit-owned strings can therefore

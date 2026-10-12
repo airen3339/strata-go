@@ -15,7 +15,8 @@ user-defined names, or the locale environment inherited by other programs.
 - `data/locales/dates.json`: month/weekday names and date presentation patterns,
   also multilingual. ISO 8601 remains language-independent.
 
-Locales are `en`, `fr`, `de`, `es`, `ja`, `pt-BR`, `ko`, `vi`, `it`, and `ru`.
+Locales are `en`, `fr`, `de`, `es`, `ja`, `pt-BR`, `ko`, `vi`, `it`, `ru`, and
+`zh-CN`.
 JSON keys normally contain the original English message. Semantic keys are used
 for grammatical count forms and calendar data, and for an English word that needs
 a different translation in one context. Those context keys are prefixed with their
@@ -47,13 +48,31 @@ command, path, and accelerator. Escape untrusted values before inserting them
 into markup, just as for an untranslated markup string. Never translate inserted
 filenames, user-defined actions/themes, script output, or document contents.
 Join already translated list items with `i18n::list`, which uses the language's
-separator, rather than `join(", ")`. French values use a no-break space (U+00A0)
-inside « » and before ":", and a narrow no-break space (U+202F) before ";", "?"
-and "!", so lines never break between the mark and its word. Japanese values use
+separator, rather than `join(", ")`, and two translated sentences with
+`i18n::join_sentences`, which adds no space after a Chinese or Japanese full
+stop. French values use a no-break space (U+00A0) inside « » and before ":",
+and a narrow no-break space (U+202F) before ";", "?" and "!", so lines never
+break between the mark and its word. Japanese values use
 the ASCII colon (": " mid-line, ":" at the end of a line), never "：", so nested
 templates such as `%{name}: %{error}` never mix styles. Quote names inserted into
 a sentence with the language's quotation marks (en “…”, de „…“, fr « … », ru «…»,
-ja 「…」, and the style each other catalog already uses), never Markdown backticks.
+ja 「…」, zh-CN “…”, and the style each other catalog already uses), never
+Markdown backticks.
+
+Simplified Chinese values read like Chinese desktop software, such as File
+Explorer, Finder, and GNOME Files in `zh_CN`, not like a word-for-word rendering
+of the English. Restructure sentences into natural Chinese order, drop filler
+such as "please" and "successfully", and prefer the established software term.
+Address the user as 你, and omit the pronoun where Chinese UI text does.
+Punctuation inside Chinese text is full width (，。：；？！（）、), with no space after
+it, so nested templates read `%{name}：%{error}`. Quote names and paths with “…”
+(‘…’ inside them), never 「…」 or ASCII quotes. Put one ASCII space between Han
+characters and Latin letters, digits, or placeholders (`%{count} 个文件`,
+`按 %{keys} 打开`), but none next to full-width punctuation or the quotation
+marks. Keep the ellipsis (…) wherever the English has one. Counts use a
+classifier and the same text in every plural form, lists join with "、", and
+durations read "1小时2分", "2分5秒", and "45秒". Key names, unit symbols, and
+product names stay as in English.
 
 Translate each string exactly once. The shared modal builders (`modal_layout`,
 `message_dialog_layout`) display their title, subtitle, and confirm label as given,
@@ -96,9 +115,9 @@ or tests, add a localized `user_message()` for the UI rather than changing
 
 `i18n::count` selects the supported languages' integer plural categories.
 Russian distinguishes one/few/many, French and Brazilian Portuguese use the
-singular form for zero and one, and Japanese/Korean/Vietnamese use invariant
-forms. Keep counts as complete messages. Arbitrary fractional quantities require
-a separate design rather than reusing the integer helper.
+singular form for zero and one, and Chinese, Japanese, Korean, and Vietnamese use
+invariant forms. Keep counts as complete messages. Arbitrary fractional quantities
+require a separate design rather than reusing the integer helper.
 
 Format numbers shown to users with the shared helpers rather than `format!`:
 `i18n::integer` and `i18n::decimal` apply the language's digit grouping and
@@ -110,8 +129,10 @@ produces compact elapsed times such as "2m 5s". Exact byte counts use the
 `bytes` count message.
 
 Settings search indexes the translated title as well as the English title and
-aliases. Stable source IDs remain independent of displayed language; do not use
-a translated label to dispatch an action, recognize a page, or sort type groups.
+aliases. A query in Han or kana also matches inside a word, since Chinese and
+Japanese titles have no spaces between words. Stable source IDs remain independent
+of displayed language; do not use a translated label to dispatch an action,
+recognize a page, or sort type groups.
 Shortcut descriptions and key names are translated when rendered, and F1 search
 also matches the English key names. A message that names a shortcut takes it as
 a placeholder, usually `%{keys}`, that `keys::label` fills from the binding
@@ -144,11 +165,22 @@ The following text is outside Strata's catalogs or deliberately English:
   when a background thread or helper fails internally.
 
 GTK uses Fontconfig fallback for characters absent from the selected font.
-Japanese and Korean require installed CJK fonts, such as Noto Sans CJK (commonly
-packaged as `noto-fonts-cjk` or `fonts-noto-cjk`). Strata does not download or
-install fonts. A minimal container without CJK fonts can expose correct
-accessible text while rendering missing-glyph boxes; check actual rendering
-with suitable fonts installed, rather than relying only on accessibility tests.
+Japanese, Korean, and Simplified Chinese require installed CJK fonts, such as
+Noto Sans CJK (commonly packaged as `noto-fonts-cjk` or `fonts-noto-cjk`);
+Simplified Chinese needs one with Simplified Chinese glyphs, such as Noto Sans
+CJK SC. Chinese and Japanese text share Han code points, whose regional glyph
+forms Pango chooses from the text language. GTK takes that language from the
+process locale (`LC_CTYPE`), not from Strata's language setting. If the locale is
+neither Chinese nor Japanese, Pango uses the first Chinese or Japanese entry in
+`PANGO_LANGUAGE` (or `LANGUAGE` when that is unset); without one, the forms are
+the defaults of whichever CJK font Fontconfig picks. A manual 简体中文 choice can
+therefore show Japanese, Korean, or Traditional forms, and auto-detected Chinese
+on a `zh_TW` or `zh_HK` locale uses that region's forms. To see Simplified forms
+on a locale that is neither Chinese nor Japanese, run Strata with
+`PANGO_LANGUAGE=zh-cn`. Strata does not download or install fonts. A minimal
+container without CJK fonts can expose correct accessible text while rendering
+missing-glyph boxes; check actual rendering with suitable fonts installed, rather
+than relying only on accessibility tests.
 
 ## Validation
 

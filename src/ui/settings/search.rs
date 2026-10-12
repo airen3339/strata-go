@@ -17,7 +17,7 @@ const TARGETS: &[Target] = &[
         id: "language",
         page: "general",
         title: "Language",
-        aliases: "locale translation auto detect restart English Français Deutsch Español 日本語 Português 한국어 Tiếng Việt Italiano Русский",
+        aliases: "locale translation auto detect restart English Français Deutsch Español 日本語 Português 한국어 Tiếng Việt Italiano Русский 简体中文",
     },
     Target {
         id: "custom-actions",
@@ -362,11 +362,25 @@ fn distance(a: &str, b: &str) -> usize {
     previous[b.len()]
 }
 
+/// Han and kana, which Chinese and Japanese write without spaces between words.
+fn is_unspaced_script(character: char) -> bool {
+    matches!(
+        character,
+        '\u{3040}'..='\u{30ff}'
+            | '\u{3400}'..='\u{4dbf}'
+            | '\u{4e00}'..='\u{9fff}'
+            | '\u{f900}'..='\u{faff}'
+            | '\u{20000}'..='\u{3134f}'
+    )
+}
+
 fn word_score(query: &str, word: &str) -> Option<i32> {
     if query == word {
         Some(80)
     } else if word.starts_with(query) {
         Some(60)
+    } else if query.chars().any(is_unspaced_script) && word.contains(query) {
+        Some(40)
     } else if query.chars().count() >= 4
         && distance(query, word) <= if query.chars().count() >= 6 { 2 } else { 1 }
     {

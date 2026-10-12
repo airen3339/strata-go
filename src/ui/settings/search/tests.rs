@@ -14,6 +14,7 @@ fn localized_setting_titles_keep_stable_search_targets() {
                 ("ja", "言語"),
                 ("ko", "언어"),
                 ("ru", "Язык"),
+                ("zh-CN", "语言"),
             ] {
                 rust_i18n::set_locale(locale);
                 for query in [query, "Language"] {
@@ -35,11 +36,16 @@ fn localized_setting_titles_keep_stable_search_targets() {
                 );
             }
             rust_i18n::set_locale("ja");
-            assert!(
-                find_matches(&normalized("ダブルクリック"))
-                    .ids
-                    .contains("opening")
-            );
+            // "サイズを表示" ends the title "カラム表示でサイズを表示", which has no spaces.
+            for (query, id) in [
+                ("ダブルクリック", "opening"),
+                ("サイズを表示", "columns-sizes"),
+            ] {
+                assert!(
+                    find_matches(&normalized(query)).ids.contains(id),
+                    "ja: {query}"
+                );
+            }
         },
     );
 }
