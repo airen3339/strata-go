@@ -576,12 +576,13 @@ fn scan_native_directory(
     // `access::can-trash`/`access::can-delete` describe the queried item, not its
     // children. Probe one actual entry so a directory that cannot itself be removed
     // (such as `$HOME`) does not incorrectly hide Trash/delete for the entries it
-    // contains.
+    // contains. Do not follow a symlink: an entry is trashed as itself, so a link
+    // must not take the Trash support of its target.
     let probed_capabilities = entries.first().and_then(|entry| {
         gio::File::for_path(entry.location.native_path()?)
             .query_info(
                 "access::can-trash,access::can-delete",
-                gio::FileQueryInfoFlags::NONE,
+                gio::FileQueryInfoFlags::NOFOLLOW_SYMLINKS,
                 Some(cancellable),
             )
             .ok()
