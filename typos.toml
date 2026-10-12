@@ -53,3 +53,5 @@ gir = "gir"
 # Verbatim file extensions.
 mak = "mak"
 edn = "edn"
+ags = "ags"
+tese = "tese"

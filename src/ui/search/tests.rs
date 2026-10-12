@@ -245,7 +245,10 @@ fn deferred_scroll_restoration_yields_to_updates_wheel_scrollbar_and_query_reset
             let directory_path = items[0].path.clone();
             let source_path = items[1].path.clone();
             assert_eq!(icon_for_path(&directory_path), crate::assets::icons::FOLDER);
-            assert_eq!(icon_for_path(&source_path), crate::assets::icons::LANG_RUST);
+            assert_eq!(
+                icon_for_path(&source_path),
+                crate::ui::browser::catppuccin::RUST
+            );
             assert!(
                 dialog
                     .state
@@ -297,7 +300,10 @@ fn deferred_scroll_restoration_yields_to_updates_wheel_scrollbar_and_query_reset
                     .contains(&source_path)
             );
             assert_eq!(icon_for_path(&directory_path), crate::assets::icons::FOLDER);
-            assert_eq!(icon_for_path(&source_path), crate::assets::icons::LANG_RUST);
+            assert_eq!(
+                icon_for_path(&source_path),
+                crate::ui::browser::catppuccin::RUST
+            );
 
             items.swap(3, 4);
             render_results(

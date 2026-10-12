@@ -252,9 +252,12 @@ pass before merge.
 
 ## Icons
 
-- Add new interface icons only from the Lucide icon set.
-- Keep Lucide geometry intact, namespace bundled assets with `strata-`, and preserve the ISC attribution in `THIRD_PARTY_LICENSES.md`.
+- Bundled icons come from two sources, each with its own job:
+  - **Lucide** for interface icons and generic file categories (documents, pictures, archives, keys, folders). Add new interface icons only from Lucide, keep its geometry intact, and store them under `data/icons/scalable/actions/`.
+  - **Catppuccin VSCode Icons** for code, language, and config file types. Store them under `data/icons/catppuccin/`, copied unchanged from upstream's `icons/css-variables/` set, and add their filename and extension associations to the generated `src/ui/browser/entry/catppuccin.rs` by rerunning `scripts/catppuccin_icons.py <upstream checkout>` rather than editing it by hand.
+- Namespace every bundled asset with `strata-` (`strata-ctp-` for Catppuccin) and keep the Lucide ISC and Catppuccin MIT attributions in `THIRD_PARTY_LICENSES.md` current, including the upstream revision.
 - Render theme-colored bundled icons through `assets::primary_icon` / `assets::set_primary_icon`; direct icon-theme loading preserves the SVG's fallback color and will not follow live theme changes.
+- Lucide icons are tinted with the theme accent. Catppuccin icons keep their own palette by default, resolved at render time to Mocha on dark backgrounds and Latte on light ones; the **File icon colors** preference switches them to the accent. Route both behaviors through `assets`; never hardcode a flavor or bypass the preference.
 
 ## Theming
 

@@ -628,3 +628,43 @@ fn non_ascii_theme_names_save_under_a_fallback_id() {
         },
     );
 }
+
+#[test]
+fn file_icon_colors_repaint_catppuccin_icons_live_across_images() {
+    gtk_test(
+        "ui::theme::tests::file_icon_colors_repaint_catppuccin_icons_live_across_images",
+        || {
+            use crate::ui::preferences::{FileIconColors, PreferenceManager};
+
+            let manager = super::ThemeManager::shared();
+            manager.set_follow_omarchy(false);
+            manager.select_theme("azure-glow");
+            let preferences = PreferenceManager::shared();
+            preferences.set_file_icon_colors(FileIconColors::Brand);
+
+            let name = "strata-ctp-rust";
+            let images = [
+                crate::assets::primary_icon(name, 16),
+                crate::assets::primary_icon(name, 16),
+            ];
+            let brand = images[0].paintable().expect("rendered file icon");
+            assert_eq!(images[1].paintable().as_ref(), Some(&brand));
+
+            preferences.set_file_icon_colors(FileIconColors::Theme);
+            let themed = images[0].paintable().expect("repainted file icon");
+            assert_ne!(themed, brand);
+            assert_eq!(images[1].paintable().as_ref(), Some(&themed));
+            let later = crate::assets::primary_icon(name, 16);
+            assert_eq!(
+                later.paintable().as_ref(),
+                Some(&themed),
+                "icons created after the change render the same way"
+            );
+
+            preferences.set_file_icon_colors(FileIconColors::Brand);
+            for image in images.iter().chain([&later]) {
+                assert_eq!(image.paintable().as_ref(), Some(&brand));
+            }
+        },
+    );
+}
