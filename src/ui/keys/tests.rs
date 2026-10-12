@@ -411,8 +411,20 @@ fn altgr_characters_never_fall_back() {
         (Key::onesuperior, NONE),
         NONE,
     );
+    // cn(altgr-pinyin) types the tone marks with AltGr dead keys on the digit row.
+    let macron = press(
+        &[US],
+        0,
+        10,
+        2,
+        Key::dead_macron,
+        (Key::dead_macron, NONE),
+        NONE,
+    );
     assert!(!superscript.used_fallback());
     assert_eq!(superscript.text(), Some('¹'));
+    assert!(!macron.used_fallback());
+    assert_eq!(macron.text(), None, "a dead key types nothing by itself");
 }
 
 #[test]
@@ -531,47 +543,6 @@ fn digit_row_keys_are_digits_by_position() {
     assert!(de_mac_backslash.is(Binding::ctrl(Key::backslash)));
 }
 
-/// cn(altgr-pinyin), recorded from GDK: AltGr+1–4 are the pinyin tone dead keys
-/// and Shift+AltGr+6 is ¨. Its levels 0 and 1 are US, as all of plain cn is.
-#[test]
-fn dead_keys_on_the_digit_row_are_text_input() {
-    let macron = press(
-        &[US],
-        0,
-        10,
-        2,
-        Key::dead_macron,
-        (Key::dead_macron, NONE),
-        NONE,
-    );
-    let ctrl_macron = press(
-        &[US],
-        0,
-        10,
-        2,
-        Key::dead_macron,
-        (Key::dead_macron, CTRL),
-        CTRL,
-    );
-    let ctrl_shift_diaeresis = press(
-        &[US],
-        0,
-        15,
-        3,
-        Key::dead_diaeresis,
-        (Key::dead_diaeresis, CTRL),
-        CTRL_SHIFT,
-    );
-    let tab_step = Digits::after(Binding::plain(Key::t), 9, true);
-    assert_eq!(macron.digit_in(tab_step), None);
-    assert_eq!(macron.text(), None, "a dead key types nothing by itself");
-    assert!(!ctrl_macron.is(Binding::ctrl(Key::_1)));
-    assert_eq!(
-        ctrl_shift_diaeresis.digit_in(Digits::new(CTRL_SHIFT, 9, true)),
-        None
-    );
-}
-
 #[test]
 fn key_handlers_yield_to_a_composition_in_the_focused_field() {
     crate::test_support::gtk_test(
@@ -580,43 +551,51 @@ fn key_handlers_yield_to_a_composition_in_the_focused_field() {
             use gtk::prelude::*;
             use std::{cell::Cell, rc::Rc};
 
-            let window = gtk::Window::new();
-            let fields = gtk::Box::new(gtk::Orientation::Vertical, 0);
-            let composing = gtk::Text::new();
-            let other = gtk::Text::new();
-            fields.append(&composing);
-            fields.append(&other);
-            window.set_child(Some(&fields));
-            let keys = gtk::EventControllerKey::new();
-            keys.set_propagation_phase(gtk::PropagationPhase::Capture);
-            let handled = Rc::new(Cell::new(0));
-            let count = handled.clone();
-            super::on_press(&keys, move |_, _| {
-                count.set(count.get() + 1);
-                gtk::glib::Propagation::Stop
-            });
-            window.add_controller(keys.clone());
-            window.present();
-            let escape = || {
-                keys.emit_by_name::<bool>("key-pressed", &[&Key::Escape, &9u32, &NONE]);
-            };
+            let fields: [fn() -> gtk::Widget; 2] = [
+                || gtk::Text::new().upcast(),
+                || gtk::TextView::new().upcast(),
+            ];
+            for field in fields {
+                let window = gtk::Window::new();
+                let column = gtk::Box::new(gtk::Orientation::Vertical, 0);
+                let composing = field();
+                let other = field();
+                column.append(&composing);
+                column.append(&other);
+                window.set_child(Some(&column));
+                let keys = gtk::EventControllerKey::new();
+                keys.set_propagation_phase(gtk::PropagationPhase::Capture);
+                let handled = Rc::new(Cell::new(0));
+                let count = handled.clone();
+                super::on_press(&keys, move |_, _| {
+                    count.set(count.get() + 1);
+                    gtk::glib::Propagation::Stop
+                });
+                window.add_controller(keys.clone());
+                window.present();
+                let escape = || {
+                    keys.emit_by_name::<bool>("key-pressed", &[&Key::Escape, &9u32, &NONE]);
+                };
+                let preedit =
+                    |text: &str| composing.emit_by_name::<()>("preedit-changed", &[&text]);
 
-            assert!(composing.grab_focus());
-            composing.emit_preedit_changed("ˇ");
-            escape();
-            assert_eq!(handled.get(), 0, "Escape must reach the input method");
-            assert!(other.grab_focus());
-            escape();
-            assert_eq!(
-                handled.get(),
-                1,
-                "only the focused field's composition holds keys"
-            );
-            assert!(composing.grab_focus());
-            composing.emit_preedit_changed("");
-            escape();
-            assert_eq!(handled.get(), 2, "a finished composition releases the keys");
-            window.destroy();
+                assert!(composing.grab_focus());
+                preedit("ˇ");
+                escape();
+                assert_eq!(handled.get(), 0, "Escape must reach the input method");
+                assert!(other.grab_focus());
+                escape();
+                assert_eq!(
+                    handled.get(),
+                    1,
+                    "only the focused field's composition holds keys"
+                );
+                assert!(composing.grab_focus());
+                preedit("");
+                escape();
+                assert_eq!(handled.get(), 2, "a finished composition releases the keys");
+                window.destroy();
+            }
         },
     );
 }

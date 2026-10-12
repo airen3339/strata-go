@@ -60,7 +60,7 @@ Shortcuts follow the key's label first, then its physical position:
   and redo.
 - **Input methods** for Korean, Japanese, and Chinese run on a Latin layout and
   pass Ctrl shortcuts through, so the same rules apply without special cases.
-  While one is composing, it receives every key; see
+  While one is composing, it sees every key first; see
   [Input methods and Chinese layouts](#input-methods-and-chinese-layouts).
 
 ## Input methods and Chinese layouts
@@ -68,19 +68,21 @@ Shortcuts follow the key's label first, then its physical position:
 - **Chinese keyboards use the US layout.** The XKB `cn` layout is US, so every
   shortcut is the US one. Mandarin is typed with a pinyin input method, such as
   fcitx5 or IBus, running on that layout.
-- **An unfinished composition owns the keys.** While the focused text field
-  shows an input method's unfinished text (the preedit, such as pinyin waiting
-  for a candidate), every key goes to the input method: Space and digits pick a
+- **An unfinished composition sees each key first.** While the focused text
+  field shows an input method's unfinished text (the preedit, such as pinyin
+  waiting for a candidate), each key goes to the input method before any Strata
+  command. A key it uses never reaches Strata: Space and digits pick a
   candidate, Enter commits the typed letters, Escape cancels, and arrows, Tab
-  and Backspace work in the composition. No Strata command runs, in any field:
-  Escape does not cancel a rename or close the filter, the location bar, a
-  footer prompt, global search, or the F1 reference, and Space does not open
-  quick preview from the filter. Once the input method commits or cancels, keys
-  work as usual. On Wayland the input method runs in the compositor and Strata
-  never receives these keys. Input methods that GTK loads into Strata
-  (`GTK_IM_MODULE=fcitx` or `ibus`, and every input method on X11), GTK's own
-  dead keys, and the Compose key get each key after Strata's handlers, so
-  Strata passes it on.
+  and Backspace work in the composition. So Escape does not cancel a rename or
+  close the filter, the location bar, a footer prompt, global search, or the
+  F1 reference, and Space does not open quick preview from the filter. A key
+  the input method passes back works as usual after it: Korean input methods
+  commit the current syllable and pass back Escape, arrows and Ctrl shortcuts,
+  so one press both commits and runs the command. On Wayland the input method
+  runs in the compositor and Strata never receives the keys it uses. Input
+  methods that GTK loads into Strata (`GTK_IM_MODULE=fcitx` or `ibus`, and
+  every input method on X11), GTK's own dead keys, and the Compose key would
+  otherwise get each key after Strata's handlers.
 - **Hanyu Pinyin with AltGr dead keys** (`cn(altgr-pinyin)`): AltGr+1 to
   AltGr+4 are the tone dead keys that type ā á ǎ à, AltGr+6 and Shift+AltGr+6
   are the ^ and ¨ dead keys, and AltGr+v types ü. These are text input, never
@@ -123,7 +125,9 @@ which returns a `Propagation`, and `keys::on_release(&controller,
 passed to the handler.
 
 While the focused text field is composing with an input method, `on_press`
-does not call the handler and the key goes to the input method (see
+first forwards the key to that field, as GtkSearchEntry's key capture does,
+and calls the handler only if the field and its input method leave the key
+unhandled (see
 [Input methods and Chinese layouts](#input-methods-and-chinese-layouts)).
 `ui::keys` follows the preedit of each window's focused `gtk::Text` or
 `gtk::TextView` through `preedit-changed`, so handlers need no check of their
@@ -321,10 +325,10 @@ the normalizer tests and end-to-end scenarios.
 
 `ui::keys::tests` drives the pure normalizer from hand-written keymap rows for
 US, Russian, Ukrainian, Greek, Hebrew, French AZERTY, German QWERTZ, Hungarian,
-Lithuanian, Dvorak, Caps Lock, and a Russian-only keymap, plus presses of the
-Hanyu Pinyin (`cn(altgr-pinyin)`) dead tone keys on the digit row recorded from
-GDK. Plain `cn` reports exactly the US keymap, so the US rows cover it. A GTK
-test checks that key handlers yield to a composition in the focused field. The
+Lithuanian, Dvorak, Caps Lock, and a Russian-only keymap, plus a Hanyu Pinyin
+(`cn(altgr-pinyin)`) dead tone key recorded from GDK. Plain `cn` reports exactly
+the US keymap, so the US rows cover it. A GTK test checks that key handlers
+yield to a composition in the focused field. The
 tests also cover label rendering (notation, translated key names, chords, digit
 ranges) and catalog completeness: every catalog binding has a row of its own in
 each F1 map its catalog block names (`listed` for both, `default_only`,

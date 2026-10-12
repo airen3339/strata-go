@@ -201,16 +201,26 @@ impl KeyPress {
     }
 }
 
-/// The handler never sees a key while the focused text field is composing with
-/// an input method; the key goes to the input method.
+/// While the focused text field is composing with an input method, the input
+/// method sees each key first, as with GtkSearchEntry's key capture: the handler
+/// gets only keys it passes back, such as a Korean input method's Escape after
+/// it commits the syllable.
 pub(crate) fn on_press(
     controller: &gtk::EventControllerKey,
     handler: impl Fn(&gtk::EventControllerKey, &KeyPress) -> Propagation + 'static,
 ) -> glib::SignalHandlerId {
     composition::follow();
     signals::pressed(controller, move |controller, keyval, keycode, state| {
-        if composition::pending(controller) {
-            return Propagation::Proceed;
+        if let Some(field) = composition::composing_field(controller) {
+            // Forwarding needs a real event, and forwarding from the field's own
+            // controller would run that controller again.
+            if controller.current_event().is_none() || controller.widget().as_ref() == Some(&field)
+            {
+                return Propagation::Proceed;
+            }
+            if controller.forward(&field) {
+                return Propagation::Stop;
+            }
         }
         handler(controller, &read(controller, keyval, keycode, state))
     })

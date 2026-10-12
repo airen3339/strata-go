@@ -2,8 +2,8 @@
 
 //! Input methods compose text (the preedit) in the focused field before they
 //! commit it. GTK filters keys through the input method after every
-//! capture-phase handler, so while a composition is pending, key handlers yield
-//! every key to it.
+//! capture-phase handler, so while a composition is pending, key handlers let
+//! the input method see each key first.
 
 use std::cell::{Cell, RefCell};
 
@@ -17,19 +17,17 @@ thread_local! {
     static COMPOSING: RefCell<Vec<glib::WeakRef<gtk::Widget>>> = const { RefCell::new(Vec::new()) };
 }
 
-/// Whether the focused text field of the controller's window is composing.
-pub(super) fn pending(controller: &gtk::EventControllerKey) -> bool {
+/// The focused text field of the controller's window, while it is composing.
+pub(super) fn composing_field(controller: &gtk::EventControllerKey) -> Option<gtk::Widget> {
     COMPOSING.with_borrow(|composing| {
-        !composing.is_empty()
-            && controller
-                .widget()
-                .and_then(|widget| widget.root())
-                .and_then(|root| root.focus())
-                .is_some_and(|focus| {
-                    composing
-                        .iter()
-                        .any(|field| field.upgrade().as_ref() == Some(&focus))
-                })
+        if composing.is_empty() {
+            return None;
+        }
+        let focus = controller.widget()?.root()?.focus()?;
+        composing
+            .iter()
+            .any(|field| field.upgrade().as_ref() == Some(&focus))
+            .then_some(focus)
     })
 }
 
