@@ -93,6 +93,7 @@ fn older_preferences_keep_backward_compatible_behavior_defaults() {
     saved.remove("send_to_recent_destinations");
     saved.remove("tenxer_mode");
     saved.remove("omarchy_variant");
+    saved.remove("file_icon_colors");
     saved.remove("folder_peeking");
     saved.remove("columns_show_sizes");
     saved.remove("language");
@@ -107,6 +108,7 @@ fn older_preferences_keep_backward_compatible_behavior_defaults() {
             send_to_recent_destinations: HashMap::new(),
             tenxer_mode: false,
             omarchy_variant: OmarchyVariant::Original,
+            file_icon_colors: FileIconColors::Brand,
             folder_peeking: false,
             columns_show_sizes: true,
             ..non_default_preferences()
@@ -1124,6 +1126,7 @@ fn all_preference_setters_publish_and_persist_without_duplicate_notifications() 
                 |m| m.set_reduce_motion(false),
                 |m| m.set_element_glow(true),
                 |m| m.set_omarchy_variant(OmarchyVariant::HighContrast),
+                |m| m.set_file_icon_colors(FileIconColors::Brand),
                 |m| m.set_browser_mode(BrowserMode::Icons),
                 |m| m.set_browser_density(BrowserDensity::Compact),
                 |m| m.set_group_by_type(false),

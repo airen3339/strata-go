@@ -36,25 +36,16 @@ The font is distributed unmodified. Strata materializes the embedded font in its
 
 The SVGs retain Lucide geometry. The table sort caret uses the Lucide triangle with a filled foreground, rotated by GTK for descending order. Their foreground color was changed from `currentColor` to GTK's symbolic foreground color so GTK can recolor them according to the active theme.
 
-## Simple Icons
+## Catppuccin VSCode Icons
 
-- Project: <https://github.com/simple-icons/simple-icons>
-- License: CC0 1.0 Universal
-- Included assets: language glyphs under `data/icons/scalable/actions/strata-lang-*.svg` (Astro, C, Clojure, C++, Crystal, CSS, Dart, Elixir, Elm, Erlang, F#, Go, GraphQL, Groovy, Haskell, HTML, Jupyter, Lua, Julia, Kotlin, NixOS, Nim, OCaml, Perl, PHP, Python, Qt, R, Racket, Ruby, Rust, Scala, Solidity, Svelte, Swift, Terraform, Vue, Zig)
-- Full license: [`data/licenses/Simple-Icons-CC0-1.0.txt`](data/licenses/Simple-Icons-CC0-1.0.txt)
-
-Only the glyph outlines are used. Each SVG was rewritten to a single path filled with Strata's symbolic foreground placeholder so the existing recolor pipeline tints it with the theme accent; no brand colors are bundled.
-
-## Devicons
-
-- Project: <https://github.com/devicons/devicon>
+- Project: <https://github.com/catppuccin/vscode-icons>
+- Revision: `b6915da9f6889b683a110aa747de96c2820a537d` (v1.26.0)
+- Copyright: 2023 Catppuccin, 2023 thang-nm
 - License: MIT
-- Included assets: language glyphs under `data/icons/scalable/actions/strata-lang-{js,ts,csharp,java}.svg`
-- Full license: [`data/licenses/Devicons-MIT.txt`](data/licenses/Devicons-MIT.txt)
+- Included assets: file-type icons under `data/icons/catppuccin/strata-ctp-*.svg`, copied from the upstream `icons/css-variables/` set, and the filename and extension associations in `src/ui/browser/entry/catppuccin.rs`, both generated from upstream by `scripts/catppuccin_icons.py`
+- Full license: [`data/licenses/Catppuccin-VSCode-Icons-MIT.txt`](data/licenses/Catppuccin-VSCode-Icons-MIT.txt)
 
-Only the glyph outlines are used. Each SVG was rewritten to a single path filled with Strata's symbolic foreground placeholder so the existing recolor pipeline tints it with the theme accent; no brand colors are bundled.
-
-The Java glyph preserves the path from Devicon's `icons/java/java-plain.svg` (Git blob `8d3c663a4c1469fcf30e9b41e5cdfae7677aa1e4`), with its fill changed to the theme foreground placeholder. Language file icons are rendered as padded stroke contours; their upstream path geometry is retained.
+The SVG geometry is unchanged. Each `var(--vscode-ctp-*)` color is resolved at render time to the Catppuccin Mocha or Latte palette depending on the active theme's background, and strokes are scaled with the same weight factor as the Lucide icons.
 
 ## Tinted Theming schemes
 

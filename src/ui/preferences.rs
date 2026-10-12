@@ -56,6 +56,14 @@ pub(crate) enum OmarchyVariant {
     HighContrast,
 }
 
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum FileIconColors {
+    #[default]
+    Brand,
+    Theme,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub(in crate::ui) struct Preferences {
     mode: String,
@@ -100,6 +108,8 @@ pub(in crate::ui) struct Preferences {
     reduce_motion: bool,
     #[serde(default = "default_enabled")]
     element_glow: bool,
+    #[serde(default)]
+    file_icon_colors: FileIconColors,
     #[serde(default = "default_browser_mode")]
     browser_mode: String,
     #[serde(default = "default_browser_density")]
@@ -250,6 +260,7 @@ impl Default for Preferences {
             window_show_maximize: false,
             reduce_motion: false,
             element_glow: true,
+            file_icon_colors: FileIconColors::default(),
             browser_mode: default_browser_mode(),
             browser_density: default_browser_density(),
             group_by_type: false,
@@ -873,6 +884,18 @@ impl PreferenceManager {
             return;
         }
         self.preferences.borrow_mut().element_glow = enabled;
+        self.save_preferences();
+    }
+
+    pub fn file_icon_colors(&self) -> FileIconColors {
+        self.preferences.borrow().file_icon_colors
+    }
+
+    pub fn set_file_icon_colors(&self, colors: FileIconColors) {
+        if self.file_icon_colors() == colors {
+            return;
+        }
+        self.preferences.borrow_mut().file_icon_colors = colors;
         self.save_preferences();
     }
 

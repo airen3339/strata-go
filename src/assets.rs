@@ -33,7 +33,6 @@ pub mod icons {
     pub const COG: &str = "strata-cog";
     pub const CORNER_DOWN_LEFT: &str = "strata-corner-down-left";
     pub const DISC: &str = "strata-disc";
-    pub const DATABASE: &str = "strata-database";
     pub const DOCUMENTS: &str = "strata-file-text";
     pub const DOWNLOADS: &str = "strata-download";
     pub const EJECT: &str = "strata-eject";
@@ -42,50 +41,7 @@ pub mod icons {
     pub const EXTERNAL_LINK: &str = "strata-external-link";
     pub const FILE_ARCHIVE: &str = "strata-file-archive";
     pub const FILE_AUDIO: &str = "strata-audio-lines";
-    pub const FILE_BRACES: &str = "strata-file-braces";
     pub const FILE_CODE: &str = "strata-file-code";
-    pub const LANG_ASTRO: &str = "strata-lang-astro";
-    pub const LANG_C: &str = "strata-lang-c";
-    pub const LANG_CLOJURE: &str = "strata-lang-clojure";
-    pub const LANG_CPP: &str = "strata-lang-cpp";
-    pub const LANG_CRYSTAL: &str = "strata-lang-crystal";
-    pub const LANG_CSHARP: &str = "strata-lang-csharp";
-    pub const LANG_CSS: &str = "strata-lang-css";
-    pub const LANG_DART: &str = "strata-lang-dart";
-    pub const LANG_ELIXIR: &str = "strata-lang-elixir";
-    pub const LANG_ELM: &str = "strata-lang-elm";
-    pub const LANG_ERLANG: &str = "strata-lang-erlang";
-    pub const LANG_FSHARP: &str = "strata-lang-fsharp";
-    pub const LANG_GO: &str = "strata-lang-go";
-    pub const LANG_GRAPHQL: &str = "strata-lang-graphql";
-    pub const LANG_GROOVY: &str = "strata-lang-groovy";
-    pub const LANG_HASKELL: &str = "strata-lang-haskell";
-    pub const LANG_HTML: &str = "strata-lang-html";
-    pub const LANG_JAVA: &str = "strata-lang-java";
-    pub const LANG_JS: &str = "strata-lang-js";
-    pub const LANG_JULIA: &str = "strata-lang-julia";
-    pub const LANG_JUPYTER: &str = "strata-lang-jupyter";
-    pub const LANG_KOTLIN: &str = "strata-lang-kotlin";
-    pub const LANG_LUA: &str = "strata-lang-lua";
-    pub const LANG_NIXOS: &str = "strata-lang-nixos";
-    pub const LANG_NIM: &str = "strata-lang-nim";
-    pub const LANG_OCAML: &str = "strata-lang-ocaml";
-    pub const LANG_PERL: &str = "strata-lang-perl";
-    pub const LANG_PHP: &str = "strata-lang-php";
-    pub const LANG_PYTHON: &str = "strata-lang-python";
-    pub const LANG_QT: &str = "strata-lang-qt";
-    pub const LANG_R: &str = "strata-lang-r";
-    pub const LANG_RACKET: &str = "strata-lang-racket";
-    pub const LANG_RUBY: &str = "strata-lang-ruby";
-    pub const LANG_RUST: &str = "strata-lang-rust";
-    pub const LANG_SCALA: &str = "strata-lang-scala";
-    pub const LANG_SOLIDITY: &str = "strata-lang-solidity";
-    pub const LANG_SVELTE: &str = "strata-lang-svelte";
-    pub const LANG_SWIFT: &str = "strata-lang-swift";
-    pub const LANG_TERRAFORM: &str = "strata-lang-terraform";
-    pub const LANG_TS: &str = "strata-lang-ts";
-    pub const LANG_VUE: &str = "strata-lang-vue";
-    pub const LANG_ZIG: &str = "strata-lang-zig";
     pub const FILE_SPREADSHEET: &str = "strata-file-spreadsheet";
     pub const FILE_TERMINAL: &str = "strata-file-terminal";
     pub const FILE_PLUS: &str = "strata-file-plus";
@@ -194,6 +150,74 @@ const FONT_VERSION: &str = "2.304";
 const ICON_TEXTURE_PX: i32 = 96;
 const ICON_TEXTURE_CACHE_LIMIT: usize = 256;
 
+/// File icons from catppuccin/vscode-icons keep their own palette instead of the theme accent.
+pub const CATPPUCCIN_ICON_PREFIX: &str = "strata-ctp-";
+
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+pub enum CatppuccinFlavor {
+    #[default]
+    Mocha,
+    Latte,
+}
+
+impl CatppuccinFlavor {
+    pub fn for_dark_background(dark: bool) -> Self {
+        if dark { Self::Mocha } else { Self::Latte }
+    }
+
+    fn name(self) -> &'static str {
+        match self {
+            Self::Mocha => "mocha",
+            Self::Latte => "latte",
+        }
+    }
+
+    fn palette(self) -> &'static [(&'static str, &'static str); 16] {
+        match self {
+            Self::Mocha => &CATPPUCCIN_MOCHA,
+            Self::Latte => &CATPPUCCIN_LATTE,
+        }
+    }
+}
+
+const CATPPUCCIN_MOCHA: [(&str, &str); 16] = [
+    ("rosewater", "#f5e0dc"),
+    ("flamingo", "#f2cdcd"),
+    ("pink", "#f5c2e7"),
+    ("mauve", "#cba6f7"),
+    ("red", "#f38ba8"),
+    ("maroon", "#eba0ac"),
+    ("peach", "#fab387"),
+    ("yellow", "#f9e2af"),
+    ("green", "#a6e3a1"),
+    ("teal", "#94e2d5"),
+    ("sky", "#89dceb"),
+    ("sapphire", "#74c7ec"),
+    ("blue", "#89b4fa"),
+    ("lavender", "#b4befe"),
+    ("text", "#cdd6f4"),
+    ("overlay1", "#7f849c"),
+];
+
+const CATPPUCCIN_LATTE: [(&str, &str); 16] = [
+    ("rosewater", "#dc8a78"),
+    ("flamingo", "#dd7878"),
+    ("pink", "#ea76cb"),
+    ("mauve", "#8839ef"),
+    ("red", "#d20f39"),
+    ("maroon", "#e64553"),
+    ("peach", "#fe640b"),
+    ("yellow", "#df8e1d"),
+    ("green", "#40a02b"),
+    ("teal", "#179299"),
+    ("sky", "#04a5e5"),
+    ("sapphire", "#209fb5"),
+    ("blue", "#1e66f5"),
+    ("lavender", "#7287fd"),
+    ("text", "#4c4f69"),
+    ("overlay1", "#8c8fa1"),
+];
+
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) enum IconContext {
     #[default]
@@ -219,6 +243,18 @@ thread_local! {
     static DANGER_ICON_COLOR: RefCell<String> = RefCell::new("#e5484d".to_owned());
     static DANGER_ICONS: RefCell<Vec<PrimaryIcon>> = const { RefCell::new(Vec::new()) };
     static ICON_TEXTURES: RefCell<IconTextureCache> = RefCell::new(IconTextureCache::default());
+    static CATPPUCCIN_FLAVOR: Cell<CatppuccinFlavor> = const { Cell::new(CatppuccinFlavor::Mocha) };
+    static CATPPUCCIN_THEME_COLORS: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Call before the icon colors so the accent refresh re-renders file icons in the new flavor.
+pub fn set_catppuccin_flavor(flavor: CatppuccinFlavor) {
+    CATPPUCCIN_FLAVOR.set(flavor);
+}
+
+/// Renders every Catppuccin palette color as the accent instead; same ordering rule as the flavor.
+pub fn set_catppuccin_theme_colors(enabled: bool) {
+    CATPPUCCIN_THEME_COLORS.set(enabled);
 }
 
 pub fn prepare() -> Result<(), Box<dyn std::error::Error>> {
@@ -499,6 +535,9 @@ fn primary_icon_texture_at(
     logical_px: i32,
     context: IconContext,
 ) -> Option<gdk::Texture> {
+    if name.starts_with(CATPPUCCIN_ICON_PREFIX) {
+        return catppuccin_icon_texture_at(name, color, texture_px, logical_px, context);
+    }
     let path = format!("/io/github/lgse/Strata/icons/scalable/actions/{name}.svg");
     let data = gio::resources_lookup_data(&path, gio::ResourceLookupFlags::NONE).ok()?;
     let source = std::str::from_utf8(data.as_ref()).ok()?;
@@ -510,12 +549,7 @@ fn primary_icon_texture_at(
             1,
         );
     }
-    let source =
-        if name.starts_with("strata-lang-") && source.contains(&format!("fill=\"{color}\"")) {
-            outlined_brand_icon(source, name, color, logical_px, context)
-        } else {
-            compensate_icon_strokes(source, logical_px, context)
-        };
+    let source = compensate_icon_strokes(source, logical_px, context);
     texture_from_svg(
         &stroke_cache_name(name, logical_px, context),
         color,
@@ -524,38 +558,71 @@ fn primary_icon_texture_at(
     )
 }
 
-fn outlined_brand_icon(
-    source: String,
+fn catppuccin_icon_texture_at(
     name: &str,
     color: &str,
+    texture_px: i32,
     logical_px: i32,
     context: IconContext,
-) -> String {
-    // These upstream glyphs use 128-unit view boxes; all other brands use 24.
-    let units = if matches!(
-        name,
-        icons::LANG_JS | icons::LANG_TS | icons::LANG_CSHARP | icons::LANG_JAVA
-    ) {
-        128.0
+) -> Option<gdk::Texture> {
+    let path = format!("/io/github/lgse/Strata/icons/catppuccin/{name}.svg");
+    let data = gio::resources_lookup_data(&path, gio::ResourceLookupFlags::NONE).ok()?;
+    let flavor = CATPPUCCIN_FLAVOR.get();
+    let themed = CATPPUCCIN_THEME_COLORS.get();
+    let mut source = std::str::from_utf8(data.as_ref()).ok()?.to_owned();
+    for (variable, hex) in flavor.palette() {
+        let replacement = if themed { color } else { hex };
+        source = source.replace(&format!("var(--vscode-ctp-{variable})"), replacement);
+    }
+    let source = scale_catppuccin_strokes(
+        source,
+        icon_stroke_factor(logical_px, context) * catppuccin_stroke_weight(context),
+    );
+    let palette = if themed {
+        format!("accent:{color}")
     } else {
-        24.0
+        flavor.name().to_owned()
     };
-    let padding = units / 12.0;
-    let extent = units + 2.0 * padding;
-    // Compensate for the padded view box so visible strokes match Lucide's weight.
-    let stroke = extent / 12.0 * icon_stroke_factor(logical_px, context);
-    source
-        .replacen(
-            &format!("viewBox=\"0 0 {units} {units}\""),
-            &format!("viewBox=\"-{padding} -{padding} {extent} {extent}\""),
-            1,
-        )
-        .replace(
-            &format!("fill=\"{color}\""),
-            &format!(
-                "fill=\"none\" stroke=\"{color}\" stroke-width=\"{stroke}\" stroke-linecap=\"round\" stroke-linejoin=\"round\""
-            ),
-        )
+    texture_from_svg(
+        &stroke_cache_name(name, logical_px, context),
+        &palette,
+        texture_px,
+        source,
+    )
+}
+
+/// Catppuccin draws 1-unit strokes on a 16-unit grid where Lucide draws 2 on 24, so the
+/// file icons read a quarter lighter than the folder beside them; match Lucide on cards.
+fn catppuccin_stroke_weight(context: IconContext) -> f64 {
+    match context {
+        IconContext::Interface => 1.0,
+        IconContext::Grid => 4.0 / 3.0,
+    }
+}
+
+fn scale_catppuccin_strokes(source: String, factor: f64) -> String {
+    if factor == 1.0 {
+        return source;
+    }
+    const MARKER: &str = "stroke-width=\"";
+    let mut scaled = String::with_capacity(source.len());
+    let mut rest = source.as_str();
+    while let Some(start) = rest.find(MARKER) {
+        let value_start = start + MARKER.len();
+        let Some(length) = rest[value_start..].find('"') else {
+            break;
+        };
+        let value = &rest[value_start..value_start + length];
+        scaled.push_str(&rest[..value_start]);
+        match value.parse::<f64>() {
+            Ok(width) => scaled.push_str(&(width * factor).to_string()),
+            Err(_) => scaled.push_str(value),
+        }
+        rest = &rest[value_start + length..];
+    }
+    scaled.push_str(rest);
+    // Upstream icons rely on the SVG default width of 1 unless they set their own.
+    scaled.replacen("<svg ", &format!("<svg stroke-width=\"{factor}\" "), 1)
 }
 
 fn stroke_cache_name(name: &str, logical_px: i32, context: IconContext) -> String {

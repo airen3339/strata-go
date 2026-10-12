@@ -11,7 +11,9 @@ use crate::{
     assets::icons,
     ui::{
         controls::segmented_control,
-        preferences::{InterfaceRenderer, OmarchyVariant, PreferenceManager, TextSize},
+        preferences::{
+            FileIconColors, InterfaceRenderer, OmarchyVariant, PreferenceManager, TextSize,
+        },
         theme::{Theme, ThemeManager, ThemeTokens},
     },
 };
@@ -147,6 +149,7 @@ pub(super) fn theme_page(
     rendering.append(&renderer_row);
 
     append_text_size_option(&content, &preferences);
+    append_file_icon_colors_option(&content, &preferences);
     let effects = super::settings_group(&content, "EFFECTS");
     let (row, toggle) = super::settings_option(
         "Element glow",
@@ -294,6 +297,25 @@ fn append_follow_omarchy_option(content: &gtk::Box, themes: &Rc<ThemeManager>) -
         super::search::set_available,
     );
     follow
+}
+
+fn append_file_icon_colors_option(content: &gtk::Box, preferences: &Rc<PreferenceManager>) {
+    let group = super::settings_group(content, "FILE ICONS");
+    let choice = super::bindings::choice_menu(
+        preferences,
+        "File icon colors",
+        &[
+            ("Brand colors", FileIconColors::Brand),
+            ("Theme colors", FileIconColors::Theme),
+        ],
+        PreferenceManager::file_icon_colors,
+        PreferenceManager::set_file_icon_colors,
+    );
+    group.append(&super::control_row(
+        "File icon colors",
+        "Brand colors use each file type's own palette; theme colors use the accent.",
+        &choice,
+    ));
 }
 
 fn append_omarchy_variant_option(

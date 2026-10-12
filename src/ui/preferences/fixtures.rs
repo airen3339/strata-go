@@ -29,6 +29,7 @@ pub(in crate::ui) fn non_default_preferences() -> Preferences {
         window_show_maximize: true,
         reduce_motion: true,
         element_glow: false,
+        file_icon_colors: FileIconColors::Theme,
         browser_mode: "list".into(),
         browser_density: "airy".into(),
         group_by_type: true,

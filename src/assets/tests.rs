@@ -77,15 +77,7 @@ fn icon_cache_distinguishes_logical_size_from_display_resolution() {
                 super::sized_icon_paintable(name, color, size, scale, super::IconContext::Grid)
                     .expect("render icon")
             };
-            for name in [
-                icons::FOLDER,
-                icons::FILE_CODE,
-                icons::FILE_SPREADSHEET,
-                icons::LANG_RUST,
-                icons::LANG_JS,
-                icons::LANG_CSHARP,
-                icons::LANG_JAVA,
-            ] {
+            for name in [icons::FOLDER, icons::FILE_CODE, icons::FILE_SPREADSHEET] {
                 let small = render(name, "#123456", 64, 2);
                 let large = render(name, "#123456", 128, 1);
                 let interface = super::primary_icon_texture_at(
@@ -253,6 +245,75 @@ fn icon_texture_cache_bounds_entries_and_preserves_lru() {
             assert!(cache.get(&new_key).is_none());
             cache.insert(hot_key.clone(), dummy_texture);
             assert!(cache.get(&hot_key).is_some());
+        },
+    );
+}
+
+#[test]
+fn catppuccin_file_icons_render_in_both_flavors() {
+    crate::test_support::gtk_test(
+        "assets::tests::catppuccin_file_icons_render_in_both_flavors",
+        || {
+            use super::{CatppuccinFlavor, IconContext};
+            let names = gio::resources_enumerate_children(
+                "/io/github/lgse/Strata/icons/catppuccin/",
+                gio::ResourceLookupFlags::NONE,
+            )
+            .expect("bundled Catppuccin icons");
+            assert!(names.len() > 300);
+            for resource in &names {
+                let name = resource.strip_suffix(".svg").expect("bundled SVG icon");
+                assert!(name.starts_with(super::CATPPUCCIN_ICON_PREFIX), "{name}");
+                super::set_catppuccin_flavor(CatppuccinFlavor::Mocha);
+                let mocha = primary_icon_paintable(name).unwrap_or_else(|| panic!("{name}"));
+                assert!(mocha.is::<gtk::gdk::MemoryTexture>(), "{name}");
+                super::set_catppuccin_flavor(CatppuccinFlavor::Latte);
+                let latte = primary_icon_paintable(name).unwrap_or_else(|| panic!("{name}"));
+                assert_ne!(
+                    mocha, latte,
+                    "{name} must follow the flavor, not the accent"
+                );
+            }
+
+            let name = "strata-ctp-rust";
+            let grid = |size, scale| {
+                super::sized_icon_paintable(name, "#123456", size, scale, IconContext::Grid)
+                    .expect("render icon")
+            };
+            let interface =
+                super::primary_icon_texture_at(name, "#123456", 128, 64, IconContext::Interface)
+                    .expect("interface icon");
+            assert_ne!(grid(64, 2), interface);
+            assert_ne!(grid(64, 2), grid(128, 1));
+            assert_eq!(grid(128, 1), grid(128, 1));
+        },
+    );
+}
+
+#[test]
+fn catppuccin_file_icons_can_follow_the_theme_accent() {
+    crate::test_support::gtk_test(
+        "assets::tests::catppuccin_file_icons_can_follow_the_theme_accent",
+        || {
+            use super::{CatppuccinFlavor, IconContext};
+            let render = |color| {
+                super::sized_icon_paintable("strata-ctp-rust", color, 64, 1, IconContext::Grid)
+                    .expect("render icon")
+            };
+            super::set_catppuccin_flavor(CatppuccinFlavor::Mocha);
+            let brand = render("#123456");
+            assert_eq!(brand, render("#654321"), "brand colors ignore the accent");
+
+            super::set_catppuccin_theme_colors(true);
+            let themed = render("#123456");
+            assert_ne!(themed, brand);
+            assert_ne!(themed, render("#654321"), "theme colors follow the accent");
+            super::set_catppuccin_flavor(CatppuccinFlavor::Latte);
+            assert_eq!(themed, render("#123456"), "theme colors ignore the flavor");
+
+            super::set_catppuccin_theme_colors(false);
+            super::set_catppuccin_flavor(CatppuccinFlavor::Mocha);
+            assert_eq!(render("#123456"), brand);
         },
     );
 }

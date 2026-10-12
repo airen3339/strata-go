@@ -13,8 +13,8 @@ use serde::{Deserialize, Serialize};
 use sourceview5::prelude::BufferExt as _;
 
 use super::preferences::{
-    OmarchyVariant, PreferenceManager, TextSize, desktop_text_scale_factor, notify_live,
-    snapped_root_font_px,
+    FileIconColors, OmarchyVariant, PreferenceManager, TextSize, desktop_text_scale_factor,
+    notify_live, snapped_root_font_px,
 };
 
 mod omarchy;
@@ -85,7 +85,7 @@ struct CatalogTheme {
     tokens: ThemeTokens,
 }
 
-/// Appearance preferences that change the shared CSS the manager applies.
+/// Appearance preferences that change the shared CSS or icon rendering the manager applies.
 #[derive(Clone, Debug, PartialEq)]
 struct AppearancePreferences {
     mode: String,
@@ -93,6 +93,7 @@ struct AppearancePreferences {
     omarchy_variant: OmarchyVariant,
     text_size: TextSize,
     element_glow: bool,
+    file_icon_colors: FileIconColors,
 }
 
 type ThemeRefreshPreference = dyn Fn(&gtk::Widget, &ThemeManager);
@@ -206,6 +207,7 @@ impl ThemeManager {
             omarchy_variant: preferences.omarchy_variant(),
             text_size: preferences.text_size(),
             element_glow: preferences.element_glow(),
+            file_icon_colors: preferences.file_icon_colors(),
         };
 
         let manager = Rc::new(Self {
@@ -433,6 +435,16 @@ impl ThemeManager {
         ));
         apply_interface_font(root_font_px);
         crate::assets::set_interface_icon_scale(root_font_px / 13.0);
+        let dark_background =
+            parse_rgb_channels(&tokens.background).is_none_or(|[red, green, blue]| {
+                u32::from(red) * 299 + u32::from(green) * 587 + u32::from(blue) * 114 < 128_000
+            });
+        crate::assets::set_catppuccin_flavor(crate::assets::CatppuccinFlavor::for_dark_background(
+            dark_background,
+        ));
+        crate::assets::set_catppuccin_theme_colors(
+            self.preferences.file_icon_colors() == FileIconColors::Theme,
+        );
         // SVG strokes accept fewer color forms than GTK does.
         crate::assets::set_primary_icon_color(&color_to_hex(&tokens.accent));
         crate::assets::set_text_icon_color(&color_to_hex(&tokens.text));
@@ -451,6 +463,7 @@ impl ThemeManager {
             omarchy_variant: self.preferences.omarchy_variant(),
             text_size: self.preferences.text_size(),
             element_glow: self.preferences.element_glow(),
+            file_icon_colors: self.preferences.file_icon_colors(),
         };
         if *self.appearance.borrow() != appearance {
             self.appearance.replace(appearance);

@@ -254,6 +254,12 @@ const TARGETS: &[Target] = &[
         aliases: "date time format relative iso 8601 long absolute modified timestamp clock appearance",
     },
     Target {
+        id: "file-icon-colors",
+        page: "theme",
+        title: "File icon colors",
+        aliases: "appearance file type icons brand palette accent theme monochrome catppuccin",
+    },
+    Target {
         id: "glow",
         page: "theme",
         title: "Element glow",
