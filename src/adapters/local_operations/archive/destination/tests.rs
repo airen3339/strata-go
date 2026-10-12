@@ -12,7 +12,7 @@ use std::{
     io::Write,
     os::unix::{
         ffi::OsStringExt,
-        fs::{MetadataExt, symlink},
+        fs::{MetadataExt, PermissionsExt, symlink},
     },
     path::{Path, PathBuf},
     time::{Duration, UNIX_EPOCH},
@@ -491,6 +491,62 @@ fn publication_without_rename_noreplace_never_replaces_entries() -> Result<(), B
             assert_eq!(root.path().join("bundle").read_dir()?.count(), 1);
         }
     }
+    Ok(())
+}
+
+/// Nested directory metadata is restored in staging before publication.
+#[test]
+fn publication_without_rename_noreplace_moves_read_only_directories() -> Result<(), Box<dyn Error>>
+{
+    let root = tempfile::tempdir()?;
+    let destination = ExtractionDestination::open(root.path())?;
+    let (name, staging) = stage(&destination, &["ro/sub/child.txt"])?;
+    let read_only = MemberMetadata {
+        mode: Some(0o555),
+        modified: Some(UNIX_EPOCH + Duration::from_secs(1_000_000_000)),
+    };
+    staging.apply_directory_metadata(Path::new("ro/sub"), read_only, 0o022)?;
+
+    let published =
+        destination.publish_single_root_with(&staging, Path::new("ro"), no_replace_unsupported);
+
+    let sub = root.path().join("ro/sub");
+    let _ = fs::set_permissions(&sub, fs::Permissions::from_mode(0o755));
+    let _ = fs::set_permissions(
+        root.path().join(&name).join("ro/sub"),
+        fs::Permissions::from_mode(0o755),
+    );
+    assert_eq!(published?, OsString::from("ro"));
+    assert_eq!(fs::read(sub.join("child.txt"))?, b"ro/sub/child.txt");
+    assert!(root.path().join(&name).read_dir()?.next().is_none());
+    Ok(())
+}
+
+#[test]
+fn a_failed_fallback_publication_removes_its_partial_output() -> Result<(), Box<dyn Error>> {
+    let root = tempfile::tempdir()?;
+    let destination = ExtractionDestination::open(root.path())?;
+    let (name, staging) = stage(&destination, &["ro/done/file.txt"])?;
+    staging.create_directories(Path::new("ro/unreadable"))?;
+    let done = root.path().join(&name).join("ro/done");
+    let unreadable = root.path().join(&name).join("ro/unreadable");
+    fs::set_permissions(&done, fs::Permissions::from_mode(0o555))?;
+    fs::set_permissions(&unreadable, fs::Permissions::from_mode(0o000))?;
+
+    let published =
+        destination.publish_single_root_with(&staging, Path::new("ro"), no_replace_unsupported);
+
+    let _ = fs::set_permissions(&done, fs::Permissions::from_mode(0o755));
+    let _ = fs::set_permissions(&unreadable, fs::Permissions::from_mode(0o755));
+    let _ = fs::set_permissions(
+        root.path().join("ro/done"),
+        fs::Permissions::from_mode(0o755),
+    );
+    assert!(published.is_err(), "{published:?}");
+    assert!(!root.path().join("ro").exists());
+    assert!(!root.path().join("ro (2)").exists());
+    assert_eq!(fs::read(done.join("file.txt"))?, b"ro/done/file.txt");
+    assert!(unreadable.is_dir());
     Ok(())
 }
 

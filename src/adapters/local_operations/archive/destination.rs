@@ -294,12 +294,12 @@ impl ExtractionDestination {
     }
 
     pub(super) fn remove_directory_only_staging(&self, staging: &OsStr) -> Result<bool, String> {
-        remove_tree(self.root.as_fd(), staging, false).map_err(staging_removal_failed)
+        remove_tree(self.root.as_fd(), staging, false, false).map_err(staging_removal_failed)
     }
 
     /// Never follows symlinks. Removal errors can leave a partially deleted tree.
     pub(super) fn remove_staging(&self, staging: &OsStr) -> Result<(), String> {
-        remove_tree(self.root.as_fd(), staging, true)
+        remove_tree(self.root.as_fd(), staging, true, false)
             .map(|_| ())
             .map_err(staging_removal_failed)
     }
@@ -696,7 +696,6 @@ fn rename_no_replace(
     )
 }
 
-/// Moves an entry without clobbering an existing destination.
 fn move_without_replacing(
     from_directory: BorrowedFd<'_>,
     from: &OsStr,
@@ -742,6 +741,7 @@ fn move_by_link(
     move_directory(from_directory, from, to_directory, to, &stat)
 }
 
+/// Linking every entry before removing the source keeps staging intact when migration fails.
 fn move_directory(
     from_parent: BorrowedFd<'_>,
     from_name: &OsStr,
@@ -753,10 +753,10 @@ fn move_directory(
     rustix::fs::mkdirat(to_parent, to_name, mode)?;
     let result = migrate_directory(from_parent, from_name, to_parent, to_name, stat);
     if result.is_err() {
-        let _ = remove_tree(to_parent, to_name, true);
+        let _ = remove_tree(to_parent, to_name, true, true);
         return result;
     }
-    remove_tree(from_parent, from_name, true).map(|_| ())
+    remove_tree(from_parent, from_name, true, true).map(|_| ())
 }
 
 fn migrate_directory(
@@ -847,7 +847,13 @@ fn migrate_directory(
 }
 
 /// Never follows symlinks. With `files` disabled, any non-directory preserves its ancestors.
-fn remove_tree(parent: BorrowedFd<'_>, name: &OsStr, files: bool) -> rustix::io::Result<bool> {
+/// `unlock` restores owner access first so restored read-only modes cannot block removal.
+fn remove_tree(
+    parent: BorrowedFd<'_>,
+    name: &OsStr,
+    files: bool,
+    unlock: bool,
+) -> rustix::io::Result<bool> {
     let directory = rustix::fs::openat(
         parent,
         name,
@@ -857,6 +863,9 @@ fn remove_tree(parent: BorrowedFd<'_>, name: &OsStr, files: bool) -> rustix::io:
             | rustix::fs::OFlags::CLOEXEC,
         rustix::fs::Mode::empty(),
     )?;
+    if unlock {
+        let _ = rustix::fs::fchmod(&directory, rustix::fs::Mode::from_raw_mode(0o700));
+    }
     let mut children = Vec::new();
     for entry in rustix::fs::Dir::read_from(&directory)? {
         let entry = entry?;
@@ -880,7 +889,7 @@ fn remove_tree(parent: BorrowedFd<'_>, name: &OsStr, files: bool) -> rustix::io:
     for (child, is_directory) in children {
         if !is_directory {
             rustix::fs::unlinkat(&directory, &child, rustix::fs::AtFlags::empty())?;
-        } else if !remove_tree(directory.as_fd(), &child, files)? {
+        } else if !remove_tree(directory.as_fd(), &child, files, unlock)? {
             return Ok(false);
         }
     }
