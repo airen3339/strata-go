@@ -1,9 +1,7 @@
 // SPDX-License-Identifier: MIT
 
-//! Input methods compose text (the preedit) in the focused field before they
-//! commit it. GTK filters keys through the input method after every
-//! capture-phase handler, so while a composition is pending, key handlers let
-//! the input method see each key first.
+//! GTK filters keys through the input method after every capture-phase
+//! handler, so key handlers forward keys to a field with a preedit first.
 
 use std::cell::{Cell, RefCell};
 
@@ -11,15 +9,12 @@ use gtk::{gdk, gio, glib, prelude::*};
 
 thread_local! {
     static FOLLOWING: Cell<bool> = const { Cell::new(false) };
-    /// Fields whose preedit handler is connected; it stays for their lifetime.
     static FOLLOWED: RefCell<Vec<glib::WeakRef<gtk::Widget>>> = const { RefCell::new(Vec::new()) };
-    /// Fields that show an unfinished composition.
     static COMPOSING: RefCell<Vec<glib::WeakRef<gtk::Widget>>> = const { RefCell::new(Vec::new()) };
 }
 
-/// Presses that a controller forwarded to a composing field, which took them.
-/// GTK keeps the release of a press a controller handled from the widgets
-/// after it, so the release is forwarded too.
+/// GTK withholds the release of a handled press from later widgets, so a
+/// forwarded press's release is forwarded too.
 #[derive(Default)]
 pub(super) struct Forwarded(RefCell<Vec<(gdk::Key, glib::WeakRef<gtk::Widget>)>>);
 
@@ -44,7 +39,6 @@ impl Forwarded {
     }
 }
 
-/// The focused text field of the controller's window, while it is composing.
 pub(super) fn composing_field(controller: &gtk::EventControllerKey) -> Option<gtk::Widget> {
     COMPOSING.with_borrow(|composing| {
         if composing.is_empty() {
@@ -58,7 +52,6 @@ pub(super) fn composing_field(controller: &gtk::EventControllerKey) -> Option<gt
     })
 }
 
-/// Follows the focused text field of every window, now and later. Runs once.
 pub(super) fn follow() {
     if FOLLOWING.replace(true) {
         return;

@@ -201,10 +201,8 @@ impl KeyPress {
     }
 }
 
-/// While the focused text field is composing with an input method, the input
-/// method sees each key first, as with GtkSearchEntry's key capture: the handler
-/// gets only keys it passes back, such as a Korean input method's Escape after
-/// it commits the syllable.
+/// While the focused field is composing, the input method sees each key first;
+/// the handler gets only keys it passes back, like Escape after a Korean commit.
 pub(crate) fn on_press(
     controller: &gtk::EventControllerKey,
     handler: impl Fn(&gtk::EventControllerKey, &KeyPress) -> Propagation + 'static,

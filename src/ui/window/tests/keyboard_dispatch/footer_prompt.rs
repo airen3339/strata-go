@@ -226,8 +226,6 @@ fn a_prompt_submits_from_its_activate_signal() {
             let browser = fixture.view.browser();
             move_to_named(&fixture, &browser, "a.txt");
 
-            // An input method that commits and passes Enter back reaches the
-            // prompt's activate signal instead of the key handler.
             assert!(fixture.press(Key::slash, ModifierType::empty()));
             fixture.shortcuts.prompt().set_text("REPORT");
             fixture.shortcuts.prompt().emit_activate();

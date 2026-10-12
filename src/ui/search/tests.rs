@@ -350,8 +350,6 @@ fn enter_and_field_activation_open_the_selected_result() {
     crate::test_support::gtk_test(
         "ui::search::tests::enter_and_field_activation_open_the_selected_result",
         || {
-            // An input method that commits and passes Enter back reaches the field's
-            // activate signal instead of the key handler.
             let routes: [fn(&SearchDialog); 2] = [
                 |dialog| {
                     assert!(emit_key(

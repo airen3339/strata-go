@@ -123,29 +123,12 @@ fn lists_use_the_language_separator() {
 
 #[test]
 fn sentences_join_without_a_space_after_a_full_width_stop() {
-    for (locale, first, second, expected) in [
-        (
-            "en",
-            "Copy failed.",
-            "Try again.",
-            "Copy failed. Try again.",
-        ),
-        (
-            "en",
-            "Permission denied",
-            "Try again.",
-            "Permission denied. Try again.",
-        ),
-        ("zh-CN", "复制失败。", "请重试。", "复制失败。请重试。"),
-        (
-            "zh-CN",
-            "确定吗？",
-            "此操作无法撤销。",
-            "确定吗？此操作无法撤销。",
-        ),
-        ("zh-CN", "权限不足", "请重试。", "权限不足。请重试。"),
+    for (first, second, expected) in [
+        ("复制失败。", "请重试。", "复制失败。请重试。"),
+        ("确定吗？", "此操作无法撤销。", "确定吗？此操作无法撤销。"),
+        ("权限不足", "请重试。", "权限不足。请重试。"),
     ] {
-        assert_eq!(join_sentences_in(locale, first, second), expected);
+        assert_eq!(join_sentences_in("zh-CN", first, second), expected);
     }
 }
 

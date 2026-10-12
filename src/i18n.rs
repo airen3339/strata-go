@@ -159,9 +159,6 @@ pub(crate) fn list(items: impl IntoIterator<Item = String>) -> String {
     list_in(&rust_i18n::locale(), items)
 }
 
-/// Joins two translated sentences. Chinese and Japanese put no space after a
-/// full-width stop, and a first sentence without a stop, such as a bare system
-/// error, gets the language's own.
 pub(crate) fn join_sentences(first: &str, second: &str) -> String {
     join_sentences_in(&rust_i18n::locale(), first, second)
 }

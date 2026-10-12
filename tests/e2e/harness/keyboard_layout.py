@@ -27,7 +27,7 @@ class LayoutError(RuntimeError):
 
 @dataclass(frozen=True)
 class Layout:
-    """`name` is the test id. `variants` lists one XKB variant per layout."""
+    """`name` is the test id."""
 
     name: str
     layouts: str
@@ -44,8 +44,7 @@ RUSSIAN_ONLY = Layout("ru-only", "ru")
 AZERTY = Layout("fr", "fr")
 QWERTZ = Layout("de", "de")
 CAPS_LOCK = Layout("caps-lock", "us", caps_lock=True)
-# Plain cn is US. Its Hanyu Pinyin variant types the tone marks with AltGr dead
-# keys on the digit row (AltGr+1–4) and ü with AltGr+v.
+# Plain cn is US; this variant types tone marks as AltGr+1–4 dead keys.
 PINYIN = Layout("cn-altgr-pinyin", "cn", variants="altgr-pinyin")
 
 

@@ -45,7 +45,7 @@ MODIFIER_KEYSYMS: dict[str, int] = {
     "ctrl": 0xFFE3,  # Control_L
     "shift": 0xFFE1,  # Shift_L
     "alt": 0xFFE9,  # Alt_L
-    # The right Alt key of the US keymap, which layouts with AltGr turn into it.
+    # The US right Alt key, which AltGr layouts turn into AltGr.
     "altgr": 0xFFEA,  # Alt_R
 }
 
