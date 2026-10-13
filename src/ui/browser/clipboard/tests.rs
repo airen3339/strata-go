@@ -846,7 +846,7 @@ fn copy_locations_copies_escaped_non_utf8_path_to_clipboard() {
             // Execute in bash to prove that pasting the copied string resolves the file on disk
             let status = std::process::Command::new("bash")
                 .arg("-c")
-                .arg(format!("ls -l {copied}"))
+                .arg(format!("test -e {copied}"))
                 .status()
                 .expect("bash execution");
             assert!(
