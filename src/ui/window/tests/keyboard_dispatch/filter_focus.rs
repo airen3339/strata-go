@@ -793,3 +793,150 @@ fn tab_from_focused_result_leaves_in_one_press() {
         },
     );
 }
+
+fn delete_result_case(mode: BrowserMode) -> Result<(), String> {
+    let fixture = filtered_fixture(mode, false);
+    let field = show_filter_with_results(&fixture, "report", &IMMEDIATE_REPORTS)?;
+    focus_first_result(&fixture, &field)?;
+    let first_hit = hit_cursor(&fixture).expect("focused hit");
+    let initial_results = fixture.view.filter_result_names();
+    let next_expected_hit = initial_results
+        .into_iter()
+        .find(|name| name != &first_hit)
+        .expect("next hit");
+
+    if !fixture.press(Key::Delete, ModifierType::empty()) {
+        return Err(format!(
+            "Delete on a focused result was not handled; focus on {}",
+            describe_focus(&fixture)
+        ));
+    }
+    if settles(|| {
+        widget_with_class(fixture.overlay.upcast_ref(), "action-dialog-confirm").is_some()
+    }) && !click_class(&fixture.overlay, "action-dialog-confirm")
+    {
+        return Err("failed to click action-dialog-confirm".to_owned());
+    }
+    if !settles(|| !result_names(&fixture).contains(&first_hit)) {
+        return Err(format!(
+            "deleted hit {first_hit:?} never disappeared from results {:?}",
+            result_names(&fixture)
+        ));
+    }
+    if !settles(|| result_has_focus(&fixture)) {
+        return Err(format!(
+            "after deleting a result, focus was lost; focus on {}",
+            describe_focus(&fixture)
+        ));
+    }
+    if hit_cursor(&fixture).as_deref() != Some(&next_expected_hit) {
+        return Err(format!(
+            "focus moved to {:?} rather than next hit {:?}",
+            hit_cursor(&fixture),
+            next_expected_hit
+        ));
+    }
+
+    if !fixture.press(Key::Escape, ModifierType::empty()) {
+        return Err(format!(
+            "Escape on focused result after deletion was not handled; focus on {}",
+            describe_focus(&fixture)
+        ));
+    }
+    if !settles(|| {
+        fixture.view.listing_filter().is_none() && !fixture.view.results_replace_listing()
+    }) {
+        return Err(format!(
+            "Escape after deletion did not close the filter; filter {:?}",
+            fixture.view.listing_filter()
+        ));
+    }
+    Ok(())
+}
+
+#[test]
+fn deleting_focused_result_moves_focus_to_next_result() {
+    crate::test_support::gtk_test(
+        "ui::window::tests::keyboard_dispatch::filter_focus::deleting_focused_result_moves_focus_to_next_result",
+        || {
+            let mut failures = Vec::new();
+            for mode in [BrowserMode::List, BrowserMode::Icons] {
+                if let Err(error) = delete_result_case(mode) {
+                    failures.push(format!("{mode:?}: {error}"));
+                }
+            }
+            report(failures);
+        },
+    );
+}
+
+fn delete_only_result_case(mode: BrowserMode) -> Result<(), String> {
+    let fixture = filtered_fixture(mode, false);
+    let field = show_filter_with_results(&fixture, "gamma", &["gamma-report.md"])?;
+    focus_first_result(&fixture, &field)?;
+    let first_hit = hit_cursor(&fixture).expect("focused hit");
+
+    if !fixture.press(Key::Delete, ModifierType::empty()) {
+        return Err(format!(
+            "Delete on a focused result was not handled; focus on {}",
+            describe_focus(&fixture)
+        ));
+    }
+    if settles(|| {
+        widget_with_class(fixture.overlay.upcast_ref(), "action-dialog-confirm").is_some()
+    }) && !click_class(&fixture.overlay, "action-dialog-confirm")
+    {
+        return Err("failed to click action-dialog-confirm".to_owned());
+    }
+    if !settles(|| !result_names(&fixture).contains(&first_hit)) {
+        return Err(format!(
+            "deleted hit {first_hit:?} never disappeared from results {:?}",
+            result_names(&fixture)
+        ));
+    }
+    if !settles(|| fixture.view.filter_has_focus()) {
+        return Err(format!(
+            "after deleting all results, filter did not have focus; focus on {}",
+            describe_focus(&fixture)
+        ));
+    }
+    let is_entry_focused = focus(&fixture)
+        .is_some_and(|f| f == *field.upcast_ref::<gtk::Widget>() || f.is_ancestor(&field));
+    if !is_entry_focused {
+        return Err(format!(
+            "after deleting all results, focus was not in filter field; focus on {}",
+            describe_focus(&fixture)
+        ));
+    }
+    if !fixture.press(Key::Escape, ModifierType::empty()) {
+        return Err(format!(
+            "Escape after deleting all results was not handled; focus on {}",
+            describe_focus(&fixture)
+        ));
+    }
+    if !settles(|| {
+        fixture.view.listing_filter().is_none() && !fixture.view.results_replace_listing()
+    }) {
+        return Err(format!(
+            "Escape did not close the filter after deleting all results; filter {:?}",
+            fixture.view.listing_filter()
+        ));
+    }
+    Ok(())
+}
+
+#[test]
+fn deleting_only_result_moves_focus_to_filter_entry() {
+    crate::test_support::gtk_test(
+        "ui::window::tests::keyboard_dispatch::filter_focus::deleting_only_result_moves_focus_to_filter_entry",
+        || {
+            let mut failures = Vec::new();
+            for mode in [BrowserMode::List, BrowserMode::Icons] {
+                if let Err(error) = delete_only_result_case(mode) {
+                    failures.push(format!("{mode:?}: {error}"));
+                }
+            }
+            report(failures);
+        },
+    );
+}

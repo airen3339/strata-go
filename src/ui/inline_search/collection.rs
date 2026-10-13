@@ -23,6 +23,7 @@ pub(super) struct CollectionBehavior {
     pub(super) activate: Rc<dyn Fn(FileEntry)>,
     pub(super) single_click: Rc<dyn Fn(FileEntry)>,
     pub(super) focus_items: Rc<dyn Fn()>,
+    pub(super) focus_entry: Rc<dyn Fn() -> bool>,
 }
 
 #[derive(Clone)]
@@ -80,6 +81,7 @@ pub(super) struct ResultCollection {
     pub(super) root: PathBuf,
     pub(super) reconciling: Rc<Cell<bool>>,
     pub(super) highlights: Rc<RefCell<NameHighlights>>,
+    pub(super) behavior: CollectionBehavior,
 }
 
 impl ResultCollection {
@@ -107,6 +109,7 @@ impl ResultCollection {
             let widget = bound.widget.upgrade()?;
             (picked == &widget
                 || picked.is_ancestor(&widget)
+                || widget.is_ancestor(picked)
                 || widget.parent().as_ref() == Some(picked))
             .then(|| item.position())
         })
@@ -153,6 +156,9 @@ impl ResultCollection {
     }
 
     fn restore_focus(&self, position: u32) {
+        if let Some(window) = self.view.root().and_downcast::<gtk::Window>() {
+            window.set_focus_visible(true);
+        }
         self.view.grab_focus();
         if let Some(list) = self.view.downcast_ref::<gtk::ListView>() {
             list.scroll_to(position, gtk::ListScrollFlags::FOCUS, None);
@@ -207,12 +213,22 @@ impl ResultCollection {
             .get()
             .and_then(|position| self.item(position))
             .map(|item| item.path);
-        let focused_path = self
-            .view
-            .root()
-            .and_then(|root| root.focus())
-            .and_then(|focus| self.position_at(&focus))
-            .and_then(|position| self.item(position).map(|item| item.path));
+        let focused_widget = self.view.root().and_then(|root| root.focus());
+        let focused_in_collection = focused_widget.as_ref().is_some_and(|focus| {
+            focus == &self.view
+                || focus.is_ancestor(&self.view)
+                || self.view.is_ancestor(focus)
+                || focus.type_().name() == "GtkListItemWidget"
+                || self.bound.borrow().iter().any(|b| {
+                    b.widget.upgrade().as_ref() == Some(focus)
+                        || b.widget.upgrade().and_then(|w| w.parent()).as_ref() == Some(focus)
+                })
+        });
+        let focused_slot = focused_widget
+            .as_ref()
+            .and_then(|focus| self.position_at(focus));
+        let focused_path =
+            focused_slot.and_then(|position| self.item(position).map(|item| item.path));
 
         self.positions.replace(
             items
@@ -276,7 +292,7 @@ impl ResultCollection {
             &selected,
             &gtk::Bitset::new_range(0, self.selection.n_items()),
         );
-        self.gesture_selection.replace(Some(selected));
+        self.gesture_selection.replace(Some(selected.copy()));
         self.anchor.set(anchor_path.and_then(|path| {
             (0..self.selection.n_items())
                 .find(|position| self.item(*position).is_some_and(|item| item.path == path))
@@ -286,6 +302,14 @@ impl ResultCollection {
                 .find(|position| self.item(*position).is_some_and(|item| &item.path == path))
         }) {
             self.restore_focus(position);
+        } else if focused_in_collection {
+            if items.is_empty() {
+                if !(self.behavior.focus_entry)() {
+                    self.view.grab_focus();
+                }
+            } else if !selected.is_empty() {
+                self.restore_focus(selected.minimum());
+            }
         }
         self.refresh_bindings(recursive);
         self.reconciling.set(false);
@@ -751,6 +775,7 @@ pub(super) fn build_collection(
             root,
             reconciling,
             highlights,
+            behavior,
         },
         scroll,
         overlay,

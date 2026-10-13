@@ -2510,6 +2510,9 @@ impl ViewState {
             self.focus_rebuilt_active_column();
             return;
         }
+        if self.mode_views.borrow().focus_search_results() {
+            return;
+        }
         self.browser.focus_active();
         let focused = self.overlay.root().and_then(|root| root.focus());
         if !focused.is_some_and(|focused| focused.is_mapped()) {
