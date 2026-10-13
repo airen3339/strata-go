@@ -11,8 +11,12 @@ use crate::{
     adapters::LocalPreviewProvider,
     assets::{self, icons},
     ui::{
-        browser::BrowserView, marquee::OriginClick, preferences::PreferenceManager,
-        preview::PreviewDrawer, shortcut_footer::ShortcutFooter,
+        browser::BrowserView,
+        marquee::OriginClick,
+        preferences::PreferenceManager,
+        preview::PreviewDrawer,
+        shortcut_footer::ShortcutFooter,
+        sidebar_toggle::{SidebarMode, SidebarToggle},
     },
 };
 
@@ -26,7 +30,7 @@ pub(super) struct Header {
     pub(super) actions: gtk::Box,
     pub(super) new_tab: gtk::Button,
     pub(super) content: gtk::Box,
-    pub(super) sidebar_toggle: gtk::ToggleButton,
+    pub(super) sidebar_toggle: SidebarToggle,
     pub(super) search: gtk::Button,
     pub(super) settings: gtk::Button,
     #[cfg(test)]
@@ -46,19 +50,7 @@ impl Header {
         let widget = gtk::HeaderBar::new();
         widget.add_css_class("browser-header");
         widget.set_show_title_buttons(false);
-        let sidebar_toggle = gtk::ToggleButton::builder().active(true).build();
-        preferences.bind_preference(
-            &sidebar_toggle,
-            PreferenceManager::tenxer_mode,
-            |toggle, tenxer| {
-                toggle.set_tooltip_text(Some(
-                    &crate::ui::shortcut_reference::sidebar_toggle_tooltip(tenxer),
-                ));
-            },
-        );
-        sidebar_toggle.set_child(Some(&assets::primary_icon(icons::PANEL_LEFT, 17)));
-        sidebar_toggle.add_css_class("sidebar-toggle");
-        sidebar_toggle.set_cursor_from_name(Some("pointer"));
+        let sidebar_toggle = SidebarToggle::new();
         {
             let toggle = sidebar_toggle.downgrade();
             preferences.bind_preference(
@@ -280,7 +272,7 @@ fn bind_pin_handlers(browser: &BrowserView, sidebar: &SidebarView) {
 fn browser_split(
     browser: &BrowserView,
     sidebar: &SidebarView,
-    toggle: &gtk::ToggleButton,
+    toggle: &SidebarToggle,
     preview: &PreviewDrawer,
     preferences: &Rc<PreferenceManager>,
 ) -> gtk::Paned {
@@ -301,14 +293,19 @@ fn browser_split(
     content.set_start_child(Some(&sidebar.widget));
     content.set_end_child(Some(&browser.widget()));
     bind_sidebar_toggle(&content, sidebar, toggle, preview);
-    bind_sidebar_compact(sidebar, preferences);
+    bind_sidebar_modes(sidebar, toggle, preferences);
     super::super::bind_sidebar_text_size(&content, sidebar);
     content
 }
 
-/// The saved choice reaches every window; the footer button acts on what this
-/// window shows, so an automatic rail expands without touching the preference.
-fn bind_sidebar_compact(sidebar: &SidebarView, preferences: &Rc<PreferenceManager>) {
+/// The toggle steps this window's sidebar through full, rail, and hidden and
+/// saves each step, so every window follows. Showing it asks for the full
+/// sidebar even where space railed it automatically.
+fn bind_sidebar_modes(
+    sidebar: &SidebarView,
+    toggle: &SidebarToggle,
+    preferences: &Rc<PreferenceManager>,
+) {
     let state = Rc::downgrade(&sidebar.state);
     preferences.bind_preference(
         &sidebar.widget,
@@ -320,21 +317,49 @@ fn bind_sidebar_compact(sidebar: &SidebarView, preferences: &Rc<PreferenceManage
         },
     );
     let state = Rc::downgrade(&sidebar.state);
-    let preferences = preferences.clone();
-    sidebar.compact_toggle.connect_clicked(move |_| {
+    let stepping_toggle = toggle.clone();
+    let stepping_preferences = preferences.clone();
+    toggle.set_step(move || {
         let Some(state) = state.upgrade() else {
             return;
         };
-        let compact = !state.rail.get();
-        state.set_compact(compact);
-        preferences.set_sidebar_compact(compact);
+        let mode = SidebarMode::of(stepping_toggle.is_active(), state.rail.get());
+        match mode.next() {
+            SidebarMode::Expanded => {
+                state.set_compact(false);
+                stepping_preferences.set_sidebar_compact(false);
+                stepping_preferences.set_sidebar_expanded(true);
+            }
+            SidebarMode::Compact => stepping_preferences.set_sidebar_compact(true),
+            SidebarMode::Hidden => stepping_preferences.set_sidebar_expanded(false),
+        }
+    });
+    let describe = {
+        let toggle = toggle.clone();
+        let state = Rc::downgrade(&sidebar.state);
+        let preferences = preferences.clone();
+        Rc::new(move || {
+            if let Some(state) = state.upgrade() {
+                toggle.describe(
+                    SidebarMode::of(toggle.is_active(), state.rail.get()),
+                    preferences.tenxer_mode(),
+                );
+            }
+        })
+    };
+    let on_toggled = describe.clone();
+    toggle.connect_toggled(move |_| on_toggled());
+    let on_rail = describe.clone();
+    sidebar.state.connect_rail_changed(move |_| on_rail());
+    preferences.bind_preference(toggle, PreferenceManager::tenxer_mode, move |_, _| {
+        describe();
     });
 }
 
 fn bind_sidebar_toggle(
     content: &gtk::Paned,
     sidebar: &SidebarView,
-    toggle: &gtk::ToggleButton,
+    toggle: &SidebarToggle,
     preview: &PreviewDrawer,
 ) {
     let generation = Rc::new(Cell::new(0));

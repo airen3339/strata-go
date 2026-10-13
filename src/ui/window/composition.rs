@@ -107,7 +107,7 @@ impl WindowContent {
         let top_bar = crate::ui::top_bar_navigation::TopBarNavigation::new(
             &self.header.content,
             &self.sidebar.widget,
-            &self.header.sidebar_toggle,
+            self.header.sidebar_toggle.upcast_ref(),
         );
         let controllers = keyboard::install_on(
             window,
@@ -156,7 +156,7 @@ impl WindowContent {
 
     #[cfg(test)]
     pub(super) fn sidebar_toggle(&self) -> &gtk::ToggleButton {
-        &self.header.sidebar_toggle
+        self.header.sidebar_toggle.upcast_ref()
     }
 
     #[cfg(test)]

@@ -30,7 +30,6 @@ pub(in crate::ui) fn build_sidebar(
         preferences,
         local_only,
         shell.update_label.clone(),
-        shell.mode_toggle.clone(),
     );
     state.bind_order();
     let bookmark_watch = super::bookmarks::watch_sidebar(&state);
@@ -51,7 +50,6 @@ pub(in crate::ui) fn build_sidebar(
     SidebarView {
         widget: shell.widget.upcast(),
         state,
-        compact_toggle: shell.mode_toggle,
         update_notice: shell.update_notice,
         update_area: shell.update_area,
         update_label: shell.update_label,
@@ -83,7 +81,6 @@ fn connect_recent_setting_changes(
 struct SidebarShell {
     widget: gtk::Box,
     places: gtk::Box,
-    mode_toggle: gtk::Button,
     update_notice: gtk::Button,
     update_area: gtk::Box,
     update_label: gtk::Label,
@@ -103,29 +100,13 @@ impl SidebarShell {
             .build();
         scroller.add_css_class("sidebar-scroll");
         let (update_area, update_notice, update_label, update_version) = update_notice();
-        let mode_toggle = gtk::Button::new();
-        mode_toggle.set_child(Some(&crate::assets::primary_icon(
-            crate::assets::icons::PANEL_LEFT_CLOSE,
-            17,
-        )));
-        mode_toggle.add_css_class("sidebar-row");
-        mode_toggle.add_css_class("sidebar-mode-toggle");
-        mode_toggle.set_has_frame(false);
-        mode_toggle.set_halign(gtk::Align::Start);
-        mode_toggle.set_cursor_from_name(Some("pointer"));
-        super::sync_mode_toggle(&mode_toggle, false);
-        let footer = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-        footer.add_css_class("sidebar-footer");
-        footer.append(&mode_toggle);
         let widget = gtk::Box::new(gtk::Orientation::Vertical, 0);
         widget.add_css_class("sidebar-shell");
         widget.append(&scroller);
         widget.append(&update_area);
-        widget.append(&footer);
         Self {
             widget,
             places,
-            mode_toggle,
             update_notice,
             update_area,
             update_label,
@@ -179,7 +160,6 @@ impl SidebarState {
         preference_manager: Rc<PreferenceManager>,
         local_only: bool,
         update_label: gtk::Label,
-        mode_toggle: gtk::Button,
     ) -> Rc<Self> {
         let volume_monitor = gio::VolumeMonitor::get();
         let place_order = resolve_place_order(&preference_manager.sidebar_order());
@@ -209,7 +189,7 @@ impl SidebarState {
             policy: RailPolicy::default(),
             saved_width: Cell::new(None),
             update_label,
-            mode_toggle,
+            rail_changed: RefCell::new(None),
             keycaps: RefCell::new(Vec::new()),
             keycaps_shown: Cell::new(false),
             visible_pins: RefCell::new(Vec::new()),

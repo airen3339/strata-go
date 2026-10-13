@@ -118,8 +118,8 @@ Constants live in `src/ui/preview/layout.rs` and `src/ui/preview.rs`.
   slot is present, and the window rule (the full sidebar beside one column)
   otherwise. The header toggle, the preview tick, and the chooser all ask it, so
   showing the sidebar opens straight into the rail instead of expanding and
-  snapping back. A change in fit compacts an expanded sidebar once; the foot
-  button or the saved compact preference overrides it either way (see
+  snapping back. A change in fit compacts an expanded sidebar once; the header
+  toggle's steps or the saved compact preference override it either way (see
   [Sidebar compact](preferences.md)). A divider position
   that a narrow window pinned is never recorded as the user's sidebar width:
   the preview is sized against the width the user chose, and the sidebar

@@ -1096,6 +1096,8 @@ fn append_menu_heading(container: &gtk::Box, text: &str) {
     container.append(&heading);
 }
 
+type RailListener = Rc<dyn Fn(bool)>;
+
 pub(super) struct SidebarState {
     widget: gtk::Box,
     view: BrowserView,
@@ -1121,7 +1123,7 @@ pub(super) struct SidebarState {
     policy: RailPolicy,
     pub(in crate::ui) saved_width: Cell<Option<i32>>,
     update_label: gtk::Label,
-    mode_toggle: gtk::Button,
+    rail_changed: RefCell<Option<RailListener>>,
     keycaps: RefCell<Vec<gtk::Label>>,
     keycaps_shown: Cell<bool>,
     visible_pins: RefCell<Vec<Location>>,
@@ -1185,7 +1187,6 @@ fn event_changes_trash_contents(event: &BrowserEvent) -> bool {
 pub(super) struct SidebarView {
     pub(super) widget: gtk::Widget,
     pub(super) state: Rc<SidebarState>,
-    pub(in crate::ui) compact_toggle: gtk::Button,
     update_notice: gtk::Button,
     update_area: gtk::Box,
     update_label: gtk::Label,
@@ -1313,8 +1314,12 @@ impl SidebarState {
     }
 
     pub(in crate::ui) fn set_rail(&self, rail: bool) {
-        if self.rail.replace(rail) == rail && !rail {
+        let changed = self.rail.replace(rail) != rail;
+        if !changed && !rail {
             return;
+        }
+        if changed && let Some(listener) = self.rail_changed.borrow().clone() {
+            listener(rail);
         }
         if let Some(scroller) = self.sidebar_scroller()
             && let Some(shell) = scroller.parent()
@@ -1399,8 +1404,12 @@ impl SidebarState {
                 }
             }
         }
-        sync_mode_toggle(&self.mode_toggle, rail);
         self.sync_keycaps();
+    }
+
+    /// Runs after the rail engages or releases, however that was decided.
+    pub(in crate::ui) fn connect_rail_changed(&self, listener: impl Fn(bool) + 'static) {
+        self.rail_changed.replace(Some(Rc::new(listener)));
     }
 
     /// The user's choice, from the footer button or the saved preference.
@@ -1442,28 +1451,6 @@ impl SidebarState {
             paned.set_position(target);
         }
     }
-}
-
-pub(super) fn sync_mode_toggle(button: &gtk::Button, rail: bool) {
-    if let Some(image) = button.child().and_downcast::<gtk::Image>() {
-        crate::assets::set_primary_icon(
-            &image,
-            if rail {
-                crate::assets::icons::PANEL_LEFT_OPEN
-            } else {
-                crate::assets::icons::PANEL_LEFT_CLOSE
-            },
-        );
-    }
-    let label = crate::i18n::tr(if rail {
-        "Expand sidebar"
-    } else {
-        "Compact sidebar"
-    });
-    button.set_tooltip_text(Some(&label));
-    super::accessibility::set_label(button, &label);
-    let size = if rail { sidebar_rail_button_size() } else { -1 };
-    button.set_size_request(size, size);
 }
 
 fn sync_sidebar_button(button: &gtk::Button, rail: bool) {

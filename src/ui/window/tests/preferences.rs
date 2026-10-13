@@ -687,9 +687,9 @@ fn browsing_control_and_shortcut_update_both_windows() {
 }
 
 #[test]
-fn saved_sidebar_compact_starts_railed_and_foot_button_updates_both_windows() {
+fn saved_sidebar_compact_starts_railed_and_the_toggle_steps_both_windows() {
     gtk_test(
-        "ui::window::tests::preferences::saved_sidebar_compact_starts_railed_and_foot_button_updates_both_windows",
+        "ui::window::tests::preferences::saved_sidebar_compact_starts_railed_and_the_toggle_steps_both_windows",
         || {
             write_settings("sidebar_compact = true\n");
             let manager = PreferenceManager::shared();
@@ -704,17 +704,38 @@ fn saved_sidebar_compact_starts_railed_and_foot_button_updates_both_windows() {
                     "a saved compact sidebar starts as the rail in a wide window"
                 );
             }
-            first.content.sidebar.compact_toggle.emit_clicked();
+            first.content.sidebar_toggle().emit_clicked();
             settle();
-            assert!(!manager.sidebar_compact());
+            assert!(!manager.sidebar_expanded(), "the rail's next step hides");
             for open in [&first, &second] {
-                wait_until(|| !open.content.sidebar.state.rail.get());
+                wait_until_or(
+                    || !open.content.sidebar_visible(),
+                    || sidebar_report(&[&first, &second], &manager),
+                );
             }
-            second.content.sidebar.compact_toggle.emit_clicked();
+            second.content.sidebar_toggle().emit_clicked();
             settle();
-            assert!(manager.sidebar_compact());
+            assert!(manager.sidebar_expanded());
+            assert!(
+                !manager.sidebar_compact(),
+                "hidden steps to the full sidebar"
+            );
             for open in [&first, &second] {
-                wait_until(|| open.content.sidebar.state.rail.get());
+                wait_until_or(
+                    || open.content.sidebar_visible(),
+                    || sidebar_report(&[&first, &second], &manager),
+                );
+                assert!(!open.content.sidebar.state.rail.get());
+            }
+            first.content.sidebar_toggle().emit_clicked();
+            settle();
+            assert!(manager.sidebar_compact(), "full steps to the rail");
+            for open in [&first, &second] {
+                wait_until_or(
+                    || open.content.sidebar.state.rail.get(),
+                    || sidebar_report(&[&first, &second], &manager),
+                );
+                assert!(open.content.sidebar_visible());
             }
             let saved = std::fs::read_to_string(settings_file()).expect("saved settings");
             assert!(saved.contains("sidebar_compact = true"), "{saved}");
@@ -723,48 +744,58 @@ fn saved_sidebar_compact_starts_railed_and_foot_button_updates_both_windows() {
 }
 
 #[test]
-fn narrow_window_rails_automatically_and_reopens_into_the_rail() {
+fn narrow_window_rails_automatically_and_the_toggle_reaches_every_mode() {
     gtk_test(
-        "ui::window::tests::preferences::narrow_window_rails_automatically_and_reopens_into_the_rail",
+        "ui::window::tests::preferences::narrow_window_rails_automatically_and_the_toggle_reaches_every_mode",
         || {
             let manager = PreferenceManager::shared();
             manager.set_browser_mode(BrowserMode::Columns);
             let open = OpenWindow::open_with_width(700);
             let sidebar = &open.content.sidebar.state;
-            wait_until(|| sidebar.rail.get());
+            wait_until_or(|| sidebar.rail.get(), || sidebar_report(&[&open], &manager));
             assert!(!manager.sidebar_compact(), "an automatic rail is not saved");
 
-            press(
-                &open.window,
-                gtk::gdk::Key::b,
-                gtk::gdk::ModifierType::CONTROL_MASK,
+            let ctrl_b = || {
+                press(
+                    &open.window,
+                    gtk::gdk::Key::b,
+                    gtk::gdk::ModifierType::CONTROL_MASK,
+                )
+            };
+            ctrl_b();
+            wait_until_or(
+                || !open.content.sidebar_visible(),
+                || sidebar_report(&[&open], &manager),
             );
-            wait_until(|| !open.content.sidebar_visible());
-            press(
-                &open.window,
-                gtk::gdk::Key::b,
-                gtk::gdk::ModifierType::CONTROL_MASK,
-            );
-            assert!(
-                sidebar.rail.get(),
-                "showing the sidebar must open straight into the rail"
-            );
-            wait_until(|| open.content.sidebar_visible());
-            settle_for(std::time::Duration::from_millis(400));
-            assert!(sidebar.rail.get());
+            assert!(!manager.sidebar_expanded());
 
-            open.content.sidebar.compact_toggle.emit_clicked();
-            settle();
+            ctrl_b();
             assert!(
                 !sidebar.rail.get(),
-                "the foot button expands a railed sidebar"
+                "showing a hidden sidebar asks for the full sidebar"
+            );
+            wait_until_or(
+                || open.content.sidebar_visible(),
+                || sidebar_report(&[&open], &manager),
+            );
+            settle_for(std::time::Duration::from_millis(400));
+            assert!(
+                !sidebar.rail.get(),
+                "the full sidebar stays while the shortage is unchanged"
             );
             assert!(!manager.sidebar_compact());
-            settle_for(std::time::Duration::from_millis(400));
-            assert!(
-                !sidebar.rail.get(),
-                "an expanded sidebar stays expanded while the shortage is unchanged"
+
+            ctrl_b();
+            wait_until_or(|| sidebar.rail.get(), || sidebar_report(&[&open], &manager));
+            assert!(manager.sidebar_compact(), "full steps to the rail");
+            assert!(open.content.sidebar_visible());
+
+            ctrl_b();
+            wait_until_or(
+                || !open.content.sidebar_visible(),
+                || sidebar_report(&[&open], &manager),
             );
+            assert!(manager.sidebar_compact(), "hiding keeps the compact choice");
         },
     );
 }
@@ -792,7 +823,28 @@ fn saved_sidebar_collapsed_restores_and_ctrl_b_updates_both_windows() {
             assert!(manager.sidebar_expanded());
             for open in [&first, &second] {
                 assert!(open.content.sidebar_toggle().is_active());
-                wait_until(|| open.content.sidebar_visible());
+                wait_until_or(
+                    || open.content.sidebar_visible(),
+                    || sidebar_report(&[&first, &second], &manager),
+                );
+            }
+            press(
+                &second.window,
+                gtk::gdk::Key::b,
+                gtk::gdk::ModifierType::CONTROL_MASK,
+            );
+            settle();
+            assert!(manager.sidebar_expanded());
+            assert!(
+                manager.sidebar_compact(),
+                "the full sidebar steps to the rail"
+            );
+            for open in [&first, &second] {
+                assert!(open.content.sidebar_toggle().is_active());
+                wait_until_or(
+                    || open.content.sidebar.state.rail.get(),
+                    || sidebar_report(&[&first, &second], &manager),
+                );
             }
             press(
                 &second.window,
@@ -803,7 +855,10 @@ fn saved_sidebar_collapsed_restores_and_ctrl_b_updates_both_windows() {
             assert!(!manager.sidebar_expanded());
             for open in [&first, &second] {
                 assert!(!open.content.sidebar_toggle().is_active());
-                wait_until(|| !open.content.sidebar_visible());
+                wait_until_or(
+                    || !open.content.sidebar_visible(),
+                    || sidebar_report(&[&first, &second], &manager),
+                );
             }
             let saved = std::fs::read_to_string(settings_file()).expect("saved settings");
             assert!(saved.contains("sidebar_expanded = false"), "{saved}");
@@ -1665,11 +1720,37 @@ fn settle_for(duration: std::time::Duration) {
 }
 
 fn wait_until(condition: impl Fn() -> bool) {
+    wait_until_or(condition, || "timed out".to_owned());
+}
+
+/// Like [`wait_until`], with `report` describing what was seen on a timeout.
+fn wait_until_or(condition: impl Fn() -> bool, report: impl Fn() -> String) {
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
     while !condition() {
-        assert!(std::time::Instant::now() < deadline, "timed out");
+        assert!(std::time::Instant::now() < deadline, "{}", report());
         settle_for(std::time::Duration::from_millis(20));
     }
+}
+
+fn sidebar_report(windows: &[&OpenWindow], manager: &PreferenceManager) -> String {
+    let windows = windows
+        .iter()
+        .enumerate()
+        .map(|(index, open)| {
+            format!(
+                "window {index}: toggle active={} visible={} rail={}",
+                open.content.sidebar_toggle().is_active(),
+                open.content.sidebar_visible(),
+                open.content.sidebar.state.rail.get()
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("; ");
+    format!(
+        "{windows}; saved expanded={} compact={}",
+        manager.sidebar_expanded(),
+        manager.sidebar_compact()
+    )
 }
 
 fn filter_buttons(open: &OpenWindow) -> Vec<gtk::ToggleButton> {

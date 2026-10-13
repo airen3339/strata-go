@@ -81,7 +81,8 @@ struct BrowserBinding {
 
 /// The preview's judgement of the sidebar beside its own needs.
 struct SidebarAssessment {
-    fit: SidebarFit,
+    /// `None` until the window has a width; a zero width is unknown, not short.
+    fit: Option<SidebarFit>,
     saved_width: i32,
     /// A narrow window, not the user, pinned the divider where it is.
     squeezed: bool,
@@ -488,10 +489,8 @@ impl PreviewState {
             .and_then(|binding| binding.sidebar.as_ref())
             .and_then(Weak::upgrade);
         let geometry = self.geometry(&split);
-        Some(
-            self.assess_sidebar(&split, content, sidebar.as_ref(), geometry)
-                .fit,
-        )
+        self.assess_sidebar(&split, content, sidebar.as_ref(), geometry)
+            .fit
     }
 
     fn assess_sidebar(
@@ -537,27 +536,32 @@ impl PreviewState {
             .unwrap_or(MIN_SPLIT_PREVIEW_WIDTH)
             .max(MIN_SPLIT_PREVIEW_WIDTH);
         let needs = full + content_sep + occupied + geometry.separator + preview_needed;
-        let content_has_room = content.width() <= 0 || content.width() >= full + COLUMN_WIDTH;
+        // The slot budgets a shown sidebar at full width, but not a hidden one,
+        // so the content paned only measures room while the sidebar shows.
+        let content_has_room =
+            !visible || content.width() <= 0 || content.width() >= full + COLUMN_WIDTH;
         // Measure outside the split so railing cannot change its own threshold.
         let available = split
             .parent()
             .map(|parent| parent.width())
             .filter(|width| *width > 0)
-            .unwrap_or(geometry.available);
+            .or_else(|| (geometry.available > 0).then_some(geometry.available));
         // Hysteresis prevents toggling at the threshold.
-        let wants_rail = if is_railed {
-            available < needs + RAIL_RELEASE_MARGIN
-        } else {
-            available < needs
-        };
+        let wants_rail = available.map(|available| {
+            if is_railed {
+                available < needs + RAIL_RELEASE_MARGIN
+            } else {
+                available < needs
+            }
+        });
         let squeezed = visible
             && !is_railed
             && content.position() + content_sep + COLUMN_WIDTH >= content.width();
         SidebarAssessment {
-            fit: SidebarFit {
+            fit: wants_rail.map(|wants_rail| SidebarFit {
                 fits: !wants_rail && content_has_room,
                 preview: true,
-            },
+            }),
             saved_width,
             squeezed,
         }
@@ -664,7 +668,7 @@ impl PreviewState {
             let saved_width = assessment.saved_width;
             let squeezed_room = !is_railed
                 && visible
-                && assessment.fit.fits
+                && assessment.fit.is_some_and(|fit| fit.fits)
                 && !resizing
                 && content.position() < saved_width
                 && content.width() >= saved_width + separator_width(&content) + COLUMN_WIDTH;
@@ -672,7 +676,10 @@ impl PreviewState {
                 content.set_position(saved_width);
                 geometry = self.geometry(split);
             }
-            if !resizing && let Some(rail) = sidebar.observe_fit(assessment.fit) {
+            if !resizing
+                && let Some(fit) = assessment.fit
+                && let Some(rail) = sidebar.observe_fit(fit)
+            {
                 if rail {
                     if visible {
                         let width = if assessment.squeezed {

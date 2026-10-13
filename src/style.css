@@ -2368,15 +2368,6 @@ scrollbar.horizontal > range > trough > slider {
   padding: 0;
 }
 
-.sidebar-footer {
-  border-top: 1px solid alpha(@strata_border, 0.24);
-  padding: 5px;
-}
-
-.sidebar-mode-toggle image {
-  color: @strata_accent;
-}
-
 .sidebar-heading {
   color: @strata_dim_text;
   font-size: 0.78em;
