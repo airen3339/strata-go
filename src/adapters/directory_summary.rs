@@ -177,6 +177,14 @@ async fn measure_children(
 
 type MeasurementFuture = Pin<Box<dyn Future<Output = Result<DirectorySummary, glib::Error>>>>;
 
+fn info_is_hidden(info: &gio::FileInfo) -> bool {
+    info.has_attribute(gio::FILE_ATTRIBUTE_STANDARD_IS_HIDDEN) && info.is_hidden()
+}
+
+fn info_is_symlink(info: &gio::FileInfo) -> bool {
+    info.has_attribute(gio::FILE_ATTRIBUTE_STANDARD_IS_SYMLINK) && info.is_symlink()
+}
+
 fn measure_entry(
     file: gio::File,
     info: gio::FileInfo,
@@ -186,10 +194,12 @@ fn measure_entry(
 ) -> MeasurementFuture {
     Box::pin(async move {
         let is_directory = info.file_type() == gio::FileType::Directory;
-        let is_hidden = hidden_ancestor || info.is_hidden();
+        let is_hidden = hidden_ancestor || info_is_hidden(&info);
         let mut summary = DirectorySummary {
             item_count: 1,
-            total_size: if info.file_type() == gio::FileType::Regular {
+            total_size: if info.file_type() == gio::FileType::Regular
+                && info.has_attribute(gio::FILE_ATTRIBUTE_STANDARD_SIZE)
+            {
                 info.size().max(0) as u64
             } else {
                 0
@@ -201,7 +211,7 @@ fn measure_entry(
         let mut total = budget.total.get();
         total.include(summary);
         budget.total.set(total);
-        if is_directory && !info.is_symlink() {
+        if is_directory && !info_is_symlink(&info) {
             if depth >= budget.max_depth {
                 summary.issues.depth_limited = true;
             } else if budget.exhausted() {

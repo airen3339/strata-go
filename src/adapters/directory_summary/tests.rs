@@ -288,3 +288,81 @@ fn directory_summary_does_not_stop_enumerating_siblings_after_one_branch_is_dept
          not just the first next_files_future batch"
     );
 }
+
+#[test]
+fn missing_optional_attributes_use_safe_defaults() {
+    let info = gio::FileInfo::new();
+
+    assert!(!info_is_hidden(&info));
+    assert!(!info_is_symlink(&info));
+
+    info.set_is_hidden(true);
+    info.set_is_symlink(true);
+
+    assert!(info_is_hidden(&info));
+    assert!(info_is_symlink(&info));
+}
+
+#[test]
+fn measure_entry_handles_entries_without_optional_attributes() {
+    let root = unique_fixture_root("missing-attributes");
+    std::fs::create_dir_all(root.join("sub")).expect("the directory fixture should be created");
+    let regular_file = gio::File::for_path(root.join("sub/file.txt"));
+    let directory = gio::File::for_path(root.join("sub"));
+
+    let file_info = gio::FileInfo::new();
+    file_info.set_name("file.txt");
+    file_info.set_file_type(gio::FileType::Regular);
+
+    let dir_info = gio::FileInfo::new();
+    dir_info.set_name("sub");
+    dir_info.set_file_type(gio::FileType::Directory);
+
+    let context = glib::MainContext::new();
+
+    let file_summary = context
+        .block_on(measure_entry(
+            regular_file,
+            file_info,
+            0,
+            false,
+            Rc::new(MeasurementBudget {
+                deadline: Instant::now() + TIME_BUDGET,
+                max_depth: MAX_DEPTH,
+                total: Cell::default(),
+                reported: Cell::default(),
+                on_progress: Box::new(|_| {}),
+            }),
+        ))
+        .expect("measuring a file without optional attributes should succeed");
+
+    assert_eq!(file_summary.item_count, 1);
+    assert_eq!(file_summary.visible_file_count, 1);
+    assert_eq!(file_summary.visible_folder_count, 0);
+    assert_eq!(file_summary.total_size, 0);
+    assert!(!file_summary.truncated());
+
+    let dir_summary = context
+        .block_on(measure_entry(
+            directory,
+            dir_info,
+            0,
+            false,
+            Rc::new(MeasurementBudget {
+                deadline: Instant::now() + TIME_BUDGET,
+                max_depth: MAX_DEPTH,
+                total: Cell::default(),
+                reported: Cell::default(),
+                on_progress: Box::new(|_| {}),
+            }),
+        ))
+        .expect("measuring a directory without optional attributes should succeed");
+
+    std::fs::remove_dir_all(&root).expect("the directory fixture should be removed");
+
+    assert_eq!(dir_summary.item_count, 1);
+    assert_eq!(dir_summary.visible_folder_count, 1);
+    assert_eq!(dir_summary.visible_file_count, 0);
+    assert_eq!(dir_summary.total_size, 0);
+    assert!(!dir_summary.truncated());
+}
