@@ -536,11 +536,9 @@ impl PreviewState {
             .unwrap_or(MIN_SPLIT_PREVIEW_WIDTH)
             .max(MIN_SPLIT_PREVIEW_WIDTH);
         let needs = full + content_sep + occupied + geometry.separator + preview_needed;
-        // The slot budgets a shown sidebar at full width, but not a hidden one,
-        // so the content paned only measures room while the sidebar shows.
-        let content_has_room =
-            !visible || content.width() <= 0 || content.width() >= full + COLUMN_WIDTH;
         // Measure outside the split so railing cannot change its own threshold.
+        // The content paned is not consulted: the slot re-budgets a sidebar a
+        // frame after it shows, and a one-frame shortage would latch the rail.
         let available = split
             .parent()
             .map(|parent| parent.width())
@@ -559,7 +557,7 @@ impl PreviewState {
             && content.position() + content_sep + COLUMN_WIDTH >= content.width();
         SidebarAssessment {
             fit: wants_rail.map(|wants_rail| SidebarFit {
-                fits: !wants_rail && content_has_room,
+                fits: !wants_rail,
                 preview: true,
             }),
             saved_width,
