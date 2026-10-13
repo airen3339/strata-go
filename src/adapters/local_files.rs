@@ -374,7 +374,17 @@ fn entry_from_info(location: Location, info: gio::FileInfo) -> FileEntry {
             EntryKind::Directory
         }
         (gio::FileType::Regular, false) => EntryKind::File,
-        (gio::FileType::SymbolicLink, _) => EntryKind::SymbolicLink,
+        (gio::FileType::SymbolicLink, _) => {
+            if let Some(path) = location.native_path() {
+                match std::fs::metadata(path) {
+                    Ok(metadata) if metadata.is_dir() => EntryKind::DirectorySymbolicLink,
+                    Ok(metadata) if metadata.is_file() => EntryKind::FileSymbolicLink,
+                    _ => EntryKind::SymbolicLink,
+                }
+            } else {
+                EntryKind::SymbolicLink
+            }
+        }
         _ => EntryKind::Other,
     };
     let size = if matches!(
