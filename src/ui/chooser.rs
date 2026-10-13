@@ -1576,6 +1576,15 @@ fn build_chooser_hosted(
     let confined = source.root_limit.is_some();
     let sidebar = build_sidebar(view.clone(), theme.clone(), true);
     sidebar.schedule_after_first_paint(&window);
+    {
+        // The chooser keeps its sidebar state for the dialog only.
+        let state = Rc::downgrade(&sidebar.state);
+        sidebar.compact_toggle.connect_clicked(move |_| {
+            if let Some(state) = state.upgrade() {
+                state.set_compact(!state.rail.get());
+            }
+        });
+    }
     let content = gtk::Paned::new(gtk::Orientation::Horizontal);
     content.set_wide_handle(false);
     content.set_position(SIDEBAR_WIDTH);

@@ -75,6 +75,8 @@ pub mod icons {
     pub const NETWORK: &str = "strata-network";
     pub const PALETTE: &str = "strata-palette";
     pub const PANEL_LEFT: &str = "strata-panel-left-symbolic";
+    pub const PANEL_LEFT_CLOSE: &str = "strata-panel-left-close";
+    pub const PANEL_LEFT_OPEN: &str = "strata-panel-left-open";
     pub const PANEL_RIGHT_CLOSE: &str = "strata-panel-right-close";
     pub const PAUSE: &str = "strata-pause";
     pub const PACKAGE_OPEN: &str = "strata-package-open";

@@ -687,6 +687,89 @@ fn browsing_control_and_shortcut_update_both_windows() {
 }
 
 #[test]
+fn saved_sidebar_compact_starts_railed_and_foot_button_updates_both_windows() {
+    gtk_test(
+        "ui::window::tests::preferences::saved_sidebar_compact_starts_railed_and_foot_button_updates_both_windows",
+        || {
+            write_settings("sidebar_compact = true\n");
+            let manager = PreferenceManager::shared();
+            assert!(manager.sidebar_compact());
+            let first = OpenWindow::open();
+            let second = OpenWindow::open();
+            settle();
+            for open in [&first, &second] {
+                assert!(open.content.sidebar_visible());
+                assert!(
+                    open.content.sidebar.state.rail.get(),
+                    "a saved compact sidebar starts as the rail in a wide window"
+                );
+            }
+            first.content.sidebar.compact_toggle.emit_clicked();
+            settle();
+            assert!(!manager.sidebar_compact());
+            for open in [&first, &second] {
+                wait_until(|| !open.content.sidebar.state.rail.get());
+            }
+            second.content.sidebar.compact_toggle.emit_clicked();
+            settle();
+            assert!(manager.sidebar_compact());
+            for open in [&first, &second] {
+                wait_until(|| open.content.sidebar.state.rail.get());
+            }
+            let saved = std::fs::read_to_string(settings_file()).expect("saved settings");
+            assert!(saved.contains("sidebar_compact = true"), "{saved}");
+        },
+    );
+}
+
+#[test]
+fn narrow_window_rails_automatically_and_reopens_into_the_rail() {
+    gtk_test(
+        "ui::window::tests::preferences::narrow_window_rails_automatically_and_reopens_into_the_rail",
+        || {
+            let manager = PreferenceManager::shared();
+            manager.set_browser_mode(BrowserMode::Columns);
+            let open = OpenWindow::open_with_width(700);
+            let sidebar = &open.content.sidebar.state;
+            wait_until(|| sidebar.rail.get());
+            assert!(!manager.sidebar_compact(), "an automatic rail is not saved");
+
+            press(
+                &open.window,
+                gtk::gdk::Key::b,
+                gtk::gdk::ModifierType::CONTROL_MASK,
+            );
+            wait_until(|| !open.content.sidebar_visible());
+            press(
+                &open.window,
+                gtk::gdk::Key::b,
+                gtk::gdk::ModifierType::CONTROL_MASK,
+            );
+            assert!(
+                sidebar.rail.get(),
+                "showing the sidebar must open straight into the rail"
+            );
+            wait_until(|| open.content.sidebar_visible());
+            settle_for(std::time::Duration::from_millis(400));
+            assert!(sidebar.rail.get());
+
+            open.content.sidebar.compact_toggle.emit_clicked();
+            settle();
+            assert!(
+                !sidebar.rail.get(),
+                "the foot button expands a railed sidebar"
+            );
+            assert!(!manager.sidebar_compact());
+            settle_for(std::time::Duration::from_millis(400));
+            assert!(
+                !sidebar.rail.get(),
+                "an expanded sidebar stays expanded while the shortage is unchanged"
+            );
+        },
+    );
+}
+
+#[test]
 fn saved_sidebar_collapsed_restores_and_ctrl_b_updates_both_windows() {
     gtk_test(
         "ui::window::tests::preferences::saved_sidebar_collapsed_restores_and_ctrl_b_updates_both_windows",
@@ -1372,11 +1455,15 @@ struct OpenWindow {
 
 impl OpenWindow {
     fn open() -> Self {
+        Self::open_with_width(1200)
+    }
+
+    fn open_with_width(width: i32) -> Self {
         let preferences = PreferenceManager::shared();
         let window = gtk::ApplicationWindow::builder()
             .application(&test_application())
             .title("Strata")
-            .default_width(1200)
+            .default_width(width)
             .default_height(760)
             .build();
         let content = super::super::composition::WindowContent::new(&window, &preferences);
