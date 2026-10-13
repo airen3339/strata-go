@@ -138,7 +138,8 @@ impl ResultCollection {
         })
     }
 
-    pub(super) fn focus(&self, position: u32, exclusive: bool) -> bool {
+    /// Marks `position` selected while keyboard focus stays where it is.
+    pub(super) fn select(&self, position: u32, exclusive: bool) -> bool {
         if position >= self.selection.n_items() {
             return false;
         }
@@ -148,6 +149,13 @@ impl ResultCollection {
         self.selection.select_item(position, exclusive);
         self.gesture_selection
             .replace(Some(self.selection.selection().copy()));
+        true
+    }
+
+    pub(super) fn focus(&self, position: u32, exclusive: bool) -> bool {
+        if !self.select(position, exclusive) {
+            return false;
+        }
         self.restore_focus(position);
         true
     }

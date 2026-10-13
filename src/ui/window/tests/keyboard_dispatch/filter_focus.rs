@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 
-use super::footer_prompt::{ALL_REPORTS, IMMEDIATE_REPORTS, hit_cursor, seed_filter_tree};
+use super::footer_prompt::{
+    ALL_REPORTS, IMMEDIATE_REPORTS, hit_cursor, seed_filter_tree, selected_result_names,
+};
 use super::*;
 use crate::{
     adapters::LocalFileSource,
@@ -787,6 +789,60 @@ fn tab_from_focused_result_leaves_in_one_press() {
             for mode in [BrowserMode::List, BrowserMode::Icons] {
                 if let Err(error) = tab_from_result_case(mode) {
                     failures.push(format!("{mode:?}: {error}"));
+                }
+            }
+            report(failures);
+        },
+    );
+}
+
+fn preselect_case(mode: BrowserMode, recursive: bool) -> Result<(), String> {
+    let fixture = filtered_fixture(mode, recursive);
+    let expected: &[&str] = if recursive {
+        &ALL_REPORTS
+    } else {
+        &IMMEDIATE_REPORTS
+    };
+    let field = show_filter_with_results(&fixture, "report", expected)?;
+    let Some(first) = fixture.view.filter_result_names().first().cloned() else {
+        return Err("the fresh query showed no hit to select".to_owned());
+    };
+    let selects_first = |attempt: &str| -> Result<(), String> {
+        let selected = selected_result_names(&fixture);
+        if selected == [first.clone()] {
+            Ok(())
+        } else {
+            Err(format!(
+                "{attempt} left {selected:?} selected; the first hit {first:?} must show selected"
+            ))
+        }
+    };
+    selects_first("the first arrival")?;
+    field.set_text("");
+    if !settles(|| fixture.view.selected_search_results().is_none()) {
+        return Err("clearing the query kept the results showing".to_owned());
+    }
+    field.set_text("report");
+    if !settles(|| filter_applied(&fixture, expected)) {
+        return Err(format!(
+            "the retyped query's results {:?} never became {expected:?}",
+            result_names(&fixture)
+        ));
+    }
+    selects_first("the retyped query")
+}
+
+#[test]
+fn a_fresh_query_selects_its_first_result() {
+    crate::test_support::gtk_test(
+        "ui::window::tests::keyboard_dispatch::filter_focus::a_fresh_query_selects_its_first_result",
+        || {
+            let mut failures = Vec::new();
+            for mode in [BrowserMode::Icons, BrowserMode::List] {
+                for recursive in [false, true] {
+                    if let Err(error) = preselect_case(mode, recursive) {
+                        failures.push(format!("{mode:?}, subfolders {recursive}: {error}"));
+                    }
                 }
             }
             report(failures);
