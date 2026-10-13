@@ -2805,6 +2805,13 @@ fn omarchy_update_command(terminal: &terminal::Terminal) -> Command {
 }
 
 fn launch_omarchy_update() -> Result<(), String> {
+    if let Some(command) = terminal::omarchy_presentation_command(
+        std::env::var_os("PATH").as_deref(),
+        "omarchy-update",
+    ) && terminal::spawn_reaped(command).is_ok()
+    {
+        return Ok(());
+    }
     let Some(terminal) = terminal::Terminal::resolve() else {
         return Err(terminal::no_terminal_message());
     };
