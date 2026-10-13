@@ -233,6 +233,7 @@ impl ThemeManager {
                 manager.on_preferences_changed();
             }
         }));
+        pin_manual_font_rendering();
         manager.install_provider();
         manager.apply_selected();
         manager.monitor_text_scaling();
@@ -1050,6 +1051,26 @@ const INTERFACE_FONT_FAMILY: &str = "JetBrains Mono";
 
 fn interface_font_name(root_font_px: f64) -> String {
     format!("{INTERFACE_FONT_FAMILY} {root_font_px:.6}px")
+}
+
+/// GTK's automatic font rendering hints glyph outlines but not their metrics,
+/// so GPU glyph atlas slots are sized from unhinted extents and lose the top
+/// pixel row at some sizes (GNOME/gtk#8395). Manual rendering hints metrics
+/// too and follows the desktop's hinting settings. Application values outrank
+/// the settings portal, so this holds for the whole process.
+fn pin_manual_font_rendering() {
+    let Some(settings) = gtk::Settings::default() else {
+        return;
+    };
+    let Some(property) = settings.find_property("gtk-font-rendering") else {
+        return;
+    };
+    let Some(manual) = glib::EnumClass::with_type(property.value_type())
+        .and_then(|class| class.to_value_by_nick("manual"))
+    else {
+        return;
+    };
+    settings.set_property("gtk-font-rendering", manual);
 }
 
 fn apply_interface_font(root_font_px: f64) {

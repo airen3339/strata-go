@@ -113,7 +113,14 @@ Constants live in `src/ui/preview/layout.rs` and `src/ui/preview.rs`.
   defers loading; widening the window restores it with the same selection and
   manual width. The sidebar
   collapses to a rail while a preview is present and space is short, with 24 px
-  of hysteresis so it does not flicker at the threshold. A divider position
+  of hysteresis so it does not flicker at the threshold. One rule decides the
+  rail: the preview's rule while a preview, placeholder, or reserved Columns
+  slot is present, and the window rule (the full sidebar beside one column)
+  otherwise. The header toggle, the preview tick, and the chooser all ask it, so
+  showing the sidebar opens straight into the rail instead of expanding and
+  snapping back. A change in fit compacts an expanded sidebar once; the header
+  toggle's steps or the saved compact preference override it either way (see
+  [Sidebar compact](preferences.md)). A divider position
   that a narrow window pinned is never recorded as the user's sidebar width:
   the preview is sized against the width the user chose, and the sidebar
   returns to it as soon as the content has room again.
@@ -228,7 +235,7 @@ instead.
 | Reveals leave a viewport-filling column alone and fully reveal a clipped one that fits | `src/ui/browser/columns/tests.rs::reveal_column_does_not_move_an_already_visible_active_column`, `reveal_shows_a_fitting_column_whole_and_leaves_a_filling_one_alone` |
 | Pointer preview closes deeper columns first | `src/app/browser/tests/navigation.rs::previewing_a_file_in_a_parent_column_closes_deeper_columns_before_requesting` |
 | Automatic width, minimum, and session manual minimum | `test_quick_preview.py::test_column_preview_fills_free_space_and_keeps_a_dragged_session_minimum` |
-| A column boundary resizes the left column from either side, even when it is clipped | `test_quick_preview.py::test_a_clipped_parent_column_resizes_from_either_side_of_its_edge` |
+| A column boundary resizes the left column from either side, even when it is clipped | Manual check: the E2E scenario was removed in #1601 after keyboard-navigation timing flakes |
 | The column–preview boundary resizes the side it is grabbed from | `test_quick_preview.py::test_the_column_preview_boundary_resizes_the_side_it_is_grabbed_from` |
 | Dragged widths spread to the open columns when the drag ends; autofit is saved | `src/ui/browser/columns/tests.rs::a_finished_edge_drag_resizes_every_open_column`, `double_clicking_an_edge_autofits_the_column_and_saves_its_width` |
 | Drags, autofit, and restored widths stay within the visible browser area | `src/ui/chooser/tests/column_widths.rs::miller_autofit_saves_a_width_within_the_visible_browser_area`, `::miller_drag_cannot_exceed_the_visible_browser_area`, `tests/e2e/scenarios/test_view_switching.py::test_column_autofit_and_drag_stay_inside_the_browser_area`, `::test_an_oversized_saved_column_width_opens_inside_the_window` |

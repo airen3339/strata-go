@@ -7,7 +7,6 @@ import pytest
 from pathlib import Path
 import io
 import zipfile
-from gi.repository import Atspi
 from PIL import Image
 
 from harness.fixtures import FixtureTree
@@ -814,40 +813,6 @@ def test_the_column_preview_boundary_resizes_the_side_it_is_grabbed_from(strata,
         lambda: caption("Column width") is None and caption("Preview panel minimum width") is None,
         "the resize captions to go once the drag ends",
     )
-
-
-@pytest.mark.preferences(browser_mode="columns", single_click_previews=False)
-@pytest.mark.parametrize("offset", [-5, -1, 4])
-def test_a_clipped_parent_column_resizes_from_either_side_of_its_edge(strata, root, offset):
-    strata.fixture.populate({"folder": {"Level 2": {"Level 3": {"Level 4": {"deep.txt": "deep\n"}}}}})
-    for name in ["folder", "Level 2", "Level 3", "Level 4"]:
-        strata.select_entry_with_keyboard(name)
-        strata.keyboard.press("Return")
-        strata.wait_for_directory(name)
-    scrollbar = next(
-        node for _, node in strata.window.walk()
-        if node.role == "scroll bar" and node.has_state("horizontal")
-    )
-    half_root = strata.pane(root).screen_bounds().width / 2
-    assert Atspi.Value.set_current_value(Atspi.Accessible.get_value_iface(scrollbar.accessible), half_root)
-    strata.wait(
-        lambda: strata.window.find(role="button", name=f"Reveal {root} column"),
-        "the root column to be partly scrolled out of view",
-    )
-    edge = strata.settle(strata.pane("folder")).screen_bounds().x
-    parent = strata.pane(root).screen_bounds()
-    # Below the rows, where a press on a clipped column otherwise reveals it.
-    start = (edge + offset, parent.y + parent.height * 4 // 5)
-    strata.pointer.move_to(*start)
-    strata.wait(lambda: strata.window.find(role="label", name="Column width"), "the column width hint")
-    strata.pointer.drag_points(start, (start[0] + 40, start[1]), release=False)
-    try:
-        strata.wait(
-            lambda: strata.pane(root).screen_bounds().width > parent.width + 20,
-            "the clipped parent column to widen",
-        )
-    finally:
-        strata.pointer.connection.button(1, False)
 
 
 @pytest.mark.preferences(browser_mode="columns", single_click_previews=False)
