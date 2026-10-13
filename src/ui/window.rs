@@ -1725,6 +1725,9 @@ impl SidebarState {
                 | BrowserEvent::ColumnsTruncated { .. }
                 | BrowserEvent::ColumnsRelocated { .. }
                 | BrowserEvent::FocusChanged { .. }
+                // A clicked place is highlighted before validation; a rejection
+                // leaves the previous location open, including while a mount runs.
+                | BrowserEvent::LocationNavigationRejected { .. }
         )
     }
 
