@@ -1008,6 +1008,7 @@
   "Toggle owner read permission": "Alternar a permissão de leitura do proprietário",
   "Toggle owner write permission": "Alternar a permissão de gravação do proprietário",
   "Toggle preview panel while browsing": "Alternar painel de prévia durante a navegação",
+  "Toggle sidebar (%{keys})": "Alternar barra lateral (%{keys})",
   "Toggle which locations appear in the sidebar.": "Alternar quais locais aparecem na barra lateral.",
   "Toggle word wrap": "Alternar quebra de linha",
   "Too many remote previews are active; try again shortly": "Há muitas prévias remotas ativas; tente novamente em instantes",

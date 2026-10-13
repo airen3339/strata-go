@@ -1008,6 +1008,7 @@
   "Toggle owner read permission": "소유자 읽기 권한 전환",
   "Toggle owner write permission": "소유자 쓰기 권한 전환",
   "Toggle preview panel while browsing": "탐색 중 미리 보기 패널 전환",
+  "Toggle sidebar (%{keys})": "사이드바 전환(%{keys})",
   "Toggle which locations appear in the sidebar.": "사이드바에 표시할 위치를 켜거나 끕니다.",
   "Toggle word wrap": "자동 줄 바꿈 전환",
   "Too many remote previews are active; try again shortly": "활성화된 원격 미리 보기가 너무 많습니다. 잠시 후 다시 시도하세요",

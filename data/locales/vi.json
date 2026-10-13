@@ -1008,6 +1008,7 @@
   "Toggle owner read permission": "Bật/tắt quyền đọc của chủ sở hữu",
   "Toggle owner write permission": "Bật/tắt quyền ghi của chủ sở hữu",
   "Toggle preview panel while browsing": "Bật/tắt bảng xem trước khi duyệt",
+  "Toggle sidebar (%{keys})": "Bật/tắt thanh bên (%{keys})",
   "Toggle which locations appear in the sidebar.": "Chọn các vị trí xuất hiện trong thanh bên.",
   "Toggle word wrap": "Bật/tắt ngắt dòng",
   "Too many remote previews are active; try again shortly": "Có quá nhiều bản xem trước từ xa đang hoạt động; hãy thử lại sau giây lát",

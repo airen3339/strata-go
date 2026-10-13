@@ -1008,6 +1008,7 @@
   "Toggle owner read permission": "Переключить право на чтение для владельца",
   "Toggle owner write permission": "Переключить право на запись для владельца",
   "Toggle preview panel while browsing": "Показать или скрыть панель предпросмотра при навигации",
+  "Toggle sidebar (%{keys})": "Показать или скрыть боковую панель (%{keys})",
   "Toggle which locations appear in the sidebar.": "Выберите расположения для показа на боковой панели.",
   "Toggle word wrap": "Перенос строк",
   "Too many remote previews are active; try again shortly": "Слишком много активных удалённых предпросмотров; повторите попытку чуть позже",

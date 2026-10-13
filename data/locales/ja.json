@@ -1008,6 +1008,7 @@
   "Toggle owner read permission": "所有者の読み取り権限を切り替え",
   "Toggle owner write permission": "所有者の書き込み権限を切り替え",
   "Toggle preview panel while browsing": "閲覧中にプレビューパネルを切り替え",
+  "Toggle sidebar (%{keys})": "サイドバーを切り替え（%{keys}）",
   "Toggle which locations appear in the sidebar.": "サイドバーに表示する場所を切り替えます。",
   "Toggle word wrap": "行の折り返しを切り替え",
   "Too many remote previews are active; try again shortly": "リモートのプレビューが多すぎます。しばらくしてからもう一度お試しください",

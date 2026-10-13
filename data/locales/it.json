@@ -1008,6 +1008,7 @@
   "Toggle owner read permission": "Attiva/disattiva il permesso di lettura del proprietario",
   "Toggle owner write permission": "Attiva/disattiva il permesso di scrittura del proprietario",
   "Toggle preview panel while browsing": "Mostra/nascondi il riquadro di anteprima durante la navigazione",
+  "Toggle sidebar (%{keys})": "Mostra/nascondi barra laterale (%{keys})",
   "Toggle which locations appear in the sidebar.": "Scegli quali posizioni mostrare nella barra laterale.",
   "Toggle word wrap": "Attiva/disattiva ritorno a capo",
   "Too many remote previews are active; try again shortly": "Troppe anteprime remote attive; riprova tra poco",

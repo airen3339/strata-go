@@ -1008,6 +1008,7 @@
   "Toggle owner read permission": "Activer ou désactiver le droit de lecture du propriétaire",
   "Toggle owner write permission": "Activer ou désactiver le droit d’écriture du propriétaire",
   "Toggle preview panel while browsing": "Afficher ou masquer le panneau d’aperçu pendant la navigation",
+  "Toggle sidebar (%{keys})": "Afficher/masquer la barre latérale (%{keys})",
   "Toggle which locations appear in the sidebar.": "Choisir les emplacements affichés dans la barre latérale.",
   "Toggle word wrap": "Activer/désactiver le retour à la ligne",
   "Too many remote previews are active; try again shortly": "Trop d’aperçus distants sont en cours ; réessayez dans un instant",

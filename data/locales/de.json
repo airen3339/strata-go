@@ -1008,6 +1008,7 @@
   "Toggle owner read permission": "Leseberechtigung für den Eigentümer umschalten",
   "Toggle owner write permission": "Schreibberechtigung für den Eigentümer umschalten",
   "Toggle preview panel while browsing": "Vorschaubereich beim Navigieren ein-/ausblenden",
+  "Toggle sidebar (%{keys})": "Seitenleiste ein-/ausblenden (%{keys})",
   "Toggle which locations appear in the sidebar.": "Festlegen, welche Orte in der Seitenleiste erscheinen.",
   "Toggle word wrap": "Zeilenumbruch ein-/ausschalten",
   "Too many remote previews are active; try again shortly": "Zu viele Vorschauen entfernter Dateien sind aktiv; versuchen Sie es gleich noch einmal",
