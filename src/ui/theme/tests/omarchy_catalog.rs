@@ -15,7 +15,7 @@ use crate::test_support::capture_logs;
 const MINIMAL_DARK: &str =
     "mode = \"dark\"\nbackground = \"#101418\"\nforeground = \"#d8dee9\"\naccent = \"#88c0d0\"\n";
 
-fn fixture_roots(_name: &str) -> (tempfile::TempDir, PathBuf, PathBuf) {
+fn fixture_roots() -> (tempfile::TempDir, PathBuf, PathBuf) {
     let sandbox = tempfile::tempdir().expect("fixture sandbox");
     let user = sandbox.path().join("user");
     let bundled = sandbox.path().join("bundled");
@@ -58,7 +58,7 @@ fn missing_directories_discover_nothing() {
 
 #[test]
 fn single_user_theme_is_listed() {
-    let (_sandbox, user, bundled) = fixture_roots("single");
+    let (_sandbox, user, bundled) = fixture_roots();
     write_colors(&user, "harbor", MINIMAL_DARK);
 
     let theme = theme_by_id(&user, &bundled, "omarchy:harbor");
@@ -70,7 +70,7 @@ fn single_user_theme_is_listed() {
 
 #[test]
 fn bundled_themes_are_listed() {
-    let (_sandbox, user, bundled) = fixture_roots("bundled");
+    let (_sandbox, user, bundled) = fixture_roots();
     write_colors(&bundled, "dune", MINIMAL_DARK);
     write_colors(&bundled, "reef", MINIMAL_DARK);
 
@@ -82,7 +82,7 @@ fn bundled_themes_are_listed() {
 
 #[test]
 fn user_copy_replaces_bundled_copy_wholesale() {
-    let (_sandbox, user, bundled) = fixture_roots("precedence");
+    let (_sandbox, user, bundled) = fixture_roots();
     write_colors(
         &bundled,
         "coast",
@@ -106,7 +106,7 @@ fn user_copy_replaces_bundled_copy_wholesale() {
 
 #[test]
 fn empty_user_folder_still_lists_bundled_theme() {
-    let (_sandbox, user, bundled) = fixture_roots("empty-user");
+    let (_sandbox, user, bundled) = fixture_roots();
     std::fs::create_dir_all(user.join("aether")).expect("empty user theme folder");
     write_colors(&bundled, "aether", MINIMAL_DARK);
 
@@ -116,7 +116,7 @@ fn empty_user_folder_still_lists_bundled_theme() {
 
 #[test]
 fn broken_user_copy_falls_back_to_bundled_with_a_warning() {
-    let (_sandbox, user, bundled) = fixture_roots("broken-user");
+    let (_sandbox, user, bundled) = fixture_roots();
     write_colors(&user, "coast", "not toml at all {{{");
     write_colors(&bundled, "coast", MINIMAL_DARK);
 
@@ -132,7 +132,7 @@ fn broken_user_copy_falls_back_to_bundled_with_a_warning() {
 
 #[test]
 fn slug_broken_in_both_locations_is_skipped_with_warnings() {
-    let (_sandbox, user, bundled) = fixture_roots("broken-both");
+    let (_sandbox, user, bundled) = fixture_roots();
     write_colors(&user, "wreck", "background = [");
     write_colors(
         &bundled,
@@ -151,7 +151,7 @@ fn slug_broken_in_both_locations_is_skipped_with_warnings() {
 
 #[test]
 fn unreadable_copy_is_skipped_with_a_warning() {
-    let (_sandbox, user, bundled) = fixture_roots("unreadable");
+    let (_sandbox, user, bundled) = fixture_roots();
     // A directory where colors.toml should be cannot be read as a file.
     let theme_dir = user.join("murk");
     std::fs::create_dir_all(theme_dir.join("colors.toml")).expect("colors.toml directory");
@@ -169,7 +169,7 @@ fn unreadable_copy_is_skipped_with_a_warning() {
 
 #[test]
 fn broken_symlink_is_skipped_with_a_warning() {
-    let (_sandbox, user, bundled) = fixture_roots("dangling");
+    let (_sandbox, user, bundled) = fixture_roots();
     let theme_dir = bundled.join("phantom");
     std::fs::create_dir_all(&theme_dir).expect("bundled theme dir");
     std::os::unix::fs::symlink(
@@ -189,7 +189,7 @@ fn broken_symlink_is_skipped_with_a_warning() {
 
 #[test]
 fn symlinked_copy_is_used() {
-    let (_sandbox, user, bundled) = fixture_roots("symlink");
+    let (_sandbox, user, bundled) = fixture_roots();
     let dotfiles = _sandbox.path().join("dotfiles");
     std::fs::create_dir_all(&dotfiles).expect("dotfiles dir");
     std::fs::write(dotfiles.join("colors.toml"), MINIMAL_DARK).expect("dotfile colors");
@@ -210,7 +210,7 @@ fn stray_files_and_invalid_slugs_are_rejected() {
         assert!(is_valid_omarchy_slug(slug), "{slug:?} must be accepted");
     }
 
-    let (_sandbox, user, bundled) = fixture_roots("stray");
+    let (_sandbox, user, bundled) = fixture_roots();
     std::fs::write(user.join("lonely.toml"), MINIMAL_DARK).expect("stray file");
     std::fs::write(user.join("notes.txt"), "hello").expect("stray text");
     assert!(discover_omarchy_themes_in(&user, &bundled).is_empty());
@@ -218,7 +218,7 @@ fn stray_files_and_invalid_slugs_are_rejected() {
 
 #[test]
 fn partial_files_are_skipped() {
-    let (_sandbox, user, bundled) = fixture_roots("partial");
+    let (_sandbox, user, bundled) = fixture_roots();
     write_colors(
         &user,
         "half",
@@ -229,7 +229,7 @@ fn partial_files_are_skipped() {
 
 #[test]
 fn declared_mode_disagreement_keeps_luminance_and_logs() {
-    let (_sandbox, user, bundled) = fixture_roots("disagree");
+    let (_sandbox, user, bundled) = fixture_roots();
     write_colors(
         &user,
         "contrary",
@@ -251,7 +251,7 @@ fn declared_mode_disagreement_keeps_luminance_and_logs() {
 
 #[test]
 fn identical_palettes_are_both_retained() {
-    let (_sandbox, user, bundled) = fixture_roots("identical");
+    let (_sandbox, user, bundled) = fixture_roots();
     write_colors(&user, "first", MINIMAL_DARK);
     write_colors(&bundled, "second", MINIMAL_DARK);
 

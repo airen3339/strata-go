@@ -5,7 +5,7 @@
 //! with a single retry instead of switching modes.
 
 use super::super::ThemeManager;
-use crate::test_support::{gtk_test, gtk_test_with_env};
+use crate::test_support::{capture_logs, gtk_test, gtk_test_with_env};
 use crate::ui::preferences::fixtures::{seed_omarchy_colors_for_test, seed_omarchy_for_test};
 
 const HARBOR_COLORS: &str =
@@ -254,6 +254,67 @@ fn dropping_the_manager_cancels_its_retry() {
             for _ in 0..8 {
                 gtk::glib::MainContext::default().iteration(false);
             }
+        },
+    );
+}
+
+#[test]
+fn stored_omarchy_id_survives_startup_without_its_theme() {
+    let isolated = tempfile::tempdir().expect("isolated bundled themes");
+    let bundled = isolated.path().to_string_lossy().into_owned();
+    gtk_test_with_env(
+        "ui::theme::tests::omarchy_state::stored_omarchy_id_survives_startup_without_its_theme",
+        [("OMARCHY_PATH", bundled)],
+        || {
+            let settings = crate::ui::preferences::config_directory().join("settings.toml");
+            std::fs::create_dir_all(settings.parent().expect("settings parent"))
+                .expect("settings dir");
+            std::fs::write(&settings, "mode = \"theme\"\ntheme = \"omarchy:ghost\"\n")
+                .expect("stored omarchy selection");
+            let themes = ThemeManager::shared();
+            // The unknown qualified id is kept, not reset, so the theme is
+            // restored if it is installed later.
+            assert_eq!(themes.selected_id(), "omarchy:ghost");
+            assert!(!themes.follows_omarchy());
+            assert!(themes.current_tokens().is_none());
+        },
+    );
+}
+
+#[test]
+fn missing_selection_warns_once_per_absence() {
+    let isolated = tempfile::tempdir().expect("isolated bundled themes");
+    let bundled = isolated.path().to_string_lossy().into_owned();
+    gtk_test_with_env(
+        "ui::theme::tests::omarchy_state::missing_selection_warns_once_per_absence",
+        [("OMARCHY_PATH", bundled)],
+        || {
+            seed_catalog_theme("harbor", HARBOR_COLORS);
+            let themes = ThemeManager::shared();
+            themes.select_theme("omarchy:harbor");
+            std::fs::remove_dir_all(gtk::glib::user_config_dir().join("omarchy"))
+                .expect("remove installed themes");
+
+            let first = capture_logs(|| assert!(themes.refresh_omarchy_catalog()));
+            assert!(
+                first.contains("keeping the saved choice"),
+                "a missing selection warns:\n{first}"
+            );
+            let second = capture_logs(|| themes.apply_selected());
+            assert!(
+                !second.contains("keeping the saved choice"),
+                "repeat applies stay quiet:\n{second}"
+            );
+
+            seed_catalog_theme("harbor", HARBOR_COLORS);
+            assert!(themes.refresh_omarchy_catalog());
+            std::fs::remove_dir_all(gtk::glib::user_config_dir().join("omarchy"))
+                .expect("remove installed themes again");
+            let third = capture_logs(|| assert!(themes.refresh_omarchy_catalog()));
+            assert!(
+                third.contains("keeping the saved choice"),
+                "a renewed absence warns again:\n{third}"
+            );
         },
     );
 }

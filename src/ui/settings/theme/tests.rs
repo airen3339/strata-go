@@ -78,6 +78,10 @@ fn installed_omarchy_themes_appear_in_the_library_with_a_source_label() {
                 .expect("remove installed themes");
             assert!(themes.refresh_omarchy_catalog());
             assert!(!packaged_card_names(packaged).contains(&"Harbor".to_owned()));
+            assert!(
+                !themes.refresh_omarchy_catalog(),
+                "an unchanged catalog refreshes nothing"
+            );
         },
     );
 }

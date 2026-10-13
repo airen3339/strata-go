@@ -194,6 +194,8 @@ pub struct ThemeManager {
     /// Last successfully applied independent palette; the fallback when the saved
     /// theme id has no valid theme, with the stored id kept.
     last_independent_tokens: RefCell<Option<ThemeTokens>>,
+    /// Id of the last missing selection already reported, keeping that warning singular.
+    missing_theme_warned: RefCell<Option<String>>,
     omarchy_monitors: RefCell<Vec<gio::FileMonitor>>,
     pending_omarchy_refresh: RefCell<Option<glib::SourceId>>,
     preview: RefCell<Option<ThemeTokens>>,
@@ -248,6 +250,7 @@ impl ThemeManager {
             #[cfg(test)]
             retry_armed_total: Cell::new(0),
             last_independent_tokens: RefCell::new(None),
+            missing_theme_warned: RefCell::new(None),
             omarchy_monitors: RefCell::new(Vec::new()),
             pending_omarchy_refresh: RefCell::new(None),
             preview: RefCell::new(None),
@@ -275,8 +278,6 @@ impl ThemeManager {
         if manager.follows_omarchy() {
             manager.monitor_omarchy();
         }
-        // A restored Follow session without a resolvable theme still retries.
-        manager.reconcile_omarchy_retry();
         manager
     }
 
@@ -480,6 +481,7 @@ impl ThemeManager {
         }
         if let Some(tokens) = self.current_tokens() {
             self.last_independent_tokens.replace(Some(tokens.clone()));
+            self.missing_theme_warned.borrow_mut().take();
             self.apply_tokens(&tokens, None);
         } else {
             self.apply_independent_fallback();
@@ -491,6 +493,7 @@ impl ThemeManager {
     fn apply_independent_fallback(&self) {
         if let Some(tokens) = self.current_tokens() {
             self.last_independent_tokens.replace(Some(tokens.clone()));
+            self.missing_theme_warned.borrow_mut().take();
             self.apply_tokens(&tokens, None);
             return;
         }
@@ -500,10 +503,15 @@ impl ThemeManager {
                 "saved theme unavailable while following; using a fallback"
             );
         } else {
-            tracing::warn!(
-                theme = %self.preferences.selected_theme_id(),
-                "selected theme unavailable; keeping the saved choice and using a fallback"
-            );
+            let id = self.preferences.selected_theme_id();
+            let mut warned = self.missing_theme_warned.borrow_mut();
+            if warned.as_deref() != Some(id.as_str()) {
+                tracing::warn!(
+                    theme = %id,
+                    "selected theme unavailable; keeping the saved choice and using a fallback"
+                );
+                *warned = Some(id);
+            }
         }
         let fallback = self
             .last_independent_tokens
@@ -709,13 +717,6 @@ impl ThemeManager {
         }
     }
 
-    /// Arms the retry when a restored Follow session is already degraded.
-    fn reconcile_omarchy_retry(&self) {
-        if self.follows_omarchy() && self.omarchy_degraded.get() {
-            self.ensure_omarchy_retry();
-        }
-    }
-
     fn update_omarchy_availability(&self) {
         let available = load_omarchy_theme(OmarchyVariant::Original).is_some()
             || (self.is_omarchy_available() && omarchy_state_dir().join("theme.name").is_file());
@@ -737,7 +738,7 @@ impl ThemeManager {
         changed
     }
 
-    /// Off-thread discovery for focus and watcher refreshes; the merge and
+    /// Off-thread discovery for focus-triggered refreshes; the merge and
     /// re-apply run back on the UI thread.
     pub(crate) fn refresh_omarchy_catalog_async(self: &Rc<Self>) {
         let weak = Rc::downgrade(self);
