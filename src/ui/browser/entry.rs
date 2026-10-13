@@ -6,7 +6,8 @@ use crate::assets::icons;
 use crate::model::{EntryKind, FileEntry, MetadataValue};
 use crate::services::{
     PathMatcher, PathQuery, PreviewContent, content_family, filter_name_matches, fold_for_search,
-    has_plain_text_extension, is_extensionless_dotfile,
+    guess_content_type, has_plain_text_extension, is_extensionless_dotfile,
+    is_typescript_extension,
 };
 use gtk::prelude::*;
 use gtk::{gio, glib};
@@ -38,18 +39,20 @@ pub(super) fn entry_supports_printing(entry: &FileEntry) -> bool {
         return false;
     }
 
-    let (content_type, uncertain) =
-        gio::content_type_guess(Some(Path::new(&entry.native_name)), None::<&[u8]>);
+    let native_path = entry.location.native_path();
+    let content_type = guess_content_type(&entry.native_name, native_path);
+    let uncertain = gio::content_type_guess(Some(Path::new(&entry.native_name)), None::<&[u8]>).1;
     // An uncertain name guess defers to the loader, which resolves the file's content type.
     matches!(content_family(&content_type), PreviewContent::Text { .. })
         || (uncertain && matches!(content_family(&content_type), PreviewContent::Unsupported))
-        || (entry.location.native_path().is_some()
+        || (native_path.is_some()
             && matches!(
                 content_family(&content_type),
                 PreviewContent::Image | PreviewContent::Pdf { .. }
             ))
         || gio::content_type_is_a(&content_type, "text/plain")
         || has_plain_text_extension(&entry.native_name)
+        || is_typescript_extension(&entry.native_name)
         || is_extensionless_dotfile(&entry.native_name)
 }
 

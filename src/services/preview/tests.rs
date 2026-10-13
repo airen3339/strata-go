@@ -2,9 +2,10 @@
 
 use super::{
     ArchiveDirectory, ArchiveFileEntry, ArchiveNode, MediaPreviewSize, PreviewContent,
-    archive_preview_format, archive_preview_tree, content_family, has_plain_text_extension,
-    is_extensionless_dotfile, is_image_path, is_media_path,
-    is_non_executable_extensionless_dotfile, normalize_preview_text,
+    archive_preview_format, archive_preview_tree, content_family, guess_content_type,
+    has_plain_text_extension, is_extensionless_dotfile, is_image_path, is_media_path,
+    is_mpeg_ts_data, is_mpeg_ts_file, is_non_executable_extensionless_dotfile,
+    is_typescript_extension, normalize_preview_text,
 };
 
 #[test]
@@ -667,4 +668,78 @@ fn secret_string_exposes_its_value_explicitly() {
     let secret = super::SecretString::new("s3cret".to_owned());
     assert_eq!(secret.expose(), "s3cret");
     assert_eq!(format!("{secret:?}"), "[REDACTED]");
+}
+
+#[test]
+fn recognizes_typescript_extensions() {
+    assert!(is_typescript_extension(std::ffi::OsStr::new("app.ts")));
+    assert!(is_typescript_extension(std::ffi::OsStr::new(
+        "Component.tsx"
+    )));
+    assert!(is_typescript_extension(std::ffi::OsStr::new("module.mts")));
+    assert!(is_typescript_extension(std::ffi::OsStr::new("script.cts")));
+    assert!(is_typescript_extension(std::ffi::OsStr::new("INDEX.TS")));
+    assert!(!is_typescript_extension(std::ffi::OsStr::new("app.js")));
+    assert!(!is_typescript_extension(std::ffi::OsStr::new("video.mp4")));
+    assert!(!is_typescript_extension(std::ffi::OsStr::new("ts")));
+}
+
+#[test]
+fn disambiguates_mpeg_ts_data_from_typescript_source() {
+    let mut mpeg_packets = vec![0u8; 565];
+    mpeg_packets[0] = 0x47;
+    mpeg_packets[188] = 0x47;
+    mpeg_packets[376] = 0x47;
+    assert!(is_mpeg_ts_data(&mpeg_packets));
+
+    let ts_source = b"import React from 'react';\nconst x: number = 42;\nexport default x;\n";
+    assert!(!is_mpeg_ts_data(ts_source));
+
+    // Data starting with 'G' (0x47) but lacking sync repetition and nulls is not MPEG-TS.
+    let text_starting_with_g = b"Great code here without sync bytes";
+    assert!(!is_mpeg_ts_data(text_starting_with_g));
+}
+
+#[test]
+fn guess_content_type_differentiates_typescript_and_mpeg_ts() {
+    let name_ts = std::ffi::OsStr::new("index.ts");
+    assert_eq!(guess_content_type(name_ts, None), "application/typescript");
+
+    let name_tsx = std::ffi::OsStr::new("App.tsx");
+    assert_eq!(guess_content_type(name_tsx, None), "application/typescript");
+
+    let temp_dir = tempfile::tempdir().expect("tempdir");
+    let ts_file_path = temp_dir.path().join("main.ts");
+    std::fs::write(&ts_file_path, "console.log('hello');").expect("write ts");
+    assert_eq!(
+        guess_content_type(name_ts, Some(&ts_file_path)),
+        "application/typescript"
+    );
+    assert!(!is_mpeg_ts_file(&ts_file_path));
+    assert!(!is_media_path(&ts_file_path));
+
+    let mpeg_file_path = temp_dir.path().join("recording.ts");
+    let mut mpeg_packets = vec![0u8; 565];
+    mpeg_packets[0] = 0x47;
+    mpeg_packets[188] = 0x47;
+    mpeg_packets[376] = 0x47;
+    std::fs::write(&mpeg_file_path, &mpeg_packets).expect("write mpeg");
+    assert_eq!(
+        guess_content_type(std::ffi::OsStr::new("recording.ts"), Some(&mpeg_file_path)),
+        "video/mp2t"
+    );
+    assert!(is_mpeg_ts_file(&mpeg_file_path));
+    assert!(is_media_path(&mpeg_file_path));
+}
+
+#[test]
+fn typescript_content_family_maps_to_text_preview() {
+    assert!(matches!(
+        content_family("application/typescript"),
+        PreviewContent::Text { .. }
+    ));
+    assert!(matches!(
+        content_family("application/x-typescript"),
+        PreviewContent::Text { .. }
+    ));
 }

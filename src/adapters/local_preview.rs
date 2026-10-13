@@ -21,8 +21,9 @@ use crate::{
     services::{
         LoadHandle, MediaPreviewSize, ModelFormat, ModelRender, Preview, PreviewContent,
         PreviewEvent, PreviewProvider, PreviewRequest, SandboxedMedia, content_family,
-        document_kind, has_plain_text_extension, is_non_executable_extensionless_dotfile,
-        layout_document, normalize_preview_text, parse_document,
+        document_kind, guess_content_type, has_plain_text_extension,
+        is_non_executable_extensionless_dotfile, is_typescript_extension, layout_document,
+        normalize_preview_text, parse_document,
     },
 };
 
@@ -254,7 +255,9 @@ impl LocalPreviewProvider {
         let abort_safe = Rc::new(Cell::new(true));
         let abort_safe_for_task = abort_safe.clone();
         let task = glib::MainContext::default().spawn_local(async move {
-            let (guessed_type, uncertain) =
+            let native_path = entry.location.native_path();
+            let guessed_type = guess_content_type(&entry.native_name, native_path);
+            let (_, uncertain) =
                 gio::content_type_guess(Some(Path::new(&entry.native_name)), None::<&[u8]>);
             let mut content_type = guessed_type.to_string();
             let mut content = content_family(&content_type);
@@ -270,6 +273,12 @@ impl LocalPreviewProvider {
                         content: String::new(),
                         truncated: false,
                     };
+                } else if is_typescript_extension(&entry.native_name) {
+                    content = PreviewContent::Text {
+                        content: String::new(),
+                        truncated: false,
+                    };
+                    content_type = "application/typescript".to_owned();
                 } else if has_plain_text_extension(&entry.native_name) {
                     content = PreviewContent::Text {
                         content: String::new(),
@@ -312,6 +321,7 @@ impl LocalPreviewProvider {
                 if matches!(resolved, PreviewContent::Unsupported)
                     && (gio::content_type_is_a(&queried_type, "text/plain")
                         || has_plain_text_extension(&entry.native_name)
+                        || is_typescript_extension(&entry.native_name)
                         || is_non_executable_extensionless_dotfile(&entry.native_name, unix_mode))
                 {
                     resolved = PreviewContent::Text {

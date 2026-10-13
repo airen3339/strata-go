@@ -208,3 +208,29 @@ fn catppuccin_associations_prefer_longest_suffix_and_exact_names() {
         assert_eq!(icon_for_name(name), icon, "file: {name}");
     }
 }
+
+#[test]
+fn entry_supports_printing_identifies_typescript_files() {
+    use super::entry_supports_printing;
+    use crate::model::{EntryKind, FileEntry, Location, MetadataValue};
+
+    for name in ["app.ts", "Component.tsx", "module.mts", "script.cts"] {
+        let entry = FileEntry {
+            location: Location::local(name),
+            thumbnail_path: None,
+            native_name: name.into(),
+            display_name: name.into(),
+            kind: EntryKind::File,
+            size: MetadataValue::Unknown,
+            modified_unix_seconds: MetadataValue::Unknown,
+            mode: MetadataValue::Unknown,
+            recent_unix_seconds: MetadataValue::Unknown,
+            image_dimensions: MetadataValue::Unknown,
+            child_count: MetadataValue::Unknown,
+            duration_seconds: MetadataValue::Unknown,
+            is_hidden: false,
+            recent_uri: None,
+        };
+        assert!(entry_supports_printing(&entry), "{name}");
+    }
+}

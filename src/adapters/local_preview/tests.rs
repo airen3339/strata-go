@@ -745,6 +745,16 @@ fn text_subclassed_names_resolve_their_preview_from_the_type_hierarchy() {
             &b"[section]\nkey = 1\n"[..],
             "[section]\nkey = 1\n",
         ),
+        (
+            "app.ts",
+            &b"const x: number = 42;\n"[..],
+            "const x: number = 42;\n",
+        ),
+        (
+            "Component.tsx",
+            &b"export const C = () => <div />;\n"[..],
+            "export const C = () => <div />;\n",
+        ),
     ] {
         let path = directory.path().join(name);
         fs::write(&path, bytes).expect("preview fixture");

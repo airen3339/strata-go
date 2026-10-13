@@ -205,16 +205,65 @@ pub trait PreviewProvider {
     fn load(&self, request: PreviewRequest, emit: Rc<dyn Fn(PreviewEvent)>) -> LoadHandle;
 }
 
-fn content_type_for_path(path: &Path) -> glib::GString {
-    gio::content_type_guess(Some(path), None::<&[u8]>).0
+pub(crate) fn is_typescript_extension(name: &OsStr) -> bool {
+    Path::new(name)
+        .extension()
+        .and_then(OsStr::to_str)
+        .is_some_and(|extension| {
+            matches!(
+                extension.to_ascii_lowercase().as_str(),
+                "ts" | "tsx" | "mts" | "cts"
+            )
+        })
+}
+
+pub(crate) fn is_mpeg_ts_data(sample: &[u8]) -> bool {
+    if sample.len() < 188 {
+        return false;
+    }
+    sample[0] == 0x47
+        && sample[188] == 0x47
+        && (sample.len() < 377 || sample[376] == 0x47)
+        && sample.contains(&0)
+}
+
+pub(crate) fn is_mpeg_ts_file(path: &Path) -> bool {
+    use std::io::Read;
+    let Ok(mut file) = std::fs::File::open(path) else {
+        return false;
+    };
+    let mut buffer = [0u8; 565];
+    let Ok(bytes_read) = file.read(&mut buffer) else {
+        return false;
+    };
+    is_mpeg_ts_data(&buffer[..bytes_read])
+}
+
+pub(crate) fn guess_content_type(name: &OsStr, native_path: Option<&Path>) -> glib::GString {
+    let extension = Path::new(name)
+        .extension()
+        .and_then(OsStr::to_str)
+        .map(str::to_ascii_lowercase);
+    if let Some(ext) = extension.as_deref() {
+        if ext == "ts" || ext == "mts" {
+            if native_path.is_some_and(is_mpeg_ts_file) {
+                return glib::GString::from("video/mp2t");
+            }
+            return glib::GString::from("application/typescript");
+        } else if ext == "tsx" || ext == "cts" {
+            return glib::GString::from("application/typescript");
+        }
+    }
+    gio::content_type_guess(Some(Path::new(name)), None::<&[u8]>).0
 }
 
 pub(crate) fn is_image_path(path: &Path) -> bool {
-    content_type_for_path(path).starts_with("image/")
+    let content_type = guess_content_type(path.as_os_str(), Some(path));
+    content_type.starts_with("image/")
 }
 
 pub(crate) fn is_media_path(path: &Path) -> bool {
-    let content_type = content_type_for_path(path);
+    let content_type = guess_content_type(path.as_os_str(), Some(path));
     content_type.starts_with("audio/") || content_type.starts_with("video/")
 }
 
@@ -238,7 +287,7 @@ pub(crate) fn has_plain_text_extension(name: &OsStr) -> bool {
 
 pub(crate) fn normalize_preview_text(text: &str) -> Cow<'_, str> {
     if text.contains('\0') {
-        Cow::Owned(text.replace('\0', "�"))
+        Cow::Owned(text.replace('\0', "\u{FFFD}"))
     } else {
         Cow::Borrowed(text)
     }
@@ -282,6 +331,8 @@ pub(crate) fn content_family(content_type: &str) -> PreviewContent {
                 | "application/javascript"
                 | "application/x-javascript"
                 | "application/x-shellscript"
+                | "application/typescript"
+                | "application/x-typescript"
         )
         || content_type.ends_with("+json")
         || content_type.ends_with("+xml")

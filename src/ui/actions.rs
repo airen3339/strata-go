@@ -6,7 +6,7 @@ use std::{
     rc::{Rc, Weak},
 };
 
-use gtk::{gio, prelude::*};
+use gtk::prelude::*;
 
 use crate::{
     adapters::LocalActionStore,
@@ -114,8 +114,7 @@ fn content_type_for(kind: InputKind, name: &std::ffi::OsStr) -> Option<String> {
         return Some(FOLDER_CONTENT_TYPE.to_owned());
     }
     // Menu matching must not read file contents.
-    let guessed_name = name.to_string_lossy();
-    let (guessed, _) = gio::content_type_guess(Some(guessed_name.as_ref()), None::<&[u8]>);
+    let guessed = crate::services::guess_content_type(name, None);
     (!guessed.is_empty()).then(|| guessed.to_string())
 }
 

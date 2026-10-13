@@ -51,6 +51,13 @@ fn comic_and_epub_selections_are_quick_preview_targets() {
 }
 
 #[test]
+fn typescript_selections_are_quick_preview_targets() {
+    for name in ["app.ts", "Component.tsx", "module.mts", "script.cts"] {
+        assert!(preview_target(Some(entry(name))).is_some(), "{name}");
+    }
+}
+
+#[test]
 fn model_progress_and_theme_reloads_follow_the_current_request_in_each_drawer() {
     crate::test_support::gtk_test(
         "ui::preview::tests::model_progress_and_theme_reloads_follow_the_current_request_in_each_drawer",
