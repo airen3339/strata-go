@@ -109,7 +109,6 @@ impl ResultCollection {
             let widget = bound.widget.upgrade()?;
             (picked == &widget
                 || picked.is_ancestor(&widget)
-                || widget.is_ancestor(picked)
                 || widget.parent().as_ref() == Some(picked))
             .then(|| item.position())
         })
@@ -155,7 +154,7 @@ impl ResultCollection {
         true
     }
 
-    fn restore_focus(&self, position: u32) {
+    pub(super) fn restore_focus(&self, position: u32) {
         if let Some(window) = self.view.root().and_downcast::<gtk::Window>() {
             window.set_focus_visible(true);
         }
@@ -214,18 +213,20 @@ impl ResultCollection {
             .and_then(|position| self.item(position))
             .map(|item| item.path);
         let focused_widget = self.view.root().and_then(|root| root.focus());
-        let focused_in_collection = focused_widget.as_ref().is_some_and(|focus| {
-            focus == &self.view
-                || focus.is_ancestor(&self.view)
-                || self.view.is_ancestor(focus)
-                || focus.type_().name() == "GtkListItemWidget"
-                || self.bound.borrow().iter().any(|b| {
-                    b.widget.upgrade().as_ref() == Some(focus)
-                        || b.widget.upgrade().and_then(|w| w.parent()).as_ref() == Some(focus)
-                })
-        });
+        let focused_in_collection =
+            focused_widget.as_ref().is_some_and(|focus| {
+                focus == &self.view
+                    || focus.is_ancestor(&self.view)
+                    || (!focus.is_mapped() && focus.type_().name() == "GtkListItemWidget")
+                    || self.bound.borrow().iter().any(|b| {
+                        b.widget.upgrade().as_ref().is_some_and(|w| {
+                            w == focus || w.is_ancestor(focus) || focus.is_ancestor(w)
+                        }) || b.widget.upgrade().and_then(|w| w.parent()).as_ref() == Some(focus)
+                    })
+            });
         let focused_slot = focused_widget
             .as_ref()
+            .filter(|_| focused_in_collection)
             .and_then(|focus| self.position_at(focus));
         let focused_path =
             focused_slot.and_then(|position| self.item(position).map(|item| item.path));

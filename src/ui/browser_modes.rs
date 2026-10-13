@@ -1044,7 +1044,15 @@ impl ModeViews {
     }
 
     pub fn selected_search_results(&self) -> Option<Vec<FileEntry>> {
-        self.single_pane()?.search.selected_entries()
+        let pane = self.single_pane()?;
+        let entries = pane.search.selected_entries()?;
+        if !entries.is_empty() {
+            return Some(entries);
+        }
+        pane.search
+            .selected_entry()
+            .map(|entry| vec![entry])
+            .or(Some(entries))
     }
 
     pub(in crate::ui) fn filter_active(&self) -> bool {

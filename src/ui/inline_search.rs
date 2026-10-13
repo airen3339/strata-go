@@ -303,8 +303,12 @@ impl InlineSearch {
         if state.stack.visible_child_name().as_deref() != Some("search") {
             return false;
         }
-        let position = state.collection.current_position().unwrap_or(0);
-        state.collection.focus(position, false)
+        if let Some(position) = state.collection.current_position() {
+            state.collection.restore_focus(position);
+            true
+        } else {
+            state.collection.view.grab_focus()
+        }
     }
 
     pub(super) fn selected_anchor(&self) -> Option<(gtk::Widget, FileEntry)> {
