@@ -26,6 +26,7 @@ pub(crate) mod browser;
 pub(crate) mod media;
 pub(crate) mod metadata;
 pub(crate) mod raw_metadata;
+mod runtime;
 
 const WALL_TIME_LIMIT: Duration = Duration::from_secs(12);
 const ADDRESS_SPACE_LIMIT_BYTES: u64 = 2 * 1024 * 1024 * 1024;
@@ -687,7 +688,11 @@ fn wait_for_renderer_reporting(
     }
 }
 
-fn runtime_command(bwrap: &Path, needs_media_libraries: bool) -> Command {
+fn runtime_command(
+    bwrap: &Path,
+    needs_media_libraries: bool,
+    runtime: &runtime::Runtime,
+) -> Command {
     let mut command = Command::new(bwrap);
     command.args([
         "--unshare-all",
@@ -696,7 +701,9 @@ fn runtime_command(bwrap: &Path, needs_media_libraries: bool) -> Command {
         "--clearenv",
         "--setenv",
         "PATH",
-        option_env!("STRATA_SANDBOX_PATH").unwrap_or("/usr/bin"),
+    ]);
+    command.arg(&runtime.path);
+    command.args([
         "--setenv",
         "HOME",
         "/nonexistent",
@@ -716,8 +723,9 @@ fn runtime_command(bwrap: &Path, needs_media_libraries: bool) -> Command {
         "--dir",
         "/etc",
         "--ro-bind",
-        option_env!("STRATA_SANDBOX_ROOT").unwrap_or("/usr"),
-        option_env!("STRATA_SANDBOX_ROOT").unwrap_or("/usr"),
+    ]);
+    command.arg(&runtime.root).arg(&runtime.root);
+    command.args([
         "--ro-bind-try",
         "/lib",
         "/lib",
@@ -740,8 +748,10 @@ fn runtime_command(bwrap: &Path, needs_media_libraries: bool) -> Command {
         "/etc/ImageMagick-6",
         "/etc/ImageMagick-6",
     ]);
-    if let Some(loaders) = option_env!("STRATA_SANDBOX_GDK_PIXBUF_MODULE_FILE") {
-        command.args(["--setenv", "GDK_PIXBUF_MODULE_FILE", loaders]);
+    if let Some(loaders) = &runtime.gdk_pixbuf_module_file {
+        command
+            .args(["--setenv", "GDK_PIXBUF_MODULE_FILE"])
+            .arg(loaders);
     }
     if needs_media_libraries {
         // Debian-family FFmpeg libraries resolve BLAS/LAPACK through these links.
@@ -770,7 +780,8 @@ fn sandbox_command(
     media_backend: MediaPreviewBackend,
     devices: &[PathBuf],
 ) -> Command {
-    let mut command = runtime_command(bwrap, operation.needs_media_libraries());
+    let runtime = runtime::Runtime::load();
+    let mut command = runtime_command(bwrap, operation.needs_media_libraries(), &runtime);
     let sandbox_input = sandbox_input_path(input);
     command.arg("--ro-bind").arg(executable).arg("/app/strata");
     command.arg("--ro-bind").arg(input).arg(&sandbox_input);
@@ -791,7 +802,7 @@ fn sandbox_command(
     command.arg("--");
     if !operation.is_media() {
         command
-            .arg(option_env!("STRATA_SANDBOX_PRLIMIT").unwrap_or("/usr/bin/prlimit"))
+            .arg(&runtime.prlimit)
             .arg(format!("--as={ADDRESS_SPACE_LIMIT_BYTES}"))
             .arg("--cpu=10")
             .arg(format!(

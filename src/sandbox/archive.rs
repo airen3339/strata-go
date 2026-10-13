@@ -134,7 +134,8 @@ fn rar_extraction_command(
     password: Option<&str>,
 ) -> Result<Command, String> {
     let sandbox_input = sandbox_input_path(archive_path);
-    let mut command = runtime_command(bwrap, false);
+    let runtime = runtime::Runtime::load();
+    let mut command = runtime_command(bwrap, false, &runtime);
     command.arg("--ro-bind").arg(executable).arg("/app/strata");
     command
         .arg("--ro-bind")
@@ -143,7 +144,7 @@ fn rar_extraction_command(
     command.args(["--setenv", "MALLOC_ARENA_MAX", "1"]);
     command.arg("--");
     command
-        .arg(option_env!("STRATA_SANDBOX_PRLIMIT").unwrap_or("/usr/bin/prlimit"))
+        .arg(&runtime.prlimit)
         .arg(format!("--as={ADDRESS_SPACE_LIMIT_BYTES}"))
         .arg(format!("--cpu={RAR_CPU_TIME_LIMIT_SECS}"))
         .arg("--fsize=0")
