@@ -2549,6 +2549,7 @@ fn install_shortcuts(
         }
         if press.is(REFRESH.ignoring(SHORTCUT_MODIFIERS)) {
             if let Some(depth) = browser.active_depth() {
+                crate::adapters::trash_support::forget_all();
                 browser.retry_column(depth);
             }
             return glib::Propagation::Stop;
