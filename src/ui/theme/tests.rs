@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: MIT
 
+mod omarchy_catalog;
+mod omarchy_state;
 mod syntax;
 mod text_size;
 

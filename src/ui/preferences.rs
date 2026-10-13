@@ -525,6 +525,8 @@ impl PreferenceManager {
     /// Repairs loaded values whose validity depends on data the preference store
     /// does not own (theme catalog membership and Omarchy availability). The
     /// caller runs this once during startup, before appearance changes apply.
+    /// Follow mode is preserved even when Omarchy is currently unresolvable: the
+    /// theme manager falls back temporarily and retries instead of switching modes.
     pub(in crate::ui) fn normalize_loaded_theme_selection(
         &self,
         theme_is_known: impl Fn(&str) -> bool,
@@ -534,9 +536,7 @@ impl PreferenceManager {
         if !theme_is_known(&preferences.theme) {
             preferences.theme = "azure-glow".to_owned();
         }
-        if preferences.mode == "omarchy" && !omarchy_available {
-            preferences.mode = "theme".to_owned();
-        } else if !settings_path().is_file() && omarchy_available {
+        if preferences.mode != "omarchy" && !settings_path().is_file() && omarchy_available {
             preferences.mode = "omarchy".to_owned();
         }
         self.changes.reset_baseline(&preferences);

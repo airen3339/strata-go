@@ -60,8 +60,14 @@ pub(super) fn theme_page(
     let weak_description = description.downgrade();
     themes.bind_theme_preference(
         &current,
-        |manager| (manager.follows_omarchy(), manager.appearance_tokens()),
-        move |widget, (following, tokens)| {
+        |manager| {
+            (
+                manager.follows_omarchy(),
+                manager.omarchy_unavailable(),
+                manager.appearance_tokens(),
+            )
+        },
+        move |widget, (following, unavailable, tokens)| {
             let current = widget
                 .downcast_ref::<gtk::Box>()
                 .expect("current theme preview");
@@ -75,7 +81,9 @@ pub(super) fn theme_page(
             current.append(&name);
             if let Some(description) = weak_description.upgrade() {
                 description.set_visible(true);
-                description.set_text(&crate::i18n::tr(if following {
+                description.set_text(&crate::i18n::tr(if unavailable {
+                    "Omarchy unavailable. Showing your saved theme."
+                } else if following {
                     "Managed by Omarchy. Turn off Follow Omarchy to pick a theme manually."
                 } else {
                     "Choose a theme from the library below."
@@ -92,7 +100,14 @@ pub(super) fn theme_page(
     let catalog = append_theme_catalog(&library);
     let custom = theme_grid();
     catalog.rows.append(&custom);
-    fill_theme_grids(&catalog.packaged, &custom, &themes);
+    for theme in themes.themes() {
+        if theme.custom {
+            append_theme_card(&custom, theme, &themes);
+        }
+    }
+    // Packaged plus Omarchy cards fill on bind and rebuild when installed
+    // themes change; search and appearance filters apply to the merged list.
+    bind_packaged_catalog(&catalog.packaged, &themes);
     bind_catalog_filter(
         [&catalog.packaged, &custom],
         catalog.search,
@@ -100,11 +115,37 @@ pub(super) fn theme_page(
         catalog.appearance_buttons,
     );
     let (editor_fields, dismiss) = append_custom_theme_editor(&catalog.container, &custom, &themes);
+    // Only card selection dims while following; browsing, search and previews stay usable.
     themes.bind_theme_preference(
-        &library,
+        &catalog.rows,
         ThemeManager::follows_omarchy,
         |widget, following| widget.set_sensitive(!following),
     );
+    // Installed or removed Omarchy themes appear when the library opens and when
+    // the window regains focus, without restarting Strata.
+    {
+        let weak = Rc::downgrade(&themes);
+        let focus_hooked = Rc::new(Cell::new(false));
+        library.connect_map(move |widget| {
+            if let Some(manager) = weak.upgrade() {
+                manager.refresh_omarchy_catalog();
+            }
+            if focus_hooked.replace(true) {
+                return;
+            }
+            let Some(window) = widget.root().and_downcast::<gtk::Window>() else {
+                return;
+            };
+            let weak = weak.clone();
+            window.connect_notify_local(Some("is-active"), move |window, _| {
+                if window.is_active()
+                    && let Some(manager) = weak.upgrade()
+                {
+                    manager.refresh_omarchy_catalog_async();
+                }
+            });
+        });
+    }
     let rendering = super::settings_group(&content, "RENDERING");
     let renderer = super::bindings::choice_menu(
         &preferences,
@@ -251,11 +292,29 @@ fn append_theme_catalog(content: &gtk::Box) -> ThemeCatalog {
     }
 }
 
-fn fill_theme_grids(packaged: &gtk::FlowBox, custom: &gtk::FlowBox, themes: &Rc<ThemeManager>) {
-    for theme in themes.themes() {
-        let flow = if theme.custom { custom } else { packaged };
-        append_theme_card(flow, theme, themes);
-    }
+fn bind_packaged_catalog(flow: &gtk::FlowBox, themes: &Rc<ThemeManager>) {
+    let weak = Rc::downgrade(themes);
+    themes.bind_theme_preference(
+        flow,
+        |manager| manager.omarchy_theme_ids(),
+        move |widget, _| {
+            let Some(flow) = widget.downcast_ref::<gtk::FlowBox>() else {
+                return;
+            };
+            let Some(manager) = weak.upgrade() else {
+                return;
+            };
+            let mut child = flow.first_child();
+            while let Some(current) = child {
+                child = current.next_sibling();
+                flow.remove(&current);
+            }
+            for theme in manager.themes().into_iter().filter(|theme| !theme.custom) {
+                append_theme_card(flow, theme, &manager);
+            }
+            flow.invalidate_filter();
+        },
+    );
 }
 
 fn append_custom_theme_editor(
@@ -267,7 +326,7 @@ fn append_custom_theme_editor(
     let footer = gtk::Box::new(gtk::Orientation::Horizontal, 12);
     footer.add_css_class("theme-library-footer");
     let location = gtk::Label::new(Some(&crate::i18n::tr(
-        "Custom themes live in ~/.config/strata/themes",
+        "Custom themes live in ~/.config/strata/themes. Omarchy themes are detected automatically when present.",
     )));
     location.set_xalign(0.0);
     location.set_hexpand(true);
@@ -293,8 +352,12 @@ fn append_follow_omarchy_option(content: &gtk::Box, themes: &Rc<ThemeManager>) -
     content.append(&row);
     themes.bind_theme_preference(
         &row,
-        ThemeManager::is_omarchy_available,
-        super::search::set_available,
+        |manager| (manager.is_omarchy_available(), manager.follows_omarchy()),
+        |widget, (available, following)| {
+            // The toggle stays visible while a Follow session is degraded so it
+            // can still be turned off; it hides only when manual with no Omarchy.
+            super::search::set_available(widget, available || following);
+        },
     );
     follow
 }
@@ -584,19 +647,7 @@ fn theme_is_light(tokens: &ThemeTokens) -> bool {
 }
 
 pub(super) fn theme_background_is_light(background: &str) -> bool {
-    let Some(color) = crate::ui::theme::parse_rgb_channels(background) else {
-        return false;
-    };
-    let channel = |index: usize| {
-        let value = f64::from(color[index]) / 255.0;
-        if value <= 0.04045 {
-            value / 12.92
-        } else {
-            ((value + 0.055) / 1.055).powf(2.4)
-        }
-    };
-    let luminance = 0.2126 * channel(0) + 0.7152 * channel(1) + 0.0722 * channel(2);
-    luminance > 0.4
+    crate::ui::theme::background_is_light(background)
 }
 
 fn append_theme_card(
@@ -630,6 +681,11 @@ fn append_theme_card(
     kind.add_css_class("theme-kind");
     let metadata = gtk::Box::new(gtk::Orientation::Horizontal, 16);
     metadata.append(&kind);
+    if !theme.custom && crate::ui::theme::is_omarchy_theme_id(&theme.id) {
+        let source = gtk::Label::new(Some("Omarchy"));
+        source.add_css_class("theme-source");
+        metadata.append(&source);
+    }
     content.append(&metadata);
     let check = crate::assets::primary_icon(icons::CHECK, 14);
     let selected = !themes.follows_omarchy() && themes.selected_id() == theme.id;

@@ -2,9 +2,10 @@
 
 use std::{
     cell::{Cell, RefCell},
+    collections::BTreeSet,
     fs, io,
-    path::PathBuf,
-    rc::Rc,
+    path::{Path, PathBuf},
+    rc::{Rc, Weak},
     time::Duration,
 };
 
@@ -31,6 +32,13 @@ thread_local! {
 }
 
 const THEME_CATALOG: &str = include_str!("../../data/themes/catalog.toml");
+
+/// Qualified ids keep installed Omarchy themes distinct from built-in and custom ones.
+pub(crate) const OMARCHY_THEME_ID_PREFIX: &str = "omarchy:";
+/// How often a Follow session rechecks for an unresolvable Omarchy theme.
+const OMARCHY_RETRY_INTERVAL: Duration = Duration::from_secs(2);
+/// Used only when `$OMARCHY_PATH` is unset; matches `omarchy-theme-list`'s default.
+const OMARCHY_BUNDLED_DIR_FALLBACK: &str = "/usr/share/omarchy";
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct ThemeTokens {
@@ -71,6 +79,10 @@ pub struct Theme {
     pub id: String,
     pub tokens: ThemeTokens,
     pub custom: bool,
+}
+
+pub(crate) fn is_omarchy_theme_id(id: &str) -> bool {
+    id.starts_with(OMARCHY_THEME_ID_PREFIX)
 }
 
 #[derive(Deserialize)]
@@ -170,13 +182,22 @@ pub struct ThemeManager {
     provider: gtk::CssProvider,
     themes: RefCell<Vec<Theme>>,
     preferences: Rc<PreferenceManager>,
+    self_weak: RefCell<Weak<ThemeManager>>,
     omarchy_available: Cell<bool>,
+    /// Follow is on but the active Omarchy theme cannot be resolved; the saved
+    /// independent theme shows until the retry succeeds.
+    omarchy_degraded: Cell<bool>,
+    /// The single Follow retry timer, if one is armed.
+    omarchy_retry: RefCell<Option<glib::SourceId>>,
+    #[cfg(test)]
+    retry_armed_total: Cell<u32>,
+    /// Last successfully applied independent palette; the fallback when the saved
+    /// theme id has no valid theme, with the stored id kept.
+    last_independent_tokens: RefCell<Option<ThemeTokens>>,
     omarchy_monitors: RefCell<Vec<gio::FileMonitor>>,
     pending_omarchy_refresh: RefCell<Option<glib::SourceId>>,
     preview: RefCell<Option<ThemeTokens>>,
     preview_generation: Cell<u64>,
-    /// Omarchy state can be unreadable mid-switch while the window keeps these colors.
-    applied_omarchy_tokens: RefCell<Option<ThemeTokens>>,
     appearance: RefCell<AppearancePreferences>,
     theme_listeners: ThemeListeners,
     active_model_palette: Cell<crate::services::ModelPalette>,
@@ -195,10 +216,16 @@ impl ThemeManager {
 
     fn load() -> Rc<Self> {
         let preferences = PreferenceManager::shared();
-        let themes = merge_builtin_and_custom_themes(builtins(), load_custom_themes());
+        let themes = merge_builtin_custom_and_omarchy(
+            builtins(),
+            load_custom_themes(),
+            discover_omarchy_themes(),
+        );
         let omarchy_available = load_omarchy_theme(OmarchyVariant::Original).is_some();
         preferences.normalize_loaded_theme_selection(
-            |id| themes.iter().any(|theme| theme.id == id),
+            // A stored `omarchy:*` id is the independent selection even while its
+            // theme is not installed, so it is restored if the theme returns.
+            |id| is_omarchy_theme_id(id) || themes.iter().any(|theme| theme.id == id),
             omarchy_available,
         );
         let appearance = AppearancePreferences {
@@ -214,12 +241,17 @@ impl ThemeManager {
             provider: gtk::CssProvider::new(),
             themes: RefCell::new(themes),
             preferences: preferences.clone(),
+            self_weak: RefCell::new(Weak::new()),
             omarchy_available: Cell::new(omarchy_available),
+            omarchy_degraded: Cell::new(false),
+            omarchy_retry: RefCell::new(None),
+            #[cfg(test)]
+            retry_armed_total: Cell::new(0),
+            last_independent_tokens: RefCell::new(None),
             omarchy_monitors: RefCell::new(Vec::new()),
             pending_omarchy_refresh: RefCell::new(None),
             preview: RefCell::new(None),
             preview_generation: Cell::new(0),
-            applied_omarchy_tokens: RefCell::new(None),
             appearance: RefCell::new(appearance),
             theme_listeners: ThemeListeners::default(),
             active_model_palette: Cell::new(crate::services::ModelPalette {
@@ -227,6 +259,7 @@ impl ThemeManager {
                 surface: 0,
             }),
         });
+        manager.self_weak.replace(Rc::downgrade(&manager));
         let weak = Rc::downgrade(&manager);
         preferences.observe(Rc::new(move || {
             if let Some(manager) = weak.upgrade() {
@@ -237,7 +270,13 @@ impl ThemeManager {
         manager.install_provider();
         manager.apply_selected();
         manager.monitor_text_scaling();
-        manager.monitor_omarchy();
+        // The active-theme watcher only runs while following; nothing may switch
+        // themes with Follow off.
+        if manager.follows_omarchy() {
+            manager.monitor_omarchy();
+        }
+        // A restored Follow session without a resolvable theme still retries.
+        manager.reconcile_omarchy_retry();
         manager
     }
 
@@ -273,11 +312,16 @@ impl ThemeManager {
     }
 
     pub fn select_theme(&self, id: &str) {
+        // The library is insensitive while following; a selection must never flip
+        // modes or rewrite the preserved independent id.
+        if self.follows_omarchy() {
+            return;
+        }
         if !self.themes.borrow().iter().any(|theme| theme.id == id) {
             return;
         }
         self.preview.take();
-        let changed = self.follows_omarchy() || self.selected_id() != id;
+        let changed = self.selected_id() != id;
         self.preferences.set_theme_selection("theme", Some(id));
         if !changed {
             // Re-selecting the current theme restores it after a live preview.
@@ -286,13 +330,28 @@ impl ThemeManager {
     }
 
     pub fn set_follow_omarchy(&self, enabled: bool) {
-        if enabled && !self.is_omarchy_available() {
-            return;
+        if enabled {
+            // A theme installed or removed while manual changes availability.
+            self.update_omarchy_availability();
+            if !self.is_omarchy_available() {
+                return;
+            }
         }
         self.preview.take();
         let changed = self.follows_omarchy() != enabled;
         let mode = if enabled { "omarchy" } else { "theme" };
         self.preferences.set_theme_selection(mode, None);
+        if enabled {
+            if let Some(manager) = self.self_weak.borrow().upgrade() {
+                manager.monitor_omarchy();
+            }
+        } else {
+            self.stop_omarchy_monitoring();
+            self.cancel_omarchy_retry();
+            if self.omarchy_degraded.replace(false) {
+                self.preferences.notify_changes();
+            }
+        }
         if !changed {
             self.apply_selected();
         }
@@ -356,13 +415,23 @@ impl ThemeManager {
     }
 
     pub fn appearance_tokens(&self) -> ThemeTokens {
-        if self.follows_omarchy()
-            && let Some(tokens) = load_omarchy_theme(self.preferences.omarchy_variant())
-                .or_else(|| self.applied_omarchy_tokens.borrow().clone())
-        {
-            return tokens;
+        if self.follows_omarchy() {
+            if let Some(tokens) = load_omarchy_theme(self.preferences.omarchy_variant()) {
+                return tokens;
+            }
+            // Degraded: mirror the applied fallback, never a stale Omarchy palette.
+            if let Some(tokens) = self.current_tokens() {
+                return tokens;
+            }
+            if let Some(tokens) = self.last_independent_tokens.borrow().clone() {
+                return tokens;
+            }
+            return azure_tokens();
         }
-        self.starter_tokens()
+        // Mirrors the missing-selection fallback in `apply_selected`.
+        self.current_tokens()
+            .or_else(|| self.last_independent_tokens.borrow().clone())
+            .unwrap_or_else(azure_tokens)
     }
 
     pub fn starter_tokens(&self) -> ThemeTokens {
@@ -387,16 +456,61 @@ impl ThemeManager {
         }
         if self.follows_omarchy() {
             if let Some(tokens) = load_omarchy_theme(self.preferences.omarchy_variant()) {
-                self.applied_omarchy_tokens.replace(Some(tokens.clone()));
+                let was_degraded = self.omarchy_degraded.replace(false);
+                self.cancel_omarchy_retry();
+                if was_degraded {
+                    tracing::info!("Omarchy theme resolved again; resuming Follow Omarchy");
+                    self.preferences.notify_changes();
+                }
                 let palette = load_omarchy_source_palette();
                 self.apply_tokens(&tokens, palette.as_ref());
+            } else {
+                if !self.omarchy_degraded.replace(true) {
+                    tracing::warn!(
+                        "Omarchy theme unavailable; showing the saved theme until it returns"
+                    );
+                    self.preferences.notify_changes();
+                }
+                self.ensure_omarchy_retry();
+                // Temporary fallback only: mode and the stored id are preserved.
+                self.apply_independent_fallback();
             }
+            self.update_omarchy_availability();
             return;
         }
-        self.applied_omarchy_tokens.take();
         if let Some(tokens) = self.current_tokens() {
+            self.last_independent_tokens.replace(Some(tokens.clone()));
             self.apply_tokens(&tokens, None);
+        } else {
+            self.apply_independent_fallback();
         }
+    }
+
+    /// Applies the saved independent theme without persisting anything, keeping the
+    /// stored id so a removed theme is restored if it returns.
+    fn apply_independent_fallback(&self) {
+        if let Some(tokens) = self.current_tokens() {
+            self.last_independent_tokens.replace(Some(tokens.clone()));
+            self.apply_tokens(&tokens, None);
+            return;
+        }
+        if self.follows_omarchy() {
+            tracing::debug!(
+                theme = %self.preferences.selected_theme_id(),
+                "saved theme unavailable while following; using a fallback"
+            );
+        } else {
+            tracing::warn!(
+                theme = %self.preferences.selected_theme_id(),
+                "selected theme unavailable; keeping the saved choice and using a fallback"
+            );
+        }
+        let fallback = self
+            .last_independent_tokens
+            .borrow()
+            .clone()
+            .unwrap_or_else(azure_tokens);
+        self.apply_tokens(&fallback, None);
     }
 
     pub(in crate::ui) fn current_tokens(&self) -> Option<ThemeTokens> {
@@ -487,9 +601,7 @@ impl ThemeManager {
     }
 
     fn monitor_omarchy(self: &Rc<Self>) {
-        for monitor in self.omarchy_monitors.take() {
-            monitor.cancel();
-        }
+        self.stop_omarchy_monitoring();
         let state = omarchy_state_dir();
         let home = glib::home_dir();
         // Ancestor watches survive moving away or replacing the current state tree.
@@ -536,23 +648,177 @@ impl ThemeManager {
     }
 
     pub(in crate::ui) fn refresh_omarchy_state(self: &Rc<Self>) {
+        // A pending event that fires after toggling off is a no-op: nothing may
+        // switch themes while Follow is off.
+        if !self.follows_omarchy() {
+            return;
+        }
+        // Re-establishes monitoring when the state directory appears late.
         self.monitor_omarchy();
+        self.update_omarchy_availability();
+        // Single path: resolves the active theme, degrades with a retry, or resumes
+        // following when the state is valid again.
+        self.apply_selected();
+    }
+
+    /// Stops the active-theme watcher and drops a pending refresh.
+    fn stop_omarchy_monitoring(&self) {
+        for monitor in self.omarchy_monitors.take() {
+            monitor.cancel();
+        }
+        if let Some(pending) = self.pending_omarchy_refresh.borrow_mut().take() {
+            pending.remove();
+        }
+    }
+
+    /// Arms the single Follow retry timer unless one is already armed.
+    fn ensure_omarchy_retry(&self) {
+        if self.omarchy_retry.borrow().is_some() {
+            return;
+        }
+        let Some(manager) = self.self_weak.borrow().upgrade() else {
+            return;
+        };
+        let weak = Rc::downgrade(&manager);
+        let source = glib::timeout_add_local(OMARCHY_RETRY_INTERVAL, move || {
+            let Some(manager) = weak.upgrade() else {
+                return glib::ControlFlow::Break;
+            };
+            if !manager.follows_omarchy() {
+                manager.omarchy_retry.borrow_mut().take();
+                return glib::ControlFlow::Break;
+            }
+            manager.refresh_omarchy_state();
+            if manager.omarchy_degraded.get() && manager.omarchy_retry.borrow().is_some() {
+                glib::ControlFlow::Continue
+            } else {
+                // Resolution succeeded: the timer ends here, releasing the source
+                // without removing the currently dispatching one twice.
+                manager.omarchy_retry.borrow_mut().take();
+                glib::ControlFlow::Break
+            }
+        });
+        #[cfg(test)]
+        self.retry_armed_total.set(self.retry_armed_total.get() + 1);
+        self.omarchy_retry.replace(Some(source));
+    }
+
+    fn cancel_omarchy_retry(&self) {
+        if let Some(source) = self.omarchy_retry.borrow_mut().take() {
+            source.remove();
+        }
+    }
+
+    /// Arms the retry when a restored Follow session is already degraded.
+    fn reconcile_omarchy_retry(&self) {
+        if self.follows_omarchy() && self.omarchy_degraded.get() {
+            self.ensure_omarchy_retry();
+        }
+    }
+
+    fn update_omarchy_availability(&self) {
         let available = load_omarchy_theme(OmarchyVariant::Original).is_some()
             || (self.is_omarchy_available() && omarchy_state_dir().join("theme.name").is_file());
-        let availability_changed = self.omarchy_available.replace(available) != available;
-        if !available && self.follows_omarchy() {
-            self.preview.take();
-            self.preferences.set_theme_selection("theme", None);
-            return;
-        }
-        if availability_changed {
+        if self.omarchy_available.replace(available) != available {
             self.preferences.notify_changes();
-            return;
         }
-        if self.follows_omarchy() {
+    }
+
+    /// Re-runs Omarchy discovery and merges the result into the theme list, then
+    /// re-applies through the single theme-application path. Failures yield an
+    /// empty Omarchy set without touching built-in or custom themes. Returns
+    /// whether the Omarchy set changed.
+    pub(crate) fn refresh_omarchy_catalog(&self) -> bool {
+        let changed = self.set_omarchy_themes(discover_omarchy_themes());
+        self.update_omarchy_availability();
+        if changed {
             self.apply_selected();
-            self.preferences.notify_changes();
         }
+        changed
+    }
+
+    /// Off-thread discovery for focus and watcher refreshes; the merge and
+    /// re-apply run back on the UI thread.
+    pub(crate) fn refresh_omarchy_catalog_async(self: &Rc<Self>) {
+        let weak = Rc::downgrade(self);
+        glib::MainContext::default().spawn_local(async move {
+            let discovered = match gio::spawn_blocking(discover_omarchy_themes).await {
+                Ok(themes) => themes,
+                Err(error) => {
+                    tracing::warn!(?error, "Omarchy catalog refresh failed");
+                    Vec::new()
+                }
+            };
+            let Some(manager) = weak.upgrade() else {
+                return;
+            };
+            if manager.set_omarchy_themes(discovered) {
+                manager.apply_selected();
+            }
+            manager.update_omarchy_availability();
+        });
+    }
+
+    fn set_omarchy_themes(&self, discovered: Vec<Theme>) -> bool {
+        let mut themes = self.themes.borrow_mut();
+        let previous: Vec<(String, ThemeTokens)> = themes
+            .iter()
+            .filter(|theme| is_omarchy_theme_id(&theme.id))
+            .map(|theme| (theme.id.clone(), theme.tokens.clone()))
+            .collect();
+        themes.retain(|theme| !is_omarchy_theme_id(&theme.id));
+        append_omarchy_themes(&mut themes, discovered);
+        let current: Vec<(String, ThemeTokens)> = themes
+            .iter()
+            .filter(|theme| is_omarchy_theme_id(&theme.id))
+            .map(|theme| (theme.id.clone(), theme.tokens.clone()))
+            .collect();
+        drop(themes);
+        if previous == current {
+            return false;
+        }
+        self.theme_listeners.notify(self);
+        true
+    }
+
+    /// Whether Follow is on but the active Omarchy theme cannot be resolved.
+    pub fn omarchy_unavailable(&self) -> bool {
+        self.omarchy_degraded.get()
+    }
+
+    /// Qualified ids of detected Omarchy themes, for catalog bindings.
+    pub(crate) fn omarchy_theme_ids(&self) -> Vec<String> {
+        let mut ids: Vec<String> = self
+            .themes
+            .borrow()
+            .iter()
+            .filter(|theme| is_omarchy_theme_id(&theme.id))
+            .map(|theme| theme.id.clone())
+            .collect();
+        ids.sort();
+        ids
+    }
+
+    #[cfg(test)]
+    pub(crate) fn omarchy_retry_armed(&self) -> bool {
+        self.omarchy_retry.borrow().is_some()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn retry_armed_total(&self) -> u32 {
+        self.retry_armed_total.get()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn omarchy_monitor_count(&self) -> usize {
+        self.omarchy_monitors.borrow().len()
+    }
+}
+
+impl Drop for ThemeManager {
+    fn drop(&mut self) {
+        self.stop_omarchy_monitoring();
+        self.cancel_omarchy_retry();
     }
 }
 
@@ -588,6 +854,209 @@ fn merge_builtin_and_custom_themes(mut builtins: Vec<Theme>, custom: Vec<Theme>)
     builtins.retain(|builtin| !custom.iter().any(|theme| theme.id == builtin.id));
     builtins.extend(custom);
     builtins
+}
+
+fn merge_builtin_custom_and_omarchy(
+    builtins: Vec<Theme>,
+    custom: Vec<Theme>,
+    omarchy: Vec<Theme>,
+) -> Vec<Theme> {
+    let mut themes = merge_builtin_and_custom_themes(builtins, custom);
+    append_omarchy_themes(&mut themes, omarchy);
+    themes
+}
+
+fn append_omarchy_themes(themes: &mut Vec<Theme>, omarchy: Vec<Theme>) {
+    for theme in omarchy {
+        // Qualified ids cannot collide with built-in or custom ids; a hand-made
+        // `omarchy:<slug>.toml` custom file still wins over the detected copy.
+        if !themes.iter().any(|existing| existing.id == theme.id) {
+            themes.push(theme);
+        }
+    }
+}
+
+fn omarchy_user_themes_dir() -> PathBuf {
+    glib::user_config_dir().join("omarchy").join("themes")
+}
+
+fn omarchy_bundled_themes_dir() -> PathBuf {
+    omarchy_bundled_themes_dir_with(std::env::var_os("OMARCHY_PATH"))
+}
+
+fn omarchy_bundled_themes_dir_with(override_dir: Option<std::ffi::OsString>) -> PathBuf {
+    override_dir
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(OMARCHY_BUNDLED_DIR_FALLBACK))
+        .join("themes")
+}
+
+fn is_valid_omarchy_slug(slug: &str) -> bool {
+    !slug.is_empty()
+        && slug != "."
+        && slug != ".."
+        && !slug.contains('/')
+        && !slug.contains('\\')
+        && !slug.contains('\0')
+}
+
+/// Every installed Omarchy theme as an independent `omarchy:<slug>` entry. Reads the
+/// same two sources `omarchy-theme-list` enumerates without shelling out. Missing
+/// directories or failures yield an empty list and only a log; Strata never writes
+/// to Omarchy directories.
+fn discover_omarchy_themes() -> Vec<Theme> {
+    discover_omarchy_themes_in(&omarchy_user_themes_dir(), &omarchy_bundled_themes_dir())
+}
+
+fn discover_omarchy_themes_in(user_dir: &Path, bundled_dir: &Path) -> Vec<Theme> {
+    let mut slugs = BTreeSet::new();
+    for dir in [user_dir, bundled_dir] {
+        match fs::read_dir(dir) {
+            Ok(entries) => {
+                for entry in entries.filter_map(Result::ok) {
+                    let slug = entry.file_name().to_string_lossy().into_owned();
+                    if is_valid_omarchy_slug(&slug) {
+                        slugs.insert(slug);
+                    } else {
+                        tracing::debug!(slug = %slug, dir = %dir.display(), "skipping invalid Omarchy theme name");
+                    }
+                }
+            }
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                tracing::debug!(dir = %dir.display(), "no Omarchy theme directory");
+            }
+            Err(error) => {
+                tracing::debug!(%error, dir = %dir.display(), "unable to list Omarchy theme directory");
+            }
+        }
+    }
+    let mut themes = Vec::new();
+    let mut disagreements = 0u32;
+    for slug in slugs {
+        if let Some((tokens, declared_light)) = resolve_omarchy_theme(&slug, user_dir, bundled_dir)
+        {
+            // Luminance classification stays the default; a declared `mode` that
+            // disagrees is only noted.
+            if declared_light
+                .is_some_and(|declared| declared != background_is_light(&tokens.background))
+            {
+                disagreements += 1;
+                tracing::debug!(slug = %slug, "Omarchy theme declares a mode that disagrees with its luminance; using luminance");
+            }
+            themes.push(Theme {
+                id: format!("{OMARCHY_THEME_ID_PREFIX}{slug}"),
+                tokens,
+                custom: false,
+            });
+        }
+    }
+    if disagreements > 0 {
+        tracing::debug!(
+            count = disagreements,
+            "Omarchy themes declare a mode that disagrees with luminance"
+        );
+    }
+    themes.sort_by(|left, right| {
+        left.tokens
+            .name
+            .to_lowercase()
+            .cmp(&right.tokens.name.to_lowercase())
+            .then(left.id.cmp(&right.id))
+    });
+    themes
+}
+
+enum OmarchyCopy {
+    Absent,
+    Unreadable(io::Error),
+    Source(String),
+}
+
+fn read_omarchy_copy(dir: &Path) -> OmarchyCopy {
+    let path = dir.join("colors.toml");
+    match fs::read_to_string(&path) {
+        Ok(source) => OmarchyCopy::Source(source),
+        Err(error) => match fs::symlink_metadata(&path) {
+            // The entry exists (file, directory, or link, including a broken one)
+            // but cannot be read.
+            Ok(_) => OmarchyCopy::Unreadable(error),
+            Err(_) => OmarchyCopy::Absent,
+        },
+    }
+}
+
+/// The user `colors.toml` replaces the bundled one wholesale; an empty or broken
+/// user folder never hides a valid bundled theme. A slug is skipped only when
+/// neither location holds a valid `colors.toml`.
+fn resolve_omarchy_theme(
+    slug: &str,
+    user_dir: &Path,
+    bundled_dir: &Path,
+) -> Option<(ThemeTokens, Option<bool>)> {
+    match read_omarchy_copy(&user_dir.join(slug)) {
+        OmarchyCopy::Source(source) => {
+            if let Some(theme) = adapt_omarchy_copy(slug, &source) {
+                return Some(theme);
+            }
+            tracing::warn!(
+                slug,
+                "skipping invalid Omarchy user theme; trying the bundled copy"
+            );
+        }
+        OmarchyCopy::Unreadable(error) => {
+            tracing::warn!(%error, slug, "skipping unreadable Omarchy user theme; trying the bundled copy");
+        }
+        OmarchyCopy::Absent => {}
+    }
+    match read_omarchy_copy(&bundled_dir.join(slug)) {
+        OmarchyCopy::Source(source) => {
+            if let Some(theme) = adapt_omarchy_copy(slug, &source) {
+                return Some(theme);
+            }
+            tracing::warn!(slug, "skipping invalid bundled Omarchy theme");
+        }
+        OmarchyCopy::Unreadable(error) => {
+            tracing::warn!(%error, slug, "skipping unreadable bundled Omarchy theme");
+        }
+        OmarchyCopy::Absent => {}
+    }
+    None
+}
+
+fn adapt_omarchy_copy(slug: &str, source: &str) -> Option<(ThemeTokens, Option<bool>)> {
+    let mut tokens = tokens_from_quattro(slug, source, OmarchyVariant::Original)?;
+    validate_tokens(&tokens).ok()?;
+    // Canonical in memory only; Omarchy files stay as written.
+    for color in tokens.color_fields_mut() {
+        *color = canonical_color(color)?;
+    }
+    let declared = omarchy_declared_light(source);
+    Some((tokens, declared))
+}
+
+fn omarchy_declared_light(source: &str) -> Option<bool> {
+    let values: toml::Value = toml::from_str(source).ok()?;
+    match values.get("mode")?.as_str()? {
+        "light" => Some(true),
+        "dark" => Some(false),
+        _ => None,
+    }
+}
+
+/// Luminance classification shared by the library filter and Omarchy discovery.
+pub(crate) fn background_is_light(background: &str) -> bool {
+    let Some(channels) = parse_rgb_channels(background) else {
+        return false;
+    };
+    let channel = |index: usize| {
+        let value = f64::from(channels[index]) / 255.0;
+        if value <= 0.04045 {
+            value / 12.92
+        } else {
+            ((value + 0.055) / 1.055).powf(2.4)
+        }
+    };
+    0.2126 * channel(0) + 0.7152 * channel(1) + 0.0722 * channel(2) > 0.4
 }
 
 fn azure_tokens() -> ThemeTokens {

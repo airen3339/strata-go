@@ -6270,6 +6270,12 @@ two-column presentation. */
   margin-right: 44px;
 }
 
+.theme-source {
+  color: @strata_dim_text;
+  font-size: 0.875em;
+  letter-spacing: 1px;
+}
+
 .theme-library-footer {
   padding: 10px 18px;
   border-top: 1px solid alpha(@strata_border, 0.55);

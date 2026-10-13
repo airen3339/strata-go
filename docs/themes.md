@@ -1,6 +1,6 @@
 # Themes
 
-Strata styles the interface with nine semantic color tokens. Bundled themes are the fallback on any Linux desktop; Azure Glow is the default. Settings presents all 95 bundled themes in one searchable, light/dark-filterable scrolling catalog.
+Strata styles the interface with nine semantic color tokens. Bundled themes are the fallback on any Linux desktop; Azure Glow is the default. Settings presents all 95 bundled themes in one searchable, light/dark-filterable scrolling catalog, followed by custom themes and any installed Omarchy themes.
 
 Tinted Base16 entries map colors to Strata tokens as follows: `base00` to background, `base01` to surface, `base05` to text, `base0D` to accent, `base08` to danger, `base02` to muted and highlight, `base03` to border, and `base04` to dim text. A few bundled entries override the mapped foreground values so body text stays readable: text is at least 4.5:1 on background and 3:1 on surface. Where the upstream dim text is also unreadable, it is adjusted to stay legible while remaining dimmer than text. The catalog comments each override next to the value. Source revision and licensing details are recorded in [`THIRD_PARTY_LICENSES.md`](../THIRD_PARTY_LICENSES.md).
 
@@ -76,7 +76,7 @@ On Omarchy Quattro, Strata detects the active theme from:
 ~/.local/state/omarchy/current/theme/colors.toml
 ```
 
-The application maps Quattro's `background`, `foreground`, `accent`, `selection`, and `color8` values into its semantic tokens and monitors the current-theme state for changes, including edits to `colors.toml`. It defaults to following Omarchy on first launch.
+The application maps Quattro's `background`, `foreground`, `accent`, `selection`, and `color8` values into its semantic tokens and monitors the current-theme state for changes, including edits to `colors.toml`. It defaults to following Omarchy on first launch. The state watcher only runs while following; desktop theme changes never affect Strata with Follow off.
 
 Under **Settings → Appearance → Follow Omarchy**, **Omarchy variant** offers:
 
@@ -90,4 +90,10 @@ The choice is saved as `omarchy_variant = "original"`, `"darker"`, or `"high_con
 
 Syntax colors follow Quattro's named `magenta`, `green`, `orange`, `cyan`, and `yellow` colors. Older terminal palettes can supply `color5` for keywords, `color2` for strings, `color9` for constants, and `color3` for types. Missing colors retain the existing source-palette or derived fallback. Quattro values load in the same canonical hex form as custom theme files; values GTK cannot parse count as missing.
 
-The system option is not shown when a valid Quattro current-theme state is unavailable. If that state disappears while Strata is running, following turns off and Strata returns to the selected built-in theme. If it only becomes invalid, for example midway through an Omarchy theme switch, the last applied Omarchy palette stays in use until the next valid change. Legacy Omarchy theme layouts and alacritty-based color extraction are intentionally unsupported.
+## Installed Omarchy themes
+
+Every Omarchy theme installed on the system is also available as an independent library entry with an `omarchy:<slug>` id, whether or not Follow Omarchy is on. Follow controls synchronization only, not which themes are available, so the desktop can run one Omarchy theme while Strata runs another. Entries are read from `~/.config/omarchy/themes/` overlaid on the bundled `$OMARCHY_PATH/themes/` (default `/usr/share/omarchy/themes`): a user `colors.toml` replaces the bundled one wholesale, and an empty or broken user folder never hides a valid bundled theme. Slugs that resolve to no valid `colors.toml` in either location are skipped. Nothing is copied into `~/.config/strata/themes`; cards carry a subtle Omarchy label, and search, light/dark filters, previews, and swatches work across the merged list. Light/dark grouping stays luminance-based; a declared `mode` that disagrees is only logged. Independently selected Omarchy themes always use the Original mapping, and the variant selector stays disabled while Follow is off.
+
+The library re-discovers installed themes when it opens and when the window regains focus, so installing or removing a theme appears without restarting Strata. If a selected `omarchy:*` theme is removed, Strata falls back to the last applied palette while keeping the stored id, restoring the theme if it returns.
+
+The system option is not shown when a valid Quattro current-theme state is unavailable and Follow is off. If the active theme becomes unresolvable while following (uninstalled, unreadable, or mid-switch), Strata keeps Follow mode and the stored selection, temporarily shows the saved independent theme with an "Omarchy unavailable" status, and retries on a timer until the state resolves, resuming automatically with no toggle needed. Legacy Omarchy theme layouts and alacritty-based color extraction are intentionally unsupported.

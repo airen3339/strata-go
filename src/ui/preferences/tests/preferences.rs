@@ -1017,9 +1017,9 @@ fn omarchy_colors_in_gtk_only_hex_forms_apply_to_css_and_icons() {
 }
 
 #[test]
-fn invalid_omarchy_palette_while_running_keeps_the_applied_palette() {
+fn unresolvable_omarchy_theme_falls_back_without_leaving_follow() {
     gtk_test(
-        "ui::preferences::tests::preferences::invalid_omarchy_palette_while_running_keeps_the_applied_palette",
+        "ui::preferences::tests::preferences::unresolvable_omarchy_theme_falls_back_without_leaving_follow",
         || {
             seed_saved_preferences_for_test();
             seed_omarchy_for_test();
@@ -1035,14 +1035,22 @@ fn invalid_omarchy_palette_while_running_keeps_the_applied_palette() {
             assert_eq!(crate::assets::primary_icon_color(), "#445566");
             assert_eq!(themes.appearance_tokens().accent, "#445566");
 
+            // An invalid palette degrades to the stored theme without leaving Follow.
             seed_omarchy_colors_for_test(
                 "background = '#112233'\nforeground = '#ddeeff'\naccent = '0x7aa2f7'\n",
             );
             themes.refresh_omarchy_state();
             assert!(themes.follows_omarchy());
+            assert!(themes.omarchy_unavailable());
+            assert!(themes.omarchy_retry_armed());
             assert!(themes.is_omarchy_available());
-            assert_eq!(crate::assets::primary_icon_color(), "#445566");
-            assert_eq!(themes.appearance_tokens().accent, "#445566");
+            let stored = themes.current_tokens().expect("stored theme");
+            assert_eq!(themes.appearance_tokens(), stored);
+            assert_eq!(
+                crate::assets::primary_icon_color(),
+                stored.accent.to_lowercase(),
+                "applied icon colors are canonical"
+            );
             let buffer = gtk::TextBuffer::new(None);
             buffer.create_tag(Some("document-accent"), &[]);
             crate::ui::theme::register_document_buffer(&buffer);
@@ -1052,12 +1060,12 @@ fn invalid_omarchy_palette_while_running_keeps_the_applied_palette() {
                     .lookup("document-accent")
                     .expect("document accent tag")
                     .foreground_rgba(),
-                Some(gtk::gdk::RGBA::parse("#445566").expect("accent"))
+                Some(gtk::gdk::RGBA::parse(&stored.accent).expect("accent"))
             );
             let mut preview = themes.starter_tokens();
             preview.accent = "#13579b".to_owned();
             themes.preview(&preview).expect("valid preview");
-            assert_eq!(themes.appearance_tokens().accent, "#445566");
+            assert_eq!(themes.appearance_tokens(), stored);
             themes.cancel_preview();
             themes.set_follow_omarchy(false);
             themes.set_follow_omarchy(true);
@@ -1065,14 +1073,28 @@ fn invalid_omarchy_palette_while_running_keeps_the_applied_palette() {
             assert_eq!(
                 themes.appearance_tokens(),
                 themes.starter_tokens(),
-                "a built-in theme applied since then replaces the remembered Omarchy palette"
+                "the stored built-in theme shows while Omarchy is unresolvable"
             );
 
+            // A valid palette resumes following with no toggle needed.
+            seed_omarchy_for_test();
+            themes.refresh_omarchy_state();
+            assert!(themes.follows_omarchy());
+            assert!(!themes.omarchy_unavailable());
+            assert!(!themes.omarchy_retry_armed());
+            assert_eq!(themes.appearance_tokens().accent, "#445566");
+
+            // Losing the state entirely still preserves mode and selection.
             fs::remove_file(crate::ui::theme::omarchy_state_dir().join("theme.name"))
                 .expect("remove Omarchy theme name");
             themes.refresh_omarchy_state();
-            assert!(!themes.follows_omarchy());
-            assert_eq!(read_preferences().expect("saved theme mode").mode, "theme");
+            assert!(themes.follows_omarchy());
+            assert!(themes.omarchy_unavailable());
+            assert_eq!(
+                read_preferences().expect("saved theme mode").mode,
+                "omarchy"
+            );
+            assert_eq!(themes.selected_id(), "nord");
         },
     );
 }
@@ -1199,10 +1221,7 @@ fn all_preference_setters_publish_and_persist_without_duplicate_notifications() 
                 |m| m.set_folder_color(Path::new("/fixture/folder"), None),
                 |m| m.set_custom_icon(Path::new("/fixture/folder"), None),
             ];
-            let theme_setters: &[fn(&ThemeManager)] = &[
-                |m| m.set_follow_omarchy(true),
-                |m| m.select_theme("azure-glow"),
-            ];
+            let theme_setters: &[fn(&ThemeManager)] = &[|m| m.set_follow_omarchy(true)];
             let mut previous = toml::Table::try_from(&*manager.preferences.borrow())
                 .expect("preference inventory");
             let all_keys = previous
@@ -1251,6 +1270,29 @@ fn all_preference_setters_publish_and_persist_without_duplicate_notifications() 
                     "theme setter ignores redundant values"
                 );
             }
+            // Selecting while following is a no-op: it publishes nothing and
+            // never leaves Follow or rewrites the stored theme.
+            themes.select_theme("azure-glow");
+            assert_eq!(
+                observations.borrow().len(),
+                published,
+                "selecting while following publishes nothing"
+            );
+            assert!(themes.follows_omarchy());
+            assert_eq!(themes.selected_id(), "nord");
+            // Back to manual, selecting publishes once and ignores repeats.
+            themes.set_follow_omarchy(false);
+            published += 1;
+            assert_setter(&mut published);
+            themes.select_theme("azure-glow");
+            published += 1;
+            assert_setter(&mut published);
+            themes.select_theme("azure-glow");
+            assert_eq!(
+                observations.borrow().len(),
+                published,
+                "theme setter ignores redundant values"
+            );
             assert_eq!(
                 changed_keys, all_keys,
                 "every stored field needs setter and notification coverage"
