@@ -7,36 +7,60 @@ directories (FHS, NixOS/Guix system profiles, and NixOS wrappers), not inherited
 `PATH`. The executed path is the search hit; its canonical target must sit under
 FHS, `/run/wrappers/bin`, `/nix/store`, or `/gnu/store`.
 
-## Packaging non-FHS runtimes
+## Runtime configuration and non-FHS packaging
 
-Packagers can set these optional environment variables **when compiling Strata**.
-They are embedded in the executable; setting them when launching Strata has no
-effect and does not override the sandbox's cleared environment.
+These optional environment variables can be set **when launching Strata** or
+embedded by packagers **when compiling Strata**. Each value uses the launch-time
+override first, then the embedded build-time value, then the default below. Strata
+passes the resolved settings explicitly to the sandbox after clearing its
+environment; unrelated inherited variables are not forwarded.
 
-| Build-time variable | Default | Purpose |
+| Variable (runtime or build-time) | Default | Purpose |
 | --- | --- | --- |
 | `STRATA_SANDBOX_PATH` | `/usr/bin` | Colon-separated helper binary directories inside the sandbox |
 | `STRATA_SANDBOX_ROOT` | `/usr` | System runtime tree, bound read-only at the same absolute path |
 | `STRATA_SANDBOX_PRLIMIT` | `/usr/bin/prlimit` | Absolute resource-limit launcher path inside the sandbox |
 | `STRATA_SANDBOX_GDK_PIXBUF_MODULE_FILE` | Unset | Optional absolute gdk-pixbuf `loaders.cache` path passed to helpers |
 
-For example, a Nix package can compile with:
+For example, on NixOS, launch with:
 
 ```sh
 STRATA_SANDBOX_PATH='/nix/store/<ffmpeg>/bin:/nix/store/<imagemagick>/bin' \
 STRATA_SANDBOX_ROOT='/nix/store' \
 STRATA_SANDBOX_PRLIMIT='/nix/store/<util-linux>/bin/prlimit' \
 STRATA_SANDBOX_GDK_PIXBUF_MODULE_FILE='/nix/store/<pixbuf-loaders>/lib/gdk-pixbuf-2.0/2.10.0/loaders.cache' \
-cargo build --release --locked
+/path/to/strata
 ```
 
 Replace the illustrative store paths with package dependency paths and include
-all required helper binary directories. The root replaces `/usr`, rather than
-adding another mount. The launcher, helpers, loaders cache, and its referenced
-modules and runtime dependencies must be reachable within the sandbox mounts.
-Use only trusted, admin-managed runtime trees: binding `/` or a user-data tree
-would expose private files to untrusted decoders. Values are taken literally;
-leave variables unset to use defaults, rather than setting empty values.
+all required helper binary directories. Packagers can embed the same settings
+by setting them for `cargo build --release --locked` instead. The root replaces
+`/usr`, rather than adding another mount. The launcher, helpers, loaders cache,
+and its referenced modules and runtime dependencies must be reachable within
+the sandbox mounts.
+
+A launch-time `STRATA_SANDBOX_ROOT` accepts **only the exact strings** `/usr`,
+`/nix/store`, and `/gnu/store`. Relative paths, subdirectories, trailing slashes,
+traversal components, `/`, and user-data trees are rejected; an invalid override
+retains the embedded root, or `/usr` if none was embedded. Custom build-time roots
+remain supported for packagers, who must use only trusted, admin-managed runtime
+trees. Binding `/` or a user-data tree would expose private files to untrusted
+decoders.
+
+The helper `PATH`, `prlimit`, and loaders-cache values are explicit
+operator-controlled settings: use trusted binaries and modules. They support
+native non-UTF-8 paths and are passed as literal arguments, not shell commands;
+no quoting, variable expansion, or shell interpolation is performed by Strata.
+Leave variables unset to use the embedded/default values rather than setting
+empty values (an empty root is rejected; other empty values are taken literally).
+
+NixOS also needs **system-installed bubblewrap**, for example via
+`environment.systemPackages = [ pkgs.bubblewrap ];`. Merely adding a user-profile
+binary to `PATH` does not satisfy trusted bubblewrap discovery. Package Strata's
+ELF interpreter and shared-library dependencies for the target system as well;
+these sandbox overrides cannot make an incompatible downloaded executable start
+or provide missing ELF dependencies. The bound runtime must also contain the
+libraries needed when the Strata helper runs inside the sandbox.
 
 These settings apply to one-shot, pooled browser, media, and RAR extraction
 sandboxes. They do not change host-side trusted bubblewrap lookup, namespace

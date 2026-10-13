@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 use std::{
+    ffi::OsStr,
     fs,
     path::{Path, PathBuf},
     process::Command,
@@ -167,31 +168,37 @@ fn sandbox_command_starts_absolute_bubblewrap() {
     assert!(joined.contains("--unshare-all"));
     assert!(joined.contains("--clearenv"));
     let arguments: Vec<_> = command.get_args().collect();
-    let path = option_env!("STRATA_SANDBOX_PATH").unwrap_or("/usr/bin");
-    let root = option_env!("STRATA_SANDBOX_ROOT").unwrap_or("/usr");
-    let prlimit = option_env!("STRATA_SANDBOX_PRLIMIT").unwrap_or("/usr/bin/prlimit");
-    assert!(
-        arguments
-            .windows(3)
-            .any(|args| args == ["--setenv", "PATH", path])
-    );
-    assert!(
-        arguments
-            .windows(3)
-            .any(|args| args == ["--ro-bind", root, root])
-    );
-    assert!(
-        arguments
-            .windows(3)
-            .any(|args| args == ["--", prlimit, "--as=2147483648"])
-    );
-    match option_env!("STRATA_SANDBOX_GDK_PIXBUF_MODULE_FILE") {
-        Some(loaders) => assert!(
-            arguments
-                .windows(3)
-                .any(|args| { args == ["--setenv", "GDK_PIXBUF_MODULE_FILE", loaders] })
-        ),
-        None => assert!(!arguments.contains(&std::ffi::OsStr::new("GDK_PIXBUF_MODULE_FILE"))),
+    let runtime = super::runtime::Runtime::load();
+    assert!(arguments.windows(3).any(|args| {
+        args == [
+            OsStr::new("--setenv"),
+            OsStr::new("PATH"),
+            runtime.path.as_os_str(),
+        ]
+    }));
+    assert!(arguments.windows(3).any(|args| {
+        args == [
+            OsStr::new("--ro-bind"),
+            runtime.root.as_os_str(),
+            runtime.root.as_os_str(),
+        ]
+    }));
+    assert!(arguments.windows(3).any(|args| {
+        args == [
+            OsStr::new("--"),
+            runtime.prlimit.as_os_str(),
+            OsStr::new("--as=2147483648"),
+        ]
+    }));
+    match &runtime.gdk_pixbuf_module_file {
+        Some(loaders) => assert!(arguments.windows(3).any(|args| {
+            args == [
+                OsStr::new("--setenv"),
+                OsStr::new("GDK_PIXBUF_MODULE_FILE"),
+                loaders.as_os_str(),
+            ]
+        })),
+        None => assert!(!arguments.contains(&OsStr::new("GDK_PIXBUF_MODULE_FILE"))),
     }
 }
 
@@ -347,9 +354,12 @@ fn media_previews_use_bounded_streaming_instead_of_driver_wide_resource_limits()
         .map(|argument| argument.to_string_lossy())
         .collect::<Vec<_>>()
         .join(" ");
-    assert!(!command.get_args().any(|argument| {
-        argument == option_env!("STRATA_SANDBOX_PRLIMIT").unwrap_or("/usr/bin/prlimit")
-    }));
+    let runtime = super::runtime::Runtime::load();
+    assert!(
+        !command
+            .get_args()
+            .any(|argument| argument == runtime.prlimit.as_os_str())
+    );
     assert!(!joined.contains("--as="));
     assert!(!joined.contains("--cpu="));
     assert!(!joined.contains("--fsize="));
