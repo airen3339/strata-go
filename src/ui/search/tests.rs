@@ -556,9 +556,17 @@ fn global_search_combines_home_and_drives_and_refreshes_mounts() {
             };
             render_results(&dialog.state, Vec::new(), false, coverage);
             assert!(dialog.state.truncated_hint.is_visible());
-            assert!(dialog.state.truncated_hint.tooltip_text().is_none());
+            let tooltip = dialog.state.truncated_hint.tooltip_text();
+            assert_eq!(tooltip.as_deref(), Some(coverage.message().as_str()));
+            assert!(
+                tooltip
+                    .as_deref()
+                    .is_some_and(|text| text.contains("Settings → General → Search & filtering")),
+                "a limit stop points to the search limit settings"
+            );
             render_results(&dialog.state, Vec::new(), false, SearchCoverage::default());
             assert!(!dialog.state.truncated_hint.is_visible());
+            assert!(dialog.state.truncated_hint.tooltip_text().is_none());
 
             dialog.show(vec![home, usb.clone()], false);
             dialog.state.field.set_text("needle");

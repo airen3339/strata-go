@@ -243,7 +243,18 @@ impl SearchCoverage {
             rust_i18n::t!("%{first}; %{second}", first = first, second = second).into_owned()
         });
         reasons.map_or_else(String::new, |reasons| {
-            rust_i18n::t!("Partial search — %{reasons}", reasons = reasons).into_owned()
+            let message =
+                rust_i18n::t!("Partial search — %{reasons}", reasons = reasons).into_owned();
+            if self.entry_limit || self.time_limit {
+                crate::i18n::join_sentences(
+                    &message,
+                    &crate::i18n::tr(
+                        "Raise the limits in Settings → General → Search & filtering.",
+                    ),
+                )
+            } else {
+                message
+            }
         })
     }
 }

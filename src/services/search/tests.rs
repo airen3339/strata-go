@@ -781,6 +781,33 @@ fn index_reports_truncated_once_the_entry_budget_is_exceeded() {
 }
 
 #[test]
+fn limit_stops_point_to_the_search_limit_settings() {
+    let settings_pointer = "Raise the limits in Settings → General → Search & filtering.";
+    for coverage in [
+        super::SearchCoverage {
+            time_limit: true,
+            ..Default::default()
+        },
+        super::SearchCoverage {
+            entry_limit: true,
+            unreadable: true,
+            ..Default::default()
+        },
+    ] {
+        let message = coverage.message();
+        assert!(message.starts_with("Partial search — "), "{message}");
+        assert!(message.ends_with(settings_pointer), "{message}");
+    }
+    let unreadable = super::SearchCoverage {
+        unreadable: true,
+        depth_limit: true,
+        ..Default::default()
+    }
+    .message();
+    assert!(!unreadable.contains(settings_pointer), "{unreadable}");
+}
+
+#[test]
 fn each_limit_keys_its_own_shared_index_and_none_lifts_the_cap() {
     let root = unique_fixture_root("limits");
     fs::create_dir_all(&root).expect("the search fixture should be created");

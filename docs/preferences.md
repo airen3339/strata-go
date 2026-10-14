@@ -377,7 +377,8 @@ Changes apply the next time global search opens, across all windows.
 In **Settings → General → Search & filtering**, **Search time limit** (10 s by
 default, up to 15 min or No limit) and **Search entry limit** (200,000 by default,
 up to 5,000,000 or No limit) bound every index walk. A walk stops when either is
-reached and the results show the **Partial results** hint. Longer limits let slow
+reached and the results show the **Partial results** hint; hovering it lists the
+reasons and, for a limit stop, points back to these settings. Longer limits let slow
 or network mounts list every folder; the entry limit bounds index memory, since
 every indexed entry keeps its path. Stored as `search_time_limit` (seconds) and
 `search_entry_limit`; 0 means no limit, and other unlisted values round up to the
