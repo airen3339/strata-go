@@ -261,6 +261,32 @@ boundary: a trusted child has the user's permissions. Strata's existing
 thumbnail/preview behavior is separate. Remote-only locations and non-UTF-8
 filenames are unsupported; no lossy conversion is performed.
 
+## Nextcloud desktop
+
+`providers/nextcloud` is an optional adapter for the Nextcloud desktop client.
+Strata does not implement sharing. The adapter asks the running client which
+actions apply, then sends the chosen command back over the client's local
+socket. Share options, file actions, and the other entries open the client's
+own windows. Copy-link actions ask the client to copy the link.
+
+Install it, then restart Strata:
+
+```bash
+python3 providers/nextcloud/install.py
+```
+
+That copies the adapter to `$XDG_CONFIG_HOME/strata/providers/nextcloud`. When
+the desktop client's status icons are installed, the installer copies those
+icons beside the manifest. The icons are not stored in this repository.
+
+Right-click a file or folder inside a synced folder. A Nextcloud section lists
+the actions the client returned, such as Share options, Copy internal link,
+Open in browser, and File actions. The sync folder itself has no share action;
+that is the client's rule. Items outside a synced folder are unchanged.
+
+The desktop client has to be running. Remove the installed directory and
+restart Strata to uninstall the provider.
+
 ## Tests
 
 `./scripts/test-headless.py file_providers` covers trusted registration, protocol
