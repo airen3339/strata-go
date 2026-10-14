@@ -156,13 +156,20 @@ pub(super) fn restrict_mutations() -> Result<(), String> {
     ] {
         rules.insert(call, Vec::new());
     }
-    // Rust/GIO use these descriptor controls when spawning loader processes.
-    // They cannot change source contents or inode attributes.
-    let descriptor_controls = [libc::FIOCLEX, libc::FIONCLEX, libc::FIONBIO, libc::FIONREAD]
-        .into_iter()
-        .map(|request| SeccompCondition::new(1, SeccompCmpArgLen::Dword, SeccompCmpOp::Ne, request))
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|error| error.to_string())?;
+    // Rust/GIO use these descriptor controls when spawning loader processes,
+    // and glycin's bwrap probe must look up the loopback interface to learn
+    // that its sandbox cannot nest here. None can change files or inodes.
+    let descriptor_controls = [
+        libc::FIOCLEX,
+        libc::FIONCLEX,
+        libc::FIONBIO,
+        libc::FIONREAD,
+        libc::SIOCGIFINDEX,
+    ]
+    .into_iter()
+    .map(|request| SeccompCondition::new(1, SeccompCmpArgLen::Dword, SeccompCmpOp::Ne, request))
+    .collect::<Result<Vec<_>, _>>()
+    .map_err(|error| error.to_string())?;
     rules.insert(
         libc::SYS_ioctl,
         vec![SeccompRule::new(descriptor_controls).map_err(|error| error.to_string())?],

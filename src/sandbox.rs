@@ -441,20 +441,14 @@ fn parse_sandboxed(
             },
         );
     }
-    if let Some(Ok(data)) = browser::preview(&input, &operation, cancellation) {
-        return Ok(ParseOutput {
+    if let Some(result) = browser::preview(&input, &operation, cancellation) {
+        return result.map(|data| ParseOutput {
             data,
             page: 0,
             pages: 0,
             text_layer: None,
         });
     }
-    if cancellation.is_cancelled() {
-        return Err("Preview cancelled".to_owned());
-    }
-    // Pooled workers cannot nest loader sandboxes (e.g. glycin on
-    // Debian-family systems), so a pooled failure retries out of process
-    // instead of failing outright.
 
     let output =
         PrivateOutput::create().map_err(|error| crate::services::io_error_message(&error))?;

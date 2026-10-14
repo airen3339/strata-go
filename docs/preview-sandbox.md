@@ -177,9 +177,13 @@ operations; unknown syscalls, alternate ABIs, and newer mutation interfaces fail
 closed. All setup completes before parsing a file. On systems without Landlock
 ABI 3, the pool retains the original one-shot read-only-bind bubblewrap path,
 with the same concurrency budget; it never silently decodes without protection.
-Interactive image previews additionally retry out of process when a pooled
-decoder fails, since loader sandboxes such as glycin cannot nest inside the
-persistent worker's filesystem-write protection. No GPU, network, desktop display, or session bus is available to these workers.
+GDK Pixbuf's glycin loaders cannot start their own bubblewrap sandbox inside a
+job, because Landlock blocks its namespace setup, so they run directly under the
+job's protections. The seccomp filter permits the loopback-interface lookup that
+glycin's probe needs to detect this, and the persistent worker sets
+`GLYCIN_DISABLE_SANDBOX` so newer glycin releases skip the probe. One-shot
+sandboxes keep glycin's own sandbox. No GPU, network, desktop display, or session
+bus is available to these workers.
 Fork/namespace setup is confined to a checked single-threaded helper boundary;
 see [the unsafe-code policy](unsafe-code.md#browser-sandbox-fork-boundary).
 
