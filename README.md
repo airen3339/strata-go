@@ -706,11 +706,16 @@ Build requirements are the latest stable Rust toolchain, a C toolchain, `pkg-con
 ```bash
 sudo pacman -S --needed base-devel bubblewrap ffmpeg ffmpegthumbnailer fontconfig \
   gstreamer gst-libav gst-plugins-base gst-plugins-good gtk4 gtksourceview5 gvfs poppler-glib
+mise run install-local    # build an optimized release and install it for your user
 mise run start-dev        # rebuild and restart as files change
 mise run dev              # build and launch the main app once
 mise run chooser-dev      # build and open an isolated Save chooser with choices
 mise run check            # format, compile, Clippy, tests, and policy checks
 ```
+
+`start-dev`, `dev`, and `chooser-dev` make unoptimized debug builds for development, which
+scroll and load noticeably slower. Use `install-local` for everyday use. A debug build reports
+its version with a `+debug` suffix in `strata --version` and in Settings → About.
 
 ### Builds without RAR support
 
