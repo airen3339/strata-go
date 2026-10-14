@@ -177,7 +177,9 @@ operations; unknown syscalls, alternate ABIs, and newer mutation interfaces fail
 closed. All setup completes before parsing a file. On systems without Landlock
 ABI 3, the pool retains the original one-shot read-only-bind bubblewrap path,
 with the same concurrency budget; it never silently decodes without protection.
-No GPU, network, desktop display, or session bus is available to these workers.
+Interactive image previews additionally retry out of process when a pooled
+decoder fails, since loader sandboxes such as glycin cannot nest inside the
+persistent worker's filesystem-write protection. No GPU, network, desktop display, or session bus is available to these workers.
 Fork/namespace setup is confined to a checked single-threaded helper boundary;
 see [the unsafe-code policy](unsafe-code.md#browser-sandbox-fork-boundary).
 
@@ -348,7 +350,9 @@ with a four-second probe timeout and a 256 KiB JSON limit. Image information can
 fall back to GDK Pixbuf inside that same sandbox. The enclosing helper retains
 the existing memory, CPU, and wall-time limits and receives no GPU access. Media
 sandboxes expose only the optional BLAS/LAPACK runtime alternatives for supported
-x86-64 and ARM64 Debian-family installations, not all of `/etc/alternatives`. Only
+x86-64 and ARM64 Debian-family installations, not all of `/etc/alternatives`. Every
+sandbox additionally exposes only the optional GL dispatch alternatives
+(`glx--*`) that the helper itself needs to start on those installations. Only
 validated numeric fields and bounded codec identifiers reach the UI, not arbitrary
 embedded tags. Closing Properties cancels its work and prevents stale results
 from appearing. Ordinary image and audio/video previews retain their normal size,
@@ -729,7 +733,8 @@ change neither applies nor retires that patch kit or claims to fix all RAM growt
 The Ubuntu runtime-library alias problem tracked in
 [#806](https://github.com/lgse/strata/issues/806) was initially deferred. The sandbox
 now includes optional read-only binds of the BLAS/LAPACK alternatives used by
-media helpers on x86-64 and ARM64 Debian-family installations. This resolves their
+media helpers on x86-64 and ARM64 Debian-family installations, plus the GL
+dispatch alternatives (`glx--*`) every helper needs to start there. This resolves their
 runtime links without exposing the whole `/etc/alternatives` directory or the
 rest of `/etc`. Canonical pinned-container HEIC, MOV,
 and MP4 preview tests exercise actual sandbox startup and decoding; installed

@@ -329,6 +329,43 @@ fn metadata_probe_retains_software_sandbox_limits_and_narrow_runtime_access() {
 }
 
 #[test]
+fn non_media_helpers_expose_gl_dispatch_links_without_the_whole_directory() {
+    // The helper itself links libGL, so even a software-only image sandbox
+    // must resolve Debian-family GL dispatch links (glx-diversions, NVIDIA).
+    let command = sandbox_command(
+        Path::new("/usr/bin/bwrap"),
+        Path::new("/tmp/strata"),
+        Path::new("/home/alice/Pictures/photo.jpg"),
+        Path::new("/tmp/private-output"),
+        ParseOperation::ThumbnailImage,
+        256,
+        MediaPreviewBackend::Software,
+        &[],
+    );
+    let arguments: Vec<_> = command
+        .get_args()
+        .map(|arg| arg.to_string_lossy())
+        .collect();
+    let joined = arguments.join(" ");
+    assert!(
+        !arguments
+            .iter()
+            .any(|argument| argument == "/etc/alternatives")
+    );
+    for architecture in ["x86_64-linux-gnu", "aarch64-linux-gnu"] {
+        for library in [
+            "libGL.so.1",
+            "libEGL.so.1",
+            "libGLESv2.so.2",
+            "libGLESv1_CM.so.1",
+        ] {
+            let path = format!("/etc/alternatives/glx--{library}-{architecture}");
+            assert!(joined.contains(&format!("--ro-bind-try {path} {path}")));
+        }
+    }
+}
+
+#[test]
 fn media_previews_use_bounded_streaming_instead_of_driver_wide_resource_limits() {
     let operation = MEDIA_PREVIEW.clone();
     let command = sandbox_command(

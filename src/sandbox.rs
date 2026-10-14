@@ -441,14 +441,20 @@ fn parse_sandboxed(
             },
         );
     }
-    if let Some(result) = browser::preview(&input, &operation, cancellation) {
-        return result.map(|data| ParseOutput {
+    if let Some(Ok(data)) = browser::preview(&input, &operation, cancellation) {
+        return Ok(ParseOutput {
             data,
             page: 0,
             pages: 0,
             text_layer: None,
         });
     }
+    if cancellation.is_cancelled() {
+        return Err("Preview cancelled".to_owned());
+    }
+    // Pooled workers cannot nest loader sandboxes (e.g. glycin on
+    // Debian-family systems), so a pooled failure retries out of process
+    // instead of failing outright.
 
     let output =
         PrivateOutput::create().map_err(|error| crate::services::io_error_message(&error))?;
@@ -751,6 +757,26 @@ fn runtime_command(bwrap: &Path, needs_media_libraries: bool) -> Command {
                 let path = format!("/etc/alternatives/{library}-{architecture}");
                 command.arg("--ro-bind-try").arg(&path).arg(&path);
             }
+        }
+    }
+    // Debian-family GL dispatch resolves through per-library alternatives links
+    // (glx-diversions, NVIDIA). The helper itself links libGL, so every sandbox
+    // needs these, not just media ones. Expose only the link files, never the
+    // whole /etc/alternatives directory.
+    for architecture in ["x86_64-linux-gnu", "aarch64-linux-gnu"] {
+        for library in [
+            "libGL.so.1",
+            "libEGL.so.1",
+            "libGLESv2.so.2",
+            "libGLESv1_CM.so.1",
+            "libGL.so",
+            "libEGL.so",
+            "libGLESv2.so",
+            "libGLESv1_CM.so",
+            "libGLX_indirect.so.0",
+        ] {
+            let path = format!("/etc/alternatives/glx--{library}-{architecture}");
+            command.arg("--ro-bind-try").arg(&path).arg(&path);
         }
     }
     command
