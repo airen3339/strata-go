@@ -68,13 +68,13 @@ fn changed_search_limits_restart_the_worker_on_the_next_update() {
             };
             session.update(input.clone(), "alpha", false, deliver.clone());
             assert!(shares_default_index(&session));
-            session.update(input.clone(), "alph", false, deliver.clone());
+            session.update(input.clone(), "alpha.txt", false, deliver.clone());
             assert!(
                 shares_default_index(&session),
                 "unchanged limits keep the running worker"
             );
             manager.set_search_entry_limit(0);
-            session.update(input, "al", false, deliver);
+            session.update(input, "txt", false, deliver);
             assert!(
                 !shares_default_index(&session),
                 "a changed limit indexes again on the next query"
