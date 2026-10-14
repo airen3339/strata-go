@@ -759,6 +759,11 @@ fn runtime_command(bwrap: &Path, needs_media_libraries: bool) -> Command {
             }
         }
     }
+    // Debian-family ImageMagick commands resolve through these links.
+    for tool in ["magick", "convert"] {
+        let path = format!("/etc/alternatives/{tool}");
+        command.arg("--ro-bind-try").arg(&path).arg(&path);
+    }
     // Debian-family GL dispatch resolves through per-library alternatives links
     // (glx-diversions, NVIDIA). The helper itself links libGL, so every sandbox
     // needs these, not just media ones. Expose only the link files, never the
