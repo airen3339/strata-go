@@ -99,8 +99,8 @@ pub(crate) fn entry_supports_quick_preview(entry: &FileEntry) -> bool {
     }
 
     let native_path = entry.location.native_path();
-    let content_type = crate::services::guess_content_type(&entry.native_name, native_path);
-    let uncertain = gio::content_type_guess(Some(Path::new(&entry.native_name)), None::<&[u8]>).1;
+    let (content_type, uncertain) =
+        gio::content_type_guess(Some(Path::new(&entry.native_name)), None::<&[u8]>);
     let content = crate::services::content_family(&content_type);
     if crate::services::table::is_workbook(&content_type, &entry.native_name)
         || crate::services::docx::is_document(&content_type, &entry.native_name)
@@ -124,7 +124,6 @@ pub(crate) fn entry_supports_quick_preview(entry: &FileEntry) -> bool {
         || uncertain
         || gio::content_type_is_a(&content_type, "text/plain")
         || crate::services::has_plain_text_extension(&entry.native_name)
-        || crate::services::is_typescript_extension(&entry.native_name)
         || crate::services::is_extensionless_dotfile(&entry.native_name)
 }
 
@@ -1008,8 +1007,8 @@ impl PreviewState {
     fn print_entry(self: &Rc<Self>, entry: FileEntry) {
         self.cancel_print();
         let parent = self.pane.root().and_downcast::<gtk::Window>();
-        let content_type =
-            crate::services::guess_content_type(&entry.native_name, entry.location.native_path());
+        let (content_type, _) =
+            gio::content_type_guess(Some(Path::new(&entry.native_name)), None::<&[u8]>);
         if content_type == "application/pdf" {
             self.show_print_progress();
         }
@@ -3304,7 +3303,8 @@ fn media_family(content_type: &str) -> Option<MediaFamily> {
     }
 }
 
-/// Cached per extension: stepping scans whole folders on the main thread.
+/// Cached per extension: stepping scans whole folders on the main thread. An entry whose
+/// metadata probe found no media drops out of the sequence whatever its name says.
 fn entry_family(entry: &FileEntry) -> Option<MediaFamily> {
     thread_local! {
         static FAMILIES: RefCell<HashMap<String, Option<MediaFamily>>> =
@@ -3315,18 +3315,7 @@ fn entry_family(entry: &FileEntry) -> Option<MediaFamily> {
         .and_then(|extension| extension.to_str())
         .filter(|_| !entry.is_directory())
         .map(str::to_ascii_lowercase)?;
-    if extension == "ts" || extension == "mts" {
-        return if entry
-            .location
-            .native_path()
-            .is_some_and(crate::services::is_mpeg_ts_file)
-        {
-            Some(MediaFamily::Video)
-        } else {
-            None
-        };
-    }
-    if extension == "tsx" || extension == "cts" {
+    if entry.duration_seconds == MetadataValue::Unavailable {
         return None;
     }
     FAMILIES.with_borrow_mut(|known| {

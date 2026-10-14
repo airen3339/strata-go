@@ -51,8 +51,8 @@ fn comic_and_epub_selections_are_quick_preview_targets() {
 }
 
 #[test]
-fn typescript_selections_are_quick_preview_targets() {
-    for name in ["app.ts", "Component.tsx", "module.mts", "script.cts"] {
+fn ambiguous_names_are_quick_preview_targets_for_the_loader_to_resolve() {
+    for name in ["app.ts", "module.mts", "notes.zig"] {
         assert!(preview_target(Some(entry(name))).is_some(), "{name}");
     }
 }

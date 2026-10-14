@@ -2,10 +2,10 @@
 
 use super::{
     ArchiveDirectory, ArchiveFileEntry, ArchiveNode, MediaPreviewSize, PreviewContent,
-    archive_preview_format, archive_preview_tree, content_family, guess_content_type,
+    archive_preview_format, archive_preview_tree, bytes_support_named_family, content_family,
     has_plain_text_extension, is_extensionless_dotfile, is_image_path, is_media_path,
-    is_mpeg_ts_data, is_mpeg_ts_file, is_non_executable_extensionless_dotfile,
-    is_typescript_extension, normalize_preview_text,
+    is_non_executable_extensionless_dotfile, looks_like_text, normalize_preview_text,
+    reconcile_with_sample,
 };
 
 #[test]
@@ -670,76 +670,155 @@ fn secret_string_exposes_its_value_explicitly() {
     assert_eq!(format!("{secret:?}"), "[REDACTED]");
 }
 
-#[test]
-fn recognizes_typescript_extensions() {
-    assert!(is_typescript_extension(std::ffi::OsStr::new("app.ts")));
-    assert!(is_typescript_extension(std::ffi::OsStr::new(
-        "Component.tsx"
-    )));
-    assert!(is_typescript_extension(std::ffi::OsStr::new("module.mts")));
-    assert!(is_typescript_extension(std::ffi::OsStr::new("script.cts")));
-    assert!(is_typescript_extension(std::ffi::OsStr::new("INDEX.TS")));
-    assert!(!is_typescript_extension(std::ffi::OsStr::new("app.js")));
-    assert!(!is_typescript_extension(std::ffi::OsStr::new("video.mp4")));
-    assert!(!is_typescript_extension(std::ffi::OsStr::new("ts")));
+fn mpeg_ts_packets() -> Vec<u8> {
+    let mut packet = [0u8; 188];
+    packet[0] = 0x47;
+    packet.repeat(6)
 }
 
 #[test]
-fn disambiguates_mpeg_ts_data_from_typescript_source() {
-    let mut mpeg_packets = vec![0u8; 565];
-    mpeg_packets[0] = 0x47;
-    mpeg_packets[188] = 0x47;
-    mpeg_packets[376] = 0x47;
-    assert!(is_mpeg_ts_data(&mpeg_packets));
+fn text_detection_follows_bytes_not_names() {
+    let packets = mpeg_ts_packets();
+    for (label, bytes, text) in [
+        (
+            "utf-8 source",
+            &b"const x: number = 42;\nexport default x;\n"[..],
+            true,
+        ),
+        ("latin-1", &b"caf\xe9 au lait\n"[..], true),
+        ("utf-16 with bom", &b"\xff\xfeh\x00i\x00"[..], true),
+        ("terminal escapes", &b"\x1b[32mok\x1b[0m done\n"[..], true),
+        (
+            "a few control bytes",
+            &b"line\x01\x02\x03 one\nline two\n"[..],
+            true,
+        ),
+        ("utf-8 cut mid-sequence", &"héllo".as_bytes()[..2], true),
+        ("empty", &b""[..], true),
+        ("png", &b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR"[..], false),
+        ("mpeg transport stream", packets.as_slice(), false),
+        (
+            "non-utf-8 control soup",
+            &[0x01u8, 0xFF, 0x02, 0xFE].repeat(16)[..],
+            false,
+        ),
+    ] {
+        assert_eq!(looks_like_text(bytes), text, "{label}");
+    }
+}
 
-    let ts_source = b"import React from 'react';\nconst x: number = 42;\nexport default x;\n";
-    assert!(!is_mpeg_ts_data(ts_source));
+fn named_family(name: &str) -> (String, PreviewContent) {
+    let content_type =
+        gtk::gio::content_type_guess(Some(std::path::Path::new(name)), None::<&[u8]>)
+            .0
+            .to_string();
+    let mut content = content_family(&content_type);
+    if matches!(content, PreviewContent::Unsupported)
+        && gtk::gio::content_type_is_a(&content_type, "text/plain")
+    {
+        content = PreviewContent::Text {
+            content: String::new(),
+            truncated: false,
+        };
+    }
+    (content_type, content)
+}
 
-    // Data starting with 'G' (0x47) but lacking sync repetition and nulls is not MPEG-TS.
-    let text_starting_with_g = b"Great code here without sync bytes";
-    assert!(!is_mpeg_ts_data(text_starting_with_g));
+fn family(content: &PreviewContent) -> &'static str {
+    match content {
+        PreviewContent::Text { .. } => "text",
+        PreviewContent::Image => "image",
+        PreviewContent::Media => "media",
+        PreviewContent::Pdf { .. } => "pdf",
+        PreviewContent::Unsupported => "unsupported",
+        _ => "other",
+    }
 }
 
 #[test]
-fn guess_content_type_differentiates_typescript_and_mpeg_ts() {
-    let name_ts = std::ffi::OsStr::new("index.ts");
-    assert_eq!(guess_content_type(name_ts, None), "application/typescript");
-
-    let name_tsx = std::ffi::OsStr::new("App.tsx");
-    assert_eq!(guess_content_type(name_tsx, None), "application/typescript");
-
-    let temp_dir = tempfile::tempdir().expect("tempdir");
-    let ts_file_path = temp_dir.path().join("main.ts");
-    std::fs::write(&ts_file_path, "console.log('hello');").expect("write ts");
-    assert_eq!(
-        guess_content_type(name_ts, Some(&ts_file_path)),
-        "application/typescript"
+fn preview_family_follows_bytes_when_names_disagree() {
+    let packets = mpeg_ts_packets();
+    let png = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR\0\0\0\x01\0\0\0\x01";
+    let svg = format!(
+        "<?xml version=\"1.0\"?>\n{}<svg xmlns=\"http://www.w3.org/2000/svg\"/>",
+        " ".repeat(300)
     );
-    assert!(!is_mpeg_ts_file(&ts_file_path));
-    assert!(!is_media_path(&ts_file_path));
+    for (name, bytes, expected) in [
+        ("notes.png", &b"just some notes\n"[..], "text"),
+        ("clip.mp4", &b"not a movie\n"[..], "text"),
+        ("backup.zip", &b"not an archive\n"[..], "text"),
+        ("app.ts", &b"const x: number = 42;\n"[..], "text"),
+        ("App.tsx", &b"export const C = () => <div />;\n"[..], "text"),
+        ("module.mts", &b"export {};\n"[..], "text"),
+        ("photo.txt", &png[..], "image"),
+        (
+            "paper.txt",
+            &b"%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\n"[..],
+            "pdf",
+        ),
+        ("icon.svg", svg.as_bytes(), "image"),
+        (
+            "data.json",
+            &[0u8, 159, 146, 150, 0, 255, 0, 1][..],
+            "unsupported",
+        ),
+    ] {
+        let (mut content_type, mut content) = named_family(name);
+        reconcile_with_sample(&mut content_type, &mut content, bytes);
+        assert_eq!(family(&content), expected, "{name}");
+        if expected == "text" {
+            assert!(
+                !matches!(
+                    content_family(&content_type),
+                    PreviewContent::Image | PreviewContent::Media | PreviewContent::Pdf { .. }
+                ),
+                "{name} kept visual type {content_type}"
+            );
+        }
+    }
 
-    let mpeg_file_path = temp_dir.path().join("recording.ts");
-    let mut mpeg_packets = vec![0u8; 565];
-    mpeg_packets[0] = 0x47;
-    mpeg_packets[188] = 0x47;
-    mpeg_packets[376] = 0x47;
-    std::fs::write(&mpeg_file_path, &mpeg_packets).expect("write mpeg");
-    assert_eq!(
-        guess_content_type(std::ffi::OsStr::new("recording.ts"), Some(&mpeg_file_path)),
-        "video/mp2t"
+    let (mut content_type, mut content) = named_family("clip.ts");
+    reconcile_with_sample(&mut content_type, &mut content, &packets);
+    assert_ne!(
+        family(&content),
+        "text",
+        "transport stream named like source"
     );
-    assert!(is_mpeg_ts_file(&mpeg_file_path));
-    assert!(is_media_path(&mpeg_file_path));
 }
 
 #[test]
-fn typescript_content_family_maps_to_text_preview() {
-    assert!(matches!(
-        content_family("application/typescript"),
-        PreviewContent::Text { .. }
-    ));
-    assert!(matches!(
-        content_family("application/x-typescript"),
-        PreviewContent::Text { .. }
-    ));
+fn text_families_keep_the_named_type_for_highlighting() {
+    for name in ["notes.md", "page.html", "config.yaml", "query.sql"] {
+        let (named_type, mut content) = named_family(name);
+        let mut content_type = named_type.clone();
+        reconcile_with_sample(&mut content_type, &mut content, b"plain text body\n");
+        assert_eq!(content_type, named_type, "{name}");
+        assert_eq!(family(&content), "text", "{name}");
+    }
+}
+
+#[test]
+fn metadata_probes_skip_text_that_merely_shares_a_media_name() {
+    let directory = tempfile::tempdir().expect("fixture directory");
+    let png = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR\0\0\0\x01\0\0\0\x01";
+    for (name, bytes, supported) in [
+        ("clip.mp4", &b"export const x = 1;\n"[..], false),
+        ("clip.ts", &b"export const x = 1;\n"[..], false),
+        ("photo.png", &b"not pixels\n"[..], false),
+        ("photo.png", &png[..], true),
+        (
+            "icon.svg",
+            &b"<svg xmlns=\"http://www.w3.org/2000/svg\"/>"[..],
+            true,
+        ),
+        ("missing.mp4", &b""[..], true),
+    ] {
+        let path = directory.path().join(name);
+        if name == "missing.mp4" {
+            let _ = std::fs::remove_file(&path);
+        } else {
+            std::fs::write(&path, bytes).expect("fixture");
+        }
+        assert_eq!(bytes_support_named_family(&path), supported, "{name}");
+    }
 }

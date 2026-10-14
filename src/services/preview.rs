@@ -205,66 +205,127 @@ pub trait PreviewProvider {
     fn load(&self, request: PreviewRequest, emit: Rc<dyn Fn(PreviewEvent)>) -> LoadHandle;
 }
 
-pub(crate) fn is_typescript_extension(name: &OsStr) -> bool {
-    Path::new(name)
-        .extension()
-        .and_then(OsStr::to_str)
-        .is_some_and(|extension| {
-            matches!(
-                extension.to_ascii_lowercase().as_str(),
-                "ts" | "tsx" | "mts" | "cts"
-            )
-        })
-}
+/// Leading bytes read to decide a local file's preview family.
+pub(crate) const CONTENT_SAMPLE_BYTES: usize = 8 * 1024;
 
-pub(crate) fn is_mpeg_ts_data(sample: &[u8]) -> bool {
-    if sample.len() < 188 {
-        return false;
-    }
-    sample[0] == 0x47
-        && sample[188] == 0x47
-        && (sample.len() < 377 || sample[376] == 0x47)
-        && sample.contains(&0)
-}
-
-pub(crate) fn is_mpeg_ts_file(path: &Path) -> bool {
-    use std::io::Read;
-    let Ok(mut file) = std::fs::File::open(path) else {
-        return false;
-    };
-    let mut buffer = [0u8; 565];
-    let Ok(bytes_read) = file.read(&mut buffer) else {
-        return false;
-    };
-    is_mpeg_ts_data(&buffer[..bytes_read])
-}
-
-pub(crate) fn guess_content_type(name: &OsStr, native_path: Option<&Path>) -> glib::GString {
-    let extension = Path::new(name)
-        .extension()
-        .and_then(OsStr::to_str)
-        .map(str::to_ascii_lowercase);
-    if let Some(ext) = extension.as_deref() {
-        if ext == "ts" || ext == "mts" {
-            if native_path.is_some_and(is_mpeg_ts_file) {
-                return glib::GString::from("video/mp2t");
-            }
-            return glib::GString::from("application/typescript");
-        } else if ext == "tsx" || ext == "cts" {
-            return glib::GString::from("application/typescript");
-        }
-    }
-    gio::content_type_guess(Some(Path::new(name)), None::<&[u8]>).0
+fn content_type_for_path(path: &Path) -> glib::GString {
+    gio::content_type_guess(Some(path), None::<&[u8]>).0
 }
 
 pub(crate) fn is_image_path(path: &Path) -> bool {
-    let content_type = guess_content_type(path.as_os_str(), Some(path));
-    content_type.starts_with("image/")
+    content_type_for_path(path).starts_with("image/")
 }
 
 pub(crate) fn is_media_path(path: &Path) -> bool {
-    let content_type = guess_content_type(path.as_os_str(), Some(path));
+    let content_type = content_type_for_path(path);
     content_type.starts_with("audio/") || content_type.starts_with("video/")
+}
+
+pub(crate) fn read_head_sample(path: &Path) -> Option<Vec<u8>> {
+    use std::io::Read;
+    let file = std::fs::File::open(path).ok()?;
+    let mut sample = Vec::with_capacity(CONTENT_SAMPLE_BYTES);
+    file.take(CONTENT_SAMPLE_BYTES as u64)
+        .read_to_end(&mut sample)
+        .ok()?;
+    Some(sample)
+}
+
+/// Whether a local file's leading bytes still back the visual family its name claims,
+/// so metadata probes skip source files that merely share a media extension.
+pub(crate) fn bytes_support_named_family(path: &Path) -> bool {
+    let Some(sample) = read_head_sample(path) else {
+        return true;
+    };
+    let mut content_type = content_type_for_path(path).to_string();
+    let mut content = content_family(&content_type);
+    reconcile_with_sample(&mut content_type, &mut content, &sample);
+    !matches!(content, PreviewContent::Text { .. })
+}
+
+/// Text is NUL-free and either valid UTF-8 (allowing a sequence cut by the sample
+/// boundary) or a legacy single-byte encoding with few control bytes; UTF-16 announces
+/// itself with a byte-order mark.
+pub(crate) fn looks_like_text(sample: &[u8]) -> bool {
+    if sample.starts_with(&[0xFF, 0xFE]) || sample.starts_with(&[0xFE, 0xFF]) {
+        return true;
+    }
+    if sample.contains(&0) {
+        return false;
+    }
+    let utf8 = match std::str::from_utf8(sample) {
+        Ok(_) => true,
+        Err(error) => error.error_len().is_none(),
+    };
+    if utf8 {
+        return true;
+    }
+    let control = sample
+        .iter()
+        .filter(|byte| matches!(byte, 0x01..=0x08 | 0x0E..=0x1A | 0x1C..=0x1F))
+        .count();
+    control * 32 < sample.len()
+}
+
+fn content_type_from_bytes(sample: &[u8]) -> (String, bool) {
+    let (content_type, uncertain) = gio::content_type_guess(None::<&Path>, Some(sample));
+    (content_type.to_string(), uncertain)
+}
+
+fn same_family(left: &PreviewContent, right: &PreviewContent) -> bool {
+    std::mem::discriminant(left) == std::mem::discriminant(right)
+}
+
+/// Lets the file's leading bytes override a name-derived preview family: text is never
+/// handed to a media or image decoder and binary data is never shown as text. Visual
+/// families survive only when the bytes carry their signature, or for XML-based images
+/// such as SVG whose source is legitimately text.
+pub(crate) fn reconcile_with_sample(
+    content_type: &mut String,
+    content: &mut PreviewContent,
+    sample: &[u8],
+) {
+    let (from_bytes, bytes_uncertain) = content_type_from_bytes(sample);
+    let bytes_family = content_family(&from_bytes);
+    let is_text = matches!(content, PreviewContent::Text { .. });
+    let is_visual = matches!(
+        content,
+        PreviewContent::Image | PreviewContent::Media | PreviewContent::Pdf { .. }
+    );
+    if looks_like_text(sample) {
+        if is_text {
+            // A text name hides nothing unless the bytes carry a visual signature.
+            if !bytes_uncertain
+                && matches!(
+                    bytes_family,
+                    PreviewContent::Image | PreviewContent::Pdf { .. }
+                )
+            {
+                *content_type = from_bytes;
+                *content = bytes_family;
+            }
+            return;
+        }
+        if is_visual {
+            let bytes_agree = same_family(content, &bytes_family);
+            let xml_image = matches!(content, PreviewContent::Image)
+                && gio::content_type_is_a(content_type, "application/xml");
+            if bytes_agree || xml_image {
+                return;
+            }
+            *content_type = "text/plain".to_owned();
+        }
+        *content = PreviewContent::Text {
+            content: String::new(),
+            truncated: false,
+        };
+    } else if is_text {
+        *content_type = from_bytes;
+        *content = match bytes_family {
+            PreviewContent::Text { .. } => PreviewContent::Unsupported,
+            family => family,
+        };
+    }
 }
 
 pub(crate) fn supports_remote_video(name: &OsStr) -> bool {

@@ -1635,6 +1635,32 @@ fn fill_image_file_extracts_dimensions() -> Result<(), Box<dyn Error>> {
 }
 
 #[test]
+fn fill_skips_media_probes_for_text_named_like_media() {
+    let root = unique_fixture_root("fill-text-named-like-media");
+    fs::create_dir_all(&root).expect("the fixture directory should be created");
+    let path = root.join("clip.mp4");
+    fs::write(&path, "export const clip = 1;\n").expect("the fixture file should be written");
+
+    let events = run_fill(MetadataRequest {
+        id: RequestId(1),
+        entries: vec![Location::local(&path)],
+        full: false,
+        include_icon_details: true,
+        time_budget: Duration::from_secs(10),
+    });
+    assert_eq!(fill_outcome(&events), Some(MetadataOutcome::Complete));
+    let duration = events.iter().rev().find_map(|event| match event {
+        DirectoryEvent::MetadataFilled { updates, .. } => updates
+            .first()
+            .map(|update| update.duration_seconds.clone()),
+        _ => None,
+    });
+    assert_eq!(duration, Some(MetadataValue::Unavailable));
+    assert_eq!(media_metadata_probe_count(&path), 0);
+    fs::remove_dir_all(&root).expect("the fixture directory should be removed");
+}
+
+#[test]
 fn fill_media_file_caches_duration_for_revisits() -> Result<(), Box<dyn Error>> {
     let root = unique_fixture_root("fill-media-duration");
     fs::create_dir_all(&root).expect("the fixture directory should be created");

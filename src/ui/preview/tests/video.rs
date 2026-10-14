@@ -90,24 +90,13 @@ fn media_families_split_audio_and_video_and_skip_gifs() {
         "list.pls",
         "song.mid",
         "song.midi",
-        "app.ts",
-        "Component.tsx",
-        "module.mts",
-        "script.cts",
     ] {
         assert_eq!(entry_family(&entry(name)), None, "{name}");
     }
 
-    let temp_dir = tempfile::tempdir().expect("tempdir");
-    let mpeg_file_path = temp_dir.path().join("recording.ts");
-    let mut mpeg_packets = vec![0u8; 565];
-    mpeg_packets[0] = 0x47;
-    mpeg_packets[188] = 0x47;
-    mpeg_packets[376] = 0x47;
-    std::fs::write(&mpeg_file_path, &mpeg_packets).expect("write mpeg");
-    let mut mpeg_entry = entry("recording.ts");
-    mpeg_entry.location = crate::model::Location::local(&mpeg_file_path);
-    assert_eq!(entry_family(&mpeg_entry), Some(MediaFamily::Video));
+    let mut not_really_media = entry("clip.mp4");
+    not_really_media.duration_seconds = MetadataValue::Unavailable;
+    assert_eq!(entry_family(&not_really_media), None);
 }
 
 #[test]
