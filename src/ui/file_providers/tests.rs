@@ -57,6 +57,7 @@ fn install_hub() {
     HUB.with(|cell| {
         cell.replace(Some(Hub {
             discovery,
+            discovered: true,
             providers: vec![Provider {
                 client: protocol::start(registration),
                 icons: Default::default(),
