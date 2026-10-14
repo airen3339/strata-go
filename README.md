@@ -653,7 +653,7 @@ Choose any included theme from **Settings → Appearance**: Azure Glow, Tokyo Ni
 
 Select **Add a theme**, enter a name, and choose the semantic colors for the background, surfaces, text, accent, danger, muted and highlighted elements, borders, and dimmed text. Strata previews edits live and saves completed themes under **Your themes**.
 
-Custom themes are stored as shareable TOML files in `~/.config/strata/themes/`. See [Themes](docs/themes.md) for the schema, file location, and Omarchy color mapping.
+Custom themes are stored as shareable TOML files in `~/.config/strata/themes/`. A selected theme is re-read when its file changes on disk, so a generator that rewrites it in place (for example a [matugen](https://github.com/InioX/matugen) template following the wallpaper) updates open windows without a restart. See [Themes](docs/themes.md) for the schema, file location, live updates, and Omarchy color mapping.
 
 ## Release channels
 
