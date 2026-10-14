@@ -10,6 +10,7 @@ mod close_guard;
 mod collection_edit;
 mod collection_interaction;
 mod controls;
+mod decoration;
 mod desktop_integration;
 mod document_media;
 mod document_view;
