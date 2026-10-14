@@ -146,6 +146,18 @@ const TARGETS: &[Target] = &[
         aliases: "launch files quick preview",
     },
     Target {
+        id: "search-time-limit",
+        page: "general",
+        title: "Search time limit",
+        aliases: "search filter indexing walk timeout seconds minutes slow network mount partial results",
+    },
+    Target {
+        id: "search-entry-limit",
+        page: "general",
+        title: "Search entry limit",
+        aliases: "search filter indexing walk maximum files folders entries memory partial results",
+    },
+    Target {
         id: "search-exclusions",
         page: "general",
         title: "Global search exclusions",

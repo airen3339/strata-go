@@ -382,7 +382,9 @@ impl SearchDialog {
             return;
         }
         let exclusions = self.state.preferences.search_exclusions();
-        let (handle, receiver) = index_trees_with_exclusions(roots, show_hidden, exclusions);
+        let limits = self.state.preferences.search_limits();
+        let (handle, receiver) =
+            index_trees_with_exclusions(roots, show_hidden, exclusions, limits);
         self.state.search.replace(Some(handle));
         let weak = Rc::downgrade(&self.state);
         let _poll = glib::timeout_add_local(Duration::from_millis(16), move || {
