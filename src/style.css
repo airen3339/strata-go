@@ -3413,7 +3413,7 @@ entry.preview-command-entry selection {
   background: @strata_surface;
   color: @strata_text;
   border-top: 1px solid @strata_border;
-  padding: 3px 10px;
+  padding: 3px 4px;
   min-height: 24px;
   font-size: 0.85em;
 }
