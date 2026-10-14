@@ -5113,11 +5113,11 @@ textview > popover.menu button.model:focus-visible,
   opacity: 0;
   padding: 0 7px;
   border-radius: 5px;
-  transition: opacity 120ms ease-out;
 }
 
 .file-list row:hover .file-size {
   opacity: 1;
+  transition: opacity 120ms ease-out;
 }
 
 .file-list row:selected .file-size {

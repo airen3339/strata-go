@@ -874,6 +874,7 @@ pub(crate) fn mark_in(marks: &ClipboardMarks, location: &Location) -> ClipboardM
 thread_local! {
     static SHARED_CUT_LOCATIONS: RefCell<Vec<Location>> = const { RefCell::new(Vec::new()) };
     static SHARED_COPY_LOCATIONS: RefCell<Vec<Location>> = const { RefCell::new(Vec::new()) };
+    static SHARED_MARK_INDEX: RefCell<ClipboardMarks> = RefCell::new(ClipboardMarks::new());
     static OWNED_FILE_PROVIDER: RefCell<Option<gtk::gdk::ContentProvider>> = const { RefCell::new(None) };
     static CUT_VIEWS: RefCell<Vec<Weak<ViewState>>> = const { RefCell::new(Vec::new()) };
     static WATCHING_OWNERSHIP: Cell<bool> = const { Cell::new(false) };
@@ -914,6 +915,7 @@ fn owns_clipboard(clipboard: &gtk::gdk::Clipboard) -> bool {
 }
 
 fn refresh_cut_views() {
+    index_shared_marks();
     let views = CUT_VIEWS.with(|views| {
         let mut views = views.borrow_mut();
         let live = views.iter().filter_map(Weak::upgrade).collect::<Vec<_>>();
@@ -930,18 +932,35 @@ pub(crate) fn set_mark_result_style(row: &gtk::Box, location: &Location) {
 }
 
 pub(crate) fn clipboard_mark(location: &Location) -> ClipboardMark {
-    let listed = |locations: Vec<Location>| {
-        locations
-            .iter()
-            .any(|marked| locations_equal(marked, location))
-    };
-    if listed(shared_cut_locations()) {
-        ClipboardMark::Cut
-    } else if listed(shared_copy_locations()) {
-        ClipboardMark::Copy
-    } else {
-        ClipboardMark::None
+    SHARED_MARK_INDEX.with_borrow(|index| {
+        if index.is_empty() {
+            return ClipboardMark::None;
+        }
+        match file_uri_as_native(location) {
+            Some(native) => mark_in(index, &native),
+            None => mark_in(index, location),
+        }
+    })
+}
+
+fn file_uri_as_native(location: &Location) -> Option<Location> {
+    let uri = location
+        .uri_value()
+        .filter(|uri| uri.starts_with("file:"))?;
+    gtk::gio::File::for_uri(uri).path().map(Location::local)
+}
+
+fn index_shared_marks() {
+    let mut index = ClipboardMarks::new();
+    for (locations, mark) in [
+        (shared_copy_locations(), ClipboardMark::Copy),
+        (shared_cut_locations(), ClipboardMark::Cut),
+    ] {
+        for location in locations {
+            index.insert(file_uri_as_native(&location).unwrap_or(location), mark);
+        }
     }
+    SHARED_MARK_INDEX.with(|shared| shared.replace(index));
 }
 
 fn shared_marks() -> ClipboardMarks {

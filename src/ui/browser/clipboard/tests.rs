@@ -714,6 +714,25 @@ fn cleared_shared_cut_is_not_revived_by_stale_view_state() {
 }
 
 #[test]
+fn row_marks_match_gio_equivalent_representations() {
+    let native = Location::local("/fixture/first");
+    let uri = Location::uri("file:///fixture/first");
+
+    set_shared_marks(std::slice::from_ref(&native), &[]);
+    assert_eq!(clipboard_mark(&uri), ClipboardMark::Copy);
+
+    set_shared_marks(&[], std::slice::from_ref(&uri));
+    assert_eq!(clipboard_mark(&native), ClipboardMark::Cut);
+    assert_eq!(
+        clipboard_mark(&Location::local("/fixture/other")),
+        ClipboardMark::None
+    );
+
+    clear_shared_marks();
+    assert_eq!(clipboard_mark(&native), ClipboardMark::None);
+}
+
+#[test]
 fn completed_moves_match_gio_equivalent_cut_entries() {
     let mut cut = vec![Location::local("/fixture/first")];
 
