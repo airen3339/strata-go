@@ -575,7 +575,6 @@ fn decoder_cannot_reopen_or_mutate_a_read_only_source_descriptor() {
         assert_eq!(contents, SOURCE);
         std::fs::write(writable.join("output"), b"decoder output")
             .expect("private writes permitted");
-        // GDK Pixbuf may delegate to glycin, whose own sandbox cannot start here.
         let decoded = gdk_pixbuf::Pixbuf::from_file(writable.join("loader.png"))
             .expect("system image loader");
         assert_eq!((decoded.width(), decoded.height()), (3, 2));
@@ -609,7 +608,6 @@ fn decoder_cannot_reopen_or_mutate_a_read_only_source_descriptor() {
     let source = tempfile::NamedTempFile::new().expect("source");
     let scratch = tempfile::tempdir().expect("decoder scratch");
     std::fs::write(source.path(), SOURCE).expect("fixture");
-    // Encode here: a loader initialized before the child's restrictions would hide them.
     let image = gdk_pixbuf::Pixbuf::new(gdk_pixbuf::Colorspace::Rgb, false, 8, 3, 2)
         .expect("fixture pixbuf");
     image.fill(0x2860_a0ff);

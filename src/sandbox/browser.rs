@@ -790,8 +790,6 @@ impl ProcessWorker {
                 "--setenv",
                 "MAGICK_THREAD_LIMIT",
                 "1",
-                // Jobs already confine glycin loaders; this skips glycin's
-                // per-job probe for a bwrap that cannot start under Landlock.
                 "--setenv",
                 "GLYCIN_DISABLE_SANDBOX",
                 "i-know-the-risks",

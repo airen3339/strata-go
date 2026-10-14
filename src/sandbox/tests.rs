@@ -330,8 +330,6 @@ fn metadata_probe_retains_software_sandbox_limits_and_narrow_runtime_access() {
 
 #[test]
 fn non_media_helpers_expose_gl_dispatch_links_without_the_whole_directory() {
-    // The helper itself links libGL, so even a software-only image sandbox
-    // must resolve Debian-family GL dispatch links (glx-diversions, NVIDIA).
     let command = sandbox_command(
         Path::new("/usr/bin/bwrap"),
         Path::new("/tmp/strata"),

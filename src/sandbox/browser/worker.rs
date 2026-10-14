@@ -156,9 +156,6 @@ pub(super) fn restrict_mutations() -> Result<(), String> {
     ] {
         rules.insert(call, Vec::new());
     }
-    // Rust/GIO use these descriptor controls when spawning loader processes,
-    // and glycin's bwrap probe must look up the loopback interface to learn
-    // that its sandbox cannot nest here. None can change files or inodes.
     let descriptor_controls = [
         libc::FIOCLEX,
         libc::FIONCLEX,

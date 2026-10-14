@@ -758,10 +758,6 @@ fn runtime_command(bwrap: &Path, needs_media_libraries: bool) -> Command {
         let path = format!("/etc/alternatives/{tool}");
         command.arg("--ro-bind-try").arg(&path).arg(&path);
     }
-    // Debian-family GL dispatch resolves through per-library alternatives links
-    // (glx-diversions, NVIDIA). The helper itself links libGL, so every sandbox
-    // needs these, not just media ones. Expose only the link files, never the
-    // whole /etc/alternatives directory.
     for architecture in ["x86_64-linux-gnu", "aarch64-linux-gnu"] {
         for library in [
             "libGL.so.1",
