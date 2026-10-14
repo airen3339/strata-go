@@ -69,5 +69,4 @@ pub use window::{UnlockTarget, present, present_open, present_reveal, present_un
 
 pub(crate) fn prepare_portal_ui() {
     let _theme = theme::ThemeManager::shared();
-    window::load_styles();
 }

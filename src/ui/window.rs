@@ -300,7 +300,6 @@ pub(super) fn present_target(
     crate::assets::register_icon_theme();
     let _theme_manager = super::theme::ThemeManager::shared();
     let preference_manager = super::preferences::PreferenceManager::shared();
-    load_styles();
     tracing::debug!(
         elapsed_ms = present_started.elapsed().as_millis() as u64,
         "present theme and styles ready"
@@ -4166,16 +4165,3 @@ fn startup_location(manager: &PreferenceManager) -> Location {
 
 #[cfg(test)]
 mod tests;
-
-pub(super) fn load_styles() {
-    let provider = gtk::CssProvider::new();
-    provider.load_from_string(include_str!("../style.css"));
-
-    if let Some(display) = gtk::gdk::Display::default() {
-        gtk::style_context_add_provider_for_display(
-            &display,
-            &provider,
-            gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
-        );
-    }
-}

@@ -18,6 +18,52 @@ window {
   font-size: 13px;
 }
 
+/* GTK's built-in theme radii, restated so the Corner roundness preference
+   scales them with the rest of the stylesheet. */
+button,
+entry,
+spinbutton,
+checkbutton,
+modelbutton.flat,
+tooltip {
+  border-radius: 5px;
+}
+
+popover > contents {
+  border-radius: 9px;
+}
+
+check {
+  border-radius: 3px;
+}
+
+/* Strata draws its own chrome; GTK's client-side decoration only supplies the
+   invisible resize edges plus a hairline where the desktop draws no border. */
+window.csd {
+  border-radius: 0;
+  box-shadow: 0 0 0 1px alpha(@strata_border, 0.6);
+}
+
+window.csd.maximized,
+window.csd.fullscreen,
+window.csd.tiled,
+window.csd.tiled-top,
+window.csd.tiled-right,
+window.csd.tiled-bottom,
+window.csd.tiled-left {
+  box-shadow: none;
+}
+
+window.solid-csd {
+  padding: 0;
+  border: none;
+  box-shadow: none;
+}
+
+window.solid-csd headerbar {
+  margin: 0;
+}
+
 /* GTK's default theme sets `font: initial` here, which drops the window font
    and falls back to gtk-font-name (Adwaita Sans). */
 popover.background,
@@ -1999,6 +2045,9 @@ menubutton.form-control:disabled > button {
 switch {
   background: @strata_muted;
   border: 1px solid alpha(@strata_border, 0.72);
+  /* Track and thumb share one radius so they keep the same corner shape at
+     every roundness; GTK caps each at half its size. */
+  border-radius: 14px;
   box-shadow: none;
   min-height: 22px;
   min-width: 40px;
@@ -2014,6 +2063,7 @@ switch slider,
 switch:checked slider {
   background: @strata_text;
   border: none;
+  border-radius: 14px;
   box-shadow: 0 1px 3px alpha(#000000, 0.4);
   min-height: 18px;
   min-width: 18px;
