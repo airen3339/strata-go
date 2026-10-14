@@ -801,7 +801,7 @@ fn unwrapped_document_width(view: &super::document_view::DocumentTextView) -> i3
             break;
         }
     }
-    widest + view.left_margin() + view.right_margin()
+    widest + view.right_margin()
 }
 
 fn source_line_numbers_view(unit: &SourceUnit) -> gtk::TextView {
