@@ -1,13 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
-"""Measure what scrolling costs in each browser mode.
-
-Each run starts one Strata binary under `sysprof-cli --gtk` on a private Xvfb
-display and session bus, opens a generated folder, scrolls it once to warm
-caches, scrolls it again at a fixed rate while measuring, and then idles. It
-reports main-thread CPU, frame timings from GTK's own profiler marks, and idle
-wakeups. See docs/performance-baseline.md.
-"""
+"""Measure what scrolling costs in each browser mode."""
 
 from __future__ import annotations
 
@@ -50,8 +43,6 @@ UP = 0xFF52
 WHEEL_UP = 4
 WHEEL_DOWN = 5
 
-# Without a window manager the window maps at the screen origin; these points
-# sit over the listing, right of the sidebar and below the header.
 POINTER = {"columns": (420, 420), "list": (700, 420), "icons": (700, 420)}
 
 MIXED_EXTENSIONS = (
@@ -119,8 +110,6 @@ def ensure_fixtures(root: Path) -> None:
     marker.touch()
 
 
-# Little-endian sysprof capture layout (libsysprof-capture's
-# SysprofCaptureFileHeader, SysprofCaptureFrame and SysprofCaptureMark).
 CAPTURE_MAGIC = 0xFDCA975E
 CAPTURE_HEADER_SIZE = 256
 CAPTURE_FRAME = struct.Struct("<HhiqII")
@@ -129,8 +118,6 @@ CAPTURE_MARK_KIND = 10
 
 
 def read_marks(path: Path):
-    """Yield (start_ns, duration_ns, group, name, message) for every mark."""
-
     data = path.read_bytes()
     if len(data) < CAPTURE_HEADER_SIZE or struct.unpack_from("<I", data)[0] != CAPTURE_MAGIC:
         raise ValueError(f"{path} is not a little-endian sysprof capture")
@@ -232,8 +219,6 @@ def find_child(parent: int, prefix: str, timeout: float = 20.0) -> int:
 
 
 def wait_until_quiet(pid: int, *, minimum: float, timeout: float = 60.0) -> None:
-    """Return once the main thread has used under 3% CPU for a full second."""
-
     time.sleep(minimum)
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -265,8 +250,6 @@ class Driver:
             self.key(ord(character))
 
     def scroll(self, input_kind: str, steps: int, rate: float) -> None:
-        """Scroll `steps` down and back up, at `rate` steps per second."""
-
         if input_kind == "keys":
             forward, back = (lambda: self._tap(DOWN)), (lambda: self._tap(UP))
         else:
@@ -326,7 +309,6 @@ def application_command(
 ) -> list[str]:
     command = [str(binary), str(folder)]
     if cpu_quota is not None:
-        # systemd-run reaches the user manager on its own bus; Strata keeps the private one.
         uid = os.getuid()
         command = [
             "env",
@@ -388,7 +370,6 @@ def run_once(spec: RunSpec, settings: Settings, display: HeadlessDisplay) -> dic
     )
     connection = None
     try:
-        # `env` and `systemd-run --scope` exec in place, so the child's PID becomes Strata's.
         pid = find_child(profiler.popen.pid, "strata")
         wait_until_quiet(pid, minimum=4.0)
         connection = XTestConnection(display.display)
@@ -611,7 +592,6 @@ def main() -> int:
         for round_index in range(arguments.rounds):
             for mode in arguments.modes:
                 for fixture in arguments.fixtures:
-                    # Builds alternate within each configuration so drift spreads evenly.
                     for label, binary in arguments.binary:
                         result = run_once(
                             RunSpec(label, binary, mode, fixture, round_index), settings, display
