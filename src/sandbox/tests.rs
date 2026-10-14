@@ -346,23 +346,36 @@ fn non_media_helpers_expose_gl_dispatch_links_without_the_whole_directory() {
         .get_args()
         .map(|arg| arg.to_string_lossy())
         .collect();
-    let joined = arguments.join(" ");
     assert!(
         !arguments
             .iter()
             .any(|argument| argument == "/etc/alternatives")
     );
+    let mut exposed: Vec<_> = arguments
+        .windows(3)
+        .filter(|bind| bind[0] == "--ro-bind-try" && bind[1].starts_with("/etc/alternatives/glx--"))
+        .map(|bind| format!("{} {}", bind[1], bind[2]))
+        .collect();
+    let mut expected = Vec::new();
     for architecture in ["x86_64-linux-gnu", "aarch64-linux-gnu"] {
         for library in [
             "libGL.so.1",
             "libEGL.so.1",
             "libGLESv2.so.2",
             "libGLESv1_CM.so.1",
+            "libGL.so",
+            "libEGL.so",
+            "libGLESv2.so",
+            "libGLESv1_CM.so",
+            "libGLX_indirect.so.0",
         ] {
             let path = format!("/etc/alternatives/glx--{library}-{architecture}");
-            assert!(joined.contains(&format!("--ro-bind-try {path} {path}")));
+            expected.push(format!("{path} {path}"));
         }
     }
+    exposed.sort();
+    expected.sort();
+    assert_eq!(exposed, expected);
 }
 
 #[test]
