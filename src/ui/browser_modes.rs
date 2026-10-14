@@ -2532,7 +2532,7 @@ fn build_icons_pane(
     let sections_for_settle = context.sections.clone();
     let marks_for_settle = context.marks.clone();
     let depth_for_settle = context.depth;
-    install_scroll_refresh(&scroll, context.scrolling.clone(), None, move || {
+    install_scroll_refresh(&scroll, context.scrolling.clone(), move || {
         let Some(browser) = browser_for_settle.upgrade() else {
             return;
         };
@@ -2941,52 +2941,69 @@ fn refresh_marquee_targets(pane: &Pane) {
 fn install_scroll_refresh(
     scroll: &gtk::ScrolledWindow,
     scrolling: Rc<Cell<bool>>,
-    css_class: Option<&'static str>,
     on_refresh: impl Fn() + 'static,
 ) {
-    let pending = Rc::new(RefCell::new(None::<super::frame::FrameTask>));
-    let on_refresh = Rc::new(on_refresh);
+    let settle = Rc::new(ScrollSettle {
+        scroll: scroll.downgrade(),
+        scrolling,
+        last_scroll: Cell::new(std::time::Instant::now()),
+        armed: Cell::new(false),
+        on_refresh: Box::new(on_refresh),
+    });
     for adjustment in [scroll.vadjustment(), scroll.hadjustment()] {
-        let pending = pending.clone();
-        let scrolling = scrolling.clone();
-        let scroll = scroll.downgrade();
-        let on_refresh = on_refresh.clone();
+        let settle = settle.clone();
         adjustment.connect_value_changed(move |_| {
-            let Some(scroll) = scroll.upgrade() else {
+            settle.scrolling.set(true);
+            settle.last_scroll.set(std::time::Instant::now());
+            if !settle.armed.replace(true) {
+                ScrollSettle::arm(&settle, settle.delay());
+            }
+        });
+    }
+}
+
+struct ScrollSettle {
+    scroll: glib::WeakRef<gtk::ScrolledWindow>,
+    scrolling: Rc<Cell<bool>>,
+    last_scroll: Cell<std::time::Instant>,
+    armed: Cell<bool>,
+    on_refresh: Box<dyn Fn()>,
+}
+
+impl ScrollSettle {
+    const DELAY: std::time::Duration = std::time::Duration::from_millis(25);
+    const MINIMUM_FRAMES: f64 = 2.0;
+
+    fn delay(&self) -> std::time::Duration {
+        let frames = self
+            .scroll
+            .upgrade()
+            .and_then(|scroll| scroll.frame_clock())
+            .map(|clock| clock.fps())
+            .filter(|fps| *fps > 0.0)
+            .map_or(std::time::Duration::ZERO, |fps| {
+                std::time::Duration::from_secs_f64(Self::MINIMUM_FRAMES / fps)
+            });
+        Self::DELAY.max(frames)
+    }
+
+    fn arm(settle: &Rc<Self>, delay: std::time::Duration) {
+        let settle = Rc::downgrade(settle);
+        glib::timeout_add_local_once(delay, move || {
+            let Some(settle) = settle.upgrade() else {
                 return;
             };
-            if pending.borrow().is_some() {
+            let still = settle.last_scroll.get().elapsed();
+            let delay = settle.delay();
+            if still < delay {
+                Self::arm(&settle, delay - still);
                 return;
             }
-            scrolling.set(true);
-            if let Some(css_class) = css_class {
-                let scrolling = scrolling.clone();
-                let scroll = scroll.downgrade();
-                glib::idle_add_local_once(move || {
-                    if scrolling.get()
-                        && let Some(scroll) = scroll.upgrade()
-                    {
-                        scroll.add_css_class(css_class);
-                    }
-                });
+            settle.armed.set(false);
+            settle.scrolling.set(false);
+            if settle.scroll.upgrade().is_some() {
+                (settle.on_refresh)();
             }
-            let pending_for_frame = pending.clone();
-            let scrolling = scrolling.clone();
-            let weak_scroll = scroll.downgrade();
-            let on_refresh = on_refresh.clone();
-            pending.replace(Some(super::frame::FrameTask::new(
-                Some(scroll.upcast_ref()),
-                move || {
-                    pending_for_frame.borrow_mut().take();
-                    scrolling.set(false);
-                    if let Some(scroll) = weak_scroll.upgrade() {
-                        if let Some(css_class) = css_class {
-                            scroll.remove_css_class(css_class);
-                        }
-                        on_refresh();
-                    }
-                },
-            )));
         });
     }
 }
@@ -3538,7 +3555,7 @@ fn build_list_pane(
     let source_index_for_settle = source_index.clone();
     let sections_for_settle = Rc::downgrade(&sections);
     let marks_for_settle = clipboard_marks.clone();
-    install_scroll_refresh(&scroll, scrolling, Some("list-fast-scroll"), move || {
+    install_scroll_refresh(&scroll, scrolling, move || {
         let Some(browser) = browser_for_settle.upgrade() else {
             return;
         };
