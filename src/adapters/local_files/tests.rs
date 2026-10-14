@@ -1999,7 +1999,7 @@ fn cheap_metadata_is_published_while_details_are_waiting() {
 fn cancelled_media_details_are_not_cached_as_unavailable() {
     let root = tempfile::tempdir().expect("fixture directory");
     let path = root.path().join("photo.jpg");
-    fs::write(&path, b"content").expect("fixture file");
+    fs::write(&path, b"\xff\xd8\xff\xe0\0\x10JFIF\0").expect("fixture file");
     let location = Location::local(&path);
     let info = gio::File::for_path(&path)
         .query_info(
