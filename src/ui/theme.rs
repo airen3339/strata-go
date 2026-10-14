@@ -173,6 +173,8 @@ pub struct ThemeManager {
     omarchy_available: Cell<bool>,
     omarchy_monitors: RefCell<Vec<gio::FileMonitor>>,
     pending_omarchy_refresh: RefCell<Option<glib::SourceId>>,
+    themes_monitors: RefCell<Vec<gio::FileMonitor>>,
+    pending_themes_refresh: RefCell<Option<glib::SourceId>>,
     preview: RefCell<Option<ThemeTokens>>,
     preview_generation: Cell<u64>,
     /// Omarchy state can be unreadable mid-switch while the window keeps these colors.
@@ -217,6 +219,8 @@ impl ThemeManager {
             omarchy_available: Cell::new(omarchy_available),
             omarchy_monitors: RefCell::new(Vec::new()),
             pending_omarchy_refresh: RefCell::new(None),
+            themes_monitors: RefCell::new(Vec::new()),
+            pending_themes_refresh: RefCell::new(None),
             preview: RefCell::new(None),
             preview_generation: Cell::new(0),
             applied_omarchy_tokens: RefCell::new(None),
@@ -238,6 +242,7 @@ impl ThemeManager {
         manager.apply_selected();
         manager.monitor_text_scaling();
         manager.monitor_omarchy();
+        manager.monitor_custom_themes();
         manager
     }
 
@@ -328,11 +333,13 @@ impl ThemeManager {
         self.preview.borrow().is_some()
     }
 
-    pub fn save_custom_theme(&self, tokens: ThemeTokens) -> io::Result<String> {
+    pub fn save_custom_theme(self: &Rc<Self>, tokens: ThemeTokens) -> io::Result<String> {
         validate_tokens(&tokens)
             .map_err(|message| io::Error::new(io::ErrorKind::InvalidInput, message))?;
         let directory = themes_directory();
         fs::create_dir_all(&directory)?;
+        // The directory may not have existed when the watch was last armed.
+        self.monitor_custom_themes();
         // Never replace a file already there, even one that did not load: it may be
         // a broken or newly linked dotfile the user still wants.
         let id = custom_theme_id(&tokens.name, |candidate| {
@@ -554,6 +561,81 @@ impl ThemeManager {
             self.preferences.notify_changes();
         }
     }
+
+    fn monitor_custom_themes(self: &Rc<Self>) {
+        for monitor in self.themes_monitors.take() {
+            monitor.cancel();
+        }
+        let directory = themes_directory();
+        if !directory.is_dir() {
+            return;
+        }
+        let Ok(monitor) = gio::File::for_path(&directory)
+            .monitor_directory(gio::FileMonitorFlags::NONE, gio::Cancellable::NONE)
+        else {
+            return;
+        };
+        let weak = Rc::downgrade(self);
+        monitor.connect_changed(move |_, file, other_file, _| {
+            if !is_custom_theme_event(file)
+                && !other_file
+                    .as_ref()
+                    .is_some_and(|file| is_custom_theme_event(file))
+            {
+                return;
+            }
+            let Some(manager) = weak.upgrade() else {
+                return;
+            };
+            if let Some(pending) = manager.pending_themes_refresh.borrow_mut().take() {
+                pending.remove();
+            }
+            let weak = weak.clone();
+            let refresh = glib::timeout_add_local_once(Duration::from_millis(75), move || {
+                let Some(manager) = weak.upgrade() else {
+                    return;
+                };
+                manager.pending_themes_refresh.borrow_mut().take();
+                manager.refresh_custom_themes();
+            });
+            manager.pending_themes_refresh.replace(Some(refresh));
+        });
+        self.themes_monitors.borrow_mut().push(monitor);
+    }
+
+    /// A selected file caught mid-write, invalid, or removed keeps its last
+    /// valid colors until a read succeeds again.
+    pub(in crate::ui) fn refresh_custom_themes(&self) {
+        let selected = self.preferences.selected_theme_id();
+        let before = self.current_tokens();
+        let mut themes = merge_builtin_and_custom_themes(builtins(), load_custom_themes());
+        if !themes.iter().any(|theme| theme.id == selected)
+            && let Some(previous) = self
+                .themes
+                .borrow()
+                .iter()
+                .find(|theme| theme.id == selected)
+                .cloned()
+        {
+            themes.push(previous);
+        }
+        self.themes.replace(themes);
+        let after = self.current_tokens();
+        if self.follows_omarchy() || after.is_none() || after == before {
+            return;
+        }
+        self.apply_selected();
+        self.preferences.notify_changes();
+    }
+}
+
+fn is_custom_theme_event(file: &gio::File) -> bool {
+    file.path().is_some_and(|path| {
+        path.parent() == Some(themes_directory().as_path())
+            && path
+                .extension()
+                .is_some_and(|extension| extension == "toml")
+    })
 }
 
 fn is_omarchy_theme_event(file: &gio::File) -> bool {
