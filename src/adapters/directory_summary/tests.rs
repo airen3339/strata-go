@@ -293,8 +293,8 @@ fn directory_summary_does_not_stop_enumerating_siblings_after_one_branch_is_dept
 fn measure_entry_reads_no_unset_optional_attributes() {
     let root = unique_fixture_root("missing-attributes");
     std::fs::create_dir_all(&root).expect("the directory fixture should be created");
-    let criticals = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
-    let recorded = criticals.clone();
+    let critical_logs = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let recorded = critical_logs.clone();
     let handler = glib::log_set_handler(
         Some("GLib-GIO"),
         glib::LogLevels::LEVEL_CRITICAL,
@@ -336,7 +336,7 @@ fn measure_entry_reads_no_unset_optional_attributes() {
     std::fs::remove_dir_all(&root).expect("the directory fixture should be removed");
 
     assert_eq!(
-        criticals
+        critical_logs
             .lock()
             .expect("the critical log should be lockable")
             .as_slice(),
