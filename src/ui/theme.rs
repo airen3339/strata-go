@@ -20,9 +20,12 @@ use super::preferences::{
 mod omarchy;
 mod roundness;
 
-/// Above GTK's user priority so `~/.config/gtk-4.0/gtk.css` cannot override
-/// the properties Strata's stylesheets define.
-const STYLE_PRIORITY: u32 = gtk::STYLE_PROVIDER_PRIORITY_USER + 1;
+/// Above GTK's user priority, every property is unset and the built-in theme
+/// restated, so `~/.config/gtk-4.0/gtk.css` cannot decide any of them.
+const RESET_STYLE_PRIORITY: u32 = gtk::STYLE_PROVIDER_PRIORITY_USER + 1;
+const BASE_THEME_STYLE_PRIORITY: u32 = RESET_STYLE_PRIORITY + 1;
+const STYLE_PRIORITY: u32 = BASE_THEME_STYLE_PRIORITY + 1;
+const RESET_CSS: &str = "* { all: unset; }";
 const TOKEN_STYLE_PRIORITY: u32 = STYLE_PRIORITY + 1;
 const STYLE_CSS: &str = include_str!("../style.css");
 
@@ -176,6 +179,8 @@ impl ThemeListeners {
 
 pub struct ThemeManager {
     provider: gtk::CssProvider,
+    reset_provider: gtk::CssProvider,
+    base_theme_provider: gtk::CssProvider,
     base_provider: gtk::CssProvider,
     base_roundness: Cell<Option<CornerRoundness>>,
     themes: RefCell<Vec<Theme>>,
@@ -226,6 +231,8 @@ impl ThemeManager {
 
         let manager = Rc::new(Self {
             provider: gtk::CssProvider::new(),
+            reset_provider: gtk::CssProvider::new(),
+            base_theme_provider: gtk::CssProvider::new(),
             base_provider: gtk::CssProvider::new(),
             base_roundness: Cell::new(None),
             themes: RefCell::new(themes),
@@ -394,7 +401,18 @@ impl ThemeManager {
     }
 
     fn install_provider(&self) {
+        self.reset_provider.load_from_string(RESET_CSS);
         if let Some(display) = gdk::Display::default() {
+            gtk::style_context_add_provider_for_display(
+                &display,
+                &self.reset_provider,
+                RESET_STYLE_PRIORITY,
+            );
+            gtk::style_context_add_provider_for_display(
+                &display,
+                &self.base_theme_provider,
+                BASE_THEME_STYLE_PRIORITY,
+            );
             gtk::style_context_add_provider_for_display(
                 &display,
                 &self.base_provider,
@@ -487,6 +505,8 @@ impl ThemeManager {
             });
         if self.base_variant_dark.replace(Some(dark_background)) != Some(dark_background) {
             apply_base_variant(dark_background);
+            self.base_theme_provider
+                .load_from_string(&base_theme_import(dark_background));
         }
         crate::assets::set_catppuccin_flavor(crate::assets::CatppuccinFlavor::for_dark_background(
             dark_background,
@@ -1221,6 +1241,11 @@ fn apply_base_variant(dark: bool) {
     } else {
         settings.set_gtk_application_prefer_dark_theme(dark);
     }
+}
+
+fn base_theme_import(dark: bool) -> String {
+    let variant = if dark { "gtk-dark.css" } else { "gtk.css" };
+    format!("@import url(\"resource:///org/gtk/libgtk/theme/{BASE_THEME}/{variant}\");")
 }
 
 /// Skips properties this GTK lacks.

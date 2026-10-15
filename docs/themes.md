@@ -19,10 +19,9 @@ Strata isolates its appearance from desktop GTK styling:
 - The built-in theme's light or dark variant follows the active Strata theme's
   background, not the desktop color scheme, and the high-contrast variant is
   never used.
-- Strata's stylesheets load above GTK's user priority, so
-  `~/.config/gtk-4.0/gtk.css` cannot change a property Strata defines. It can
-  still set properties Strata leaves to the built-in theme, which is the limit
-  of what GTK allows an application to control.
+- Above GTK's user priority, Strata unsets every property and restates the
+  built-in theme before its own stylesheets, so `~/.config/gtk-4.0/gtk.css`
+  cannot change any property of Strata's widgets.
 
 The `@strata_*` namespace prevents accidental collisions with other
 stylesheets' `@theme_*` colors; it does not stop deliberate `@strata_*`

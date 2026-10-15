@@ -761,7 +761,7 @@ fn desktop_gtk_theme_and_user_stylesheet_do_not_restyle_widgets() {
     .expect("desktop theme");
     std::fs::write(
         gtk_config.join("gtk.css"),
-        "window { color: rgb(255, 0, 0); }\n",
+        "window, label { color: rgb(255, 0, 0); }\n",
     )
     .expect("user stylesheet");
     gtk_test_with_env(
