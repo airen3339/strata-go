@@ -757,3 +757,39 @@ fn provider_icon_heading_keeps_the_name_and_action_positions() {
         },
     );
 }
+
+#[test]
+fn hub_timer_stops_and_tracking_ends_once_discovery_finds_no_providers() {
+    crate::test_support::gtk_test(
+        "ui::file_providers::tests::hub_timer_stops_and_tracking_ends_once_discovery_finds_no_providers",
+        || {
+            let (sender, discovery) = mpsc::channel();
+            HUB.with(|cell| {
+                cell.replace(Some(Hub {
+                    discovery,
+                    discovered: false,
+                    providers: Vec::new(),
+                    slots: Default::default(),
+                    pending: Default::default(),
+                    serial: 0,
+                }))
+            });
+            let early = ThumbnailSlot::new(16);
+            early.set_provider_path(Some("/early".into()));
+            assert!(admit(&early, "/early".into()));
+            assert_eq!(tick_hub(), glib::ControlFlow::Continue);
+            with_hub(|hub| assert_eq!(hub.slots.len(), 1));
+
+            sender.send(Vec::new()).expect("discovery result");
+            assert_eq!(tick_hub(), glib::ControlFlow::Break);
+            let late = ThumbnailSlot::new(16);
+            late.set_provider_path(Some("/late".into()));
+            assert!(admit(&late, "/late".into()));
+            with_hub(|hub| assert!(hub.slots.is_empty()));
+
+            install_hub();
+            assert_eq!(tick_hub(), glib::ControlFlow::Continue);
+            HUB.with(|cell| cell.replace(None));
+        },
+    );
+}
