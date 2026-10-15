@@ -808,8 +808,8 @@ fn returning_focus_lands_on_the_cursor_hit() {
     );
 }
 
-/// A request to return focus to the listing, as a background publish makes, leaves
-/// a hit's rename field focused and the hit unrenamed.
+/// A request to return focus to the listing leaves a hit's rename field focused
+/// and the hit unrenamed.
 fn rename_case(mode: BrowserMode) -> Result<(), String> {
     let fixture = filtered_fixture(mode, true);
     let field = show_filter_with_results(&fixture, "report", &ALL_REPORTS)?;
