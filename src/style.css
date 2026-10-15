@@ -5247,6 +5247,7 @@ textview > popover.menu button.model:focus-visible,
 
 .keyboard-navigation .file-list row:hover:not(:selected) .file-size {
   opacity: 0;
+  transition: none;
 }
 
 .file-marquee,
