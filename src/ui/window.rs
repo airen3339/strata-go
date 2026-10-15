@@ -81,6 +81,61 @@ pub(super) fn sidebar_rail_button_size() -> i32 {
 pub(super) fn sidebar_rail_width() -> i32 {
     sidebar_rail_button_size() + 10
 }
+
+/// Whether the full sidebar fits beside the content, and whether a preview
+/// took part in that judgement.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::ui) struct SidebarFit {
+    pub(in crate::ui) fits: bool,
+    pub(in crate::ui) preview: bool,
+}
+
+/// Decides when the sidebar shows as an icon rail. The user's explicit choice
+/// wins; a change in available space compacts an expanded sidebar once, and
+/// space releases only what it compacted.
+#[derive(Default)]
+pub(in crate::ui) struct RailPolicy {
+    compact: Cell<bool>,
+    automatic: Cell<bool>,
+    fit: Cell<Option<SidebarFit>>,
+}
+
+impl RailPolicy {
+    pub(in crate::ui) fn rail(&self) -> bool {
+        self.compact.get() || self.automatic.get()
+    }
+
+    /// Returns the new rail state when the choice changes what is shown.
+    pub(in crate::ui) fn set_compact(&self, compact: bool) -> Option<bool> {
+        let before = self.rail();
+        self.compact.set(compact);
+        self.automatic.set(false);
+        (self.rail() != before).then(|| self.rail())
+    }
+
+    /// Returns the new rail state when a changed fit changes what is shown.
+    pub(in crate::ui) fn observe(&self, fit: SidebarFit) -> Option<bool> {
+        if self.fit.replace(Some(fit)) == Some(fit) {
+            return None;
+        }
+        let before = self.rail();
+        if fit.fits {
+            self.automatic.set(false);
+        } else if !self.compact.get() {
+            self.automatic.set(true);
+        }
+        (self.rail() != before).then(|| self.rail())
+    }
+}
+
+/// The fit rule while no preview takes part: the full sidebar beside one column.
+/// `None` until the window has a width.
+pub(in crate::ui) fn sidebar_fits_without_preview(content: &gtk::Paned) -> Option<bool> {
+    let available = content
+        .root()
+        .map_or_else(|| content.width(), |root| root.width());
+    (available > 0).then(|| available > preferred_sidebar_width() + super::browser::COLUMN_WIDTH)
+}
 const SIDEBAR_TRANSITION: Duration = Duration::from_millis(300);
 const PINNED_DRAG_PREFIX: &str = "pinned:";
 const STANDARD_PLACE_IDS: &[&str] = &[
@@ -245,7 +300,6 @@ pub(super) fn present_target(
     crate::assets::register_icon_theme();
     let _theme_manager = super::theme::ThemeManager::shared();
     let preference_manager = super::preferences::PreferenceManager::shared();
-    load_styles();
     tracing::debug!(
         elapsed_ms = present_started.elapsed().as_millis() as u64,
         "present theme and styles ready"
@@ -1041,6 +1095,8 @@ fn append_menu_heading(container: &gtk::Box, text: &str) {
     container.append(&heading);
 }
 
+type RailListener = Rc<dyn Fn(bool)>;
+
 pub(super) struct SidebarState {
     widget: gtk::Box,
     view: BrowserView,
@@ -1063,8 +1119,10 @@ pub(super) struct SidebarState {
     rebuild_queued: Cell<bool>,
     scroll_restore_queued: Cell<bool>,
     pub(in crate::ui) rail: Cell<bool>,
+    policy: RailPolicy,
     pub(in crate::ui) saved_width: Cell<Option<i32>>,
     update_label: gtk::Label,
+    rail_changed: RefCell<Option<RailListener>>,
     keycaps: RefCell<Vec<gtk::Label>>,
     keycaps_shown: Cell<bool>,
     visible_pins: RefCell<Vec<Location>>,
@@ -1255,8 +1313,12 @@ impl SidebarState {
     }
 
     pub(in crate::ui) fn set_rail(&self, rail: bool) {
-        if self.rail.replace(rail) == rail && !rail {
+        let changed = self.rail.replace(rail) != rail;
+        if !changed && !rail {
             return;
+        }
+        if changed && let Some(listener) = self.rail_changed.borrow().clone() {
+            listener(rail);
         }
         if let Some(scroller) = self.sidebar_scroller()
             && let Some(shell) = scroller.parent()
@@ -1342,6 +1404,51 @@ impl SidebarState {
             }
         }
         self.sync_keycaps();
+    }
+
+    /// Runs after the rail engages or releases, however that was decided.
+    pub(in crate::ui) fn connect_rail_changed(&self, listener: impl Fn(bool) + 'static) {
+        self.rail_changed.replace(Some(Rc::new(listener)));
+    }
+
+    /// The user's choice, from the footer button or the saved preference.
+    pub(in crate::ui) fn set_compact(&self, compact: bool) {
+        if let Some(rail) = self.policy.set_compact(compact) {
+            self.apply_rail(rail);
+        }
+    }
+
+    /// Feeds the fit rule; the caller applies a returned change.
+    pub(in crate::ui) fn observe_fit(&self, fit: SidebarFit) -> Option<bool> {
+        self.policy.observe(fit)
+    }
+
+    /// Shows the rail or the full sidebar and moves the divider with it.
+    pub(in crate::ui) fn apply_rail(&self, rail: bool) {
+        self.set_rail(rail);
+        let Some(shell) = self
+            .sidebar_scroller()
+            .and_then(|scroller| scroller.parent())
+        else {
+            return;
+        };
+        let Some(paned) = shell.parent().and_downcast::<gtk::Paned>() else {
+            return;
+        };
+        if !shell.is_visible() {
+            return;
+        }
+        let target = if rail {
+            sidebar_rail_width()
+        } else {
+            self.saved_width
+                .get()
+                .unwrap_or_else(preferred_sidebar_width)
+                .max(sidebar_minimum_width(&shell))
+        };
+        if paned.position() != target {
+            paned.set_position(target);
+        }
     }
 }
 
@@ -1725,6 +1832,9 @@ impl SidebarState {
                 | BrowserEvent::ColumnsTruncated { .. }
                 | BrowserEvent::ColumnsRelocated { .. }
                 | BrowserEvent::FocusChanged { .. }
+                // A clicked place is highlighted before validation; a rejection
+                // leaves the previous location open, including while a mount runs.
+                | BrowserEvent::LocationNavigationRejected { .. }
         )
     }
 
@@ -4058,16 +4168,3 @@ fn startup_location(manager: &PreferenceManager) -> Location {
 
 #[cfg(test)]
 mod tests;
-
-pub(super) fn load_styles() {
-    let provider = gtk::CssProvider::new();
-    provider.load_from_string(include_str!("../style.css"));
-
-    if let Some(display) = gtk::gdk::Display::default() {
-        gtk::style_context_add_provider_for_display(
-            &display,
-            &provider,
-            gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
-        );
-    }
-}

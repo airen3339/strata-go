@@ -897,6 +897,8 @@ impl ViewState {
                 self.finished_send_to_completion.take();
                 self.pending_archive_destination.take();
                 let retry = self.pending_extract_retry.take();
+                // Only a password retry still follows an Extract to destination.
+                let navigate_after_extract = self.pending_navigate.take();
                 let message = message.clone();
                 let password_failure = *password_failure;
                 let weak = Rc::downgrade(self);
@@ -908,7 +910,6 @@ impl ViewState {
                     if let Some((entry, destination)) = retry
                         && let Some(invalid_password) = extract_password_retry(password_failure)
                     {
-                        let navigate_after_extract = state.pending_navigate.take();
                         state.show_extract_password_dialog(
                             entry,
                             destination,
@@ -974,6 +975,7 @@ impl ViewState {
                 self.suppress_scroll_after_drop.set(false);
                 self.drop_active_depths.set(None);
                 self.pending_archive_destination.take();
+                self.pending_navigate.take();
                 self.pending_send_to_completion.take();
                 self.finished_send_to_completion.take();
                 let affected_locations = affected_locations.clone();
