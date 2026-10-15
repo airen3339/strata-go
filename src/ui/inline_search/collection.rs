@@ -213,17 +213,13 @@ impl ResultCollection {
             .and_then(|position| self.item(position))
             .map(|item| item.path);
         let focused_widget = self.view.root().and_then(|root| root.focus());
-        let focused_in_collection =
-            focused_widget.as_ref().is_some_and(|focus| {
-                focus == &self.view
-                    || focus.is_ancestor(&self.view)
-                    || (!focus.is_mapped() && focus.type_().name() == "GtkListItemWidget")
-                    || self.bound.borrow().iter().any(|b| {
-                        b.widget.upgrade().as_ref().is_some_and(|w| {
-                            w == focus || w.is_ancestor(focus) || focus.is_ancestor(w)
-                        }) || b.widget.upgrade().and_then(|w| w.parent()).as_ref() == Some(focus)
-                    })
-            });
+        // Deleting a result refocuses the listing's own row, which the results hide; an
+        // unmapped list item cannot take keys, so the results reclaim focus from it.
+        let focused_in_collection = focused_widget.as_ref().is_some_and(|focus| {
+            focus == &self.view
+                || focus.is_ancestor(&self.view)
+                || (!focus.is_mapped() && focus.type_().name() == "GtkListItemWidget")
+        });
         let focused_slot = focused_widget
             .as_ref()
             .filter(|_| focused_in_collection)

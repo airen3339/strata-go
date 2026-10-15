@@ -794,64 +794,89 @@ fn tab_from_focused_result_leaves_in_one_press() {
     );
 }
 
-fn delete_result_case(mode: BrowserMode) -> Result<(), String> {
-    let fixture = filtered_fixture(mode, false);
-    let field = show_filter_with_results(&fixture, "report", &IMMEDIATE_REPORTS)?;
-    focus_first_result(&fixture, &field)?;
-    let first_hit = hit_cursor(&fixture).expect("focused hit");
-    let initial_results = fixture.view.filter_result_names();
-    let next_expected_hit = initial_results
-        .into_iter()
-        .find(|name| name != &first_hit)
-        .expect("next hit");
+/// Delete trashes the hit at once; Shift+Delete asks first, so its focus comes back
+/// through the dismissed dialog's fallback.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum DeleteRoute {
+    Trash,
+    Permanent,
+}
 
-    if !fixture.press(Key::Delete, ModifierType::empty()) {
+fn delete_focused_hit(fixture: &KeyboardFixture, route: DeleteRoute) -> Result<(), String> {
+    let hit = hit_cursor(fixture).ok_or("no focused hit to delete")?;
+    let modifiers = match route {
+        DeleteRoute::Trash => ModifierType::empty(),
+        DeleteRoute::Permanent => ModifierType::SHIFT_MASK,
+    };
+    if !fixture.press(Key::Delete, modifiers) {
         return Err(format!(
-            "Delete on a focused result was not handled; focus on {}",
-            describe_focus(&fixture)
+            "{route:?} delete on a focused result was not handled; focus on {}",
+            describe_focus(fixture)
         ));
     }
-    if settles(|| {
-        widget_with_class(fixture.overlay.upcast_ref(), "action-dialog-confirm").is_some()
-    }) && !click_class(&fixture.overlay, "action-dialog-confirm")
-    {
-        return Err("failed to click action-dialog-confirm".to_owned());
+    if route == DeleteRoute::Permanent {
+        if !settles(|| {
+            widget_with_class(fixture.overlay.upcast_ref(), "action-dialog-confirm").is_some()
+        }) {
+            return Err("Shift+Delete never asked for confirmation".to_owned());
+        }
+        if !click_class(&fixture.overlay, "action-dialog-confirm") {
+            return Err("failed to confirm the deletion".to_owned());
+        }
     }
-    if !settles(|| !result_names(&fixture).contains(&first_hit)) {
+    if !settles(|| !result_names(fixture).contains(&hit)) {
         return Err(format!(
-            "deleted hit {first_hit:?} never disappeared from results {:?}",
-            result_names(&fixture)
+            "deleted hit {hit:?} never left the results {:?}",
+            result_names(fixture)
         ));
     }
-    if !settles(|| result_has_focus(&fixture)) {
-        return Err(format!(
-            "after deleting a result, focus was lost; focus on {}",
-            describe_focus(&fixture)
-        ));
-    }
-    if hit_cursor(&fixture).as_deref() != Some(&next_expected_hit) {
-        return Err(format!(
-            "focus moved to {:?} rather than next hit {:?}",
-            hit_cursor(&fixture),
-            next_expected_hit
-        ));
-    }
+    Ok(())
+}
 
+fn escape_closes_filter(fixture: &KeyboardFixture) -> Result<(), String> {
     if !fixture.press(Key::Escape, ModifierType::empty()) {
         return Err(format!(
-            "Escape on focused result after deletion was not handled; focus on {}",
-            describe_focus(&fixture)
+            "Escape after the deletion was not handled; focus on {}",
+            describe_focus(fixture)
         ));
     }
     if !settles(|| {
         fixture.view.listing_filter().is_none() && !fixture.view.results_replace_listing()
     }) {
         return Err(format!(
-            "Escape after deletion did not close the filter; filter {:?}",
+            "Escape after the deletion did not close the filter; filter {:?}",
             fixture.view.listing_filter()
         ));
     }
     Ok(())
+}
+
+fn delete_result_case(mode: BrowserMode, route: DeleteRoute) -> Result<(), String> {
+    let fixture = filtered_fixture(mode, false);
+    let field = show_filter_with_results(&fixture, "report", &IMMEDIATE_REPORTS)?;
+    focus_first_result(&fixture, &field)?;
+    let first_hit = hit_cursor(&fixture).expect("focused hit");
+    let next_hit = fixture
+        .view
+        .filter_result_names()
+        .into_iter()
+        .find(|name| name != &first_hit)
+        .expect("next hit");
+
+    delete_focused_hit(&fixture, route)?;
+    if !settles(|| result_has_focus(&fixture)) {
+        return Err(format!(
+            "after deleting a result, focus was lost; focus on {}",
+            describe_focus(&fixture)
+        ));
+    }
+    if hit_cursor(&fixture).as_deref() != Some(&next_hit) {
+        return Err(format!(
+            "focus moved to {:?} rather than next hit {next_hit:?}",
+            hit_cursor(&fixture)
+        ));
+    }
+    escape_closes_filter(&fixture)
 }
 
 #[test]
@@ -861,8 +886,10 @@ fn deleting_focused_result_moves_focus_to_next_result() {
         || {
             let mut failures = Vec::new();
             for mode in [BrowserMode::List, BrowserMode::Icons] {
-                if let Err(error) = delete_result_case(mode) {
-                    failures.push(format!("{mode:?}: {error}"));
+                for route in [DeleteRoute::Trash, DeleteRoute::Permanent] {
+                    if let Err(error) = delete_result_case(mode, route) {
+                        failures.push(format!("{mode:?}, {route:?}: {error}"));
+                    }
                 }
             }
             report(failures);
@@ -870,59 +897,25 @@ fn deleting_focused_result_moves_focus_to_next_result() {
     );
 }
 
-fn delete_only_result_case(mode: BrowserMode) -> Result<(), String> {
+fn delete_only_result_case(mode: BrowserMode, route: DeleteRoute) -> Result<(), String> {
     let fixture = filtered_fixture(mode, false);
     let field = show_filter_with_results(&fixture, "gamma", &["gamma-report.md"])?;
     focus_first_result(&fixture, &field)?;
-    let first_hit = hit_cursor(&fixture).expect("focused hit");
 
-    if !fixture.press(Key::Delete, ModifierType::empty()) {
+    delete_focused_hit(&fixture, route)?;
+    let field_focused = || {
+        fixture.view.filter_has_focus()
+            && focus(&fixture).is_some_and(|focused| {
+                focused == *field.upcast_ref::<gtk::Widget>() || focused.is_ancestor(&field)
+            })
+    };
+    if !settles(field_focused) {
         return Err(format!(
-            "Delete on a focused result was not handled; focus on {}",
+            "after deleting the only result, focus was not in the filter field; focus on {}",
             describe_focus(&fixture)
         ));
     }
-    if settles(|| {
-        widget_with_class(fixture.overlay.upcast_ref(), "action-dialog-confirm").is_some()
-    }) && !click_class(&fixture.overlay, "action-dialog-confirm")
-    {
-        return Err("failed to click action-dialog-confirm".to_owned());
-    }
-    if !settles(|| !result_names(&fixture).contains(&first_hit)) {
-        return Err(format!(
-            "deleted hit {first_hit:?} never disappeared from results {:?}",
-            result_names(&fixture)
-        ));
-    }
-    if !settles(|| fixture.view.filter_has_focus()) {
-        return Err(format!(
-            "after deleting all results, filter did not have focus; focus on {}",
-            describe_focus(&fixture)
-        ));
-    }
-    let is_entry_focused = focus(&fixture)
-        .is_some_and(|f| f == *field.upcast_ref::<gtk::Widget>() || f.is_ancestor(&field));
-    if !is_entry_focused {
-        return Err(format!(
-            "after deleting all results, focus was not in filter field; focus on {}",
-            describe_focus(&fixture)
-        ));
-    }
-    if !fixture.press(Key::Escape, ModifierType::empty()) {
-        return Err(format!(
-            "Escape after deleting all results was not handled; focus on {}",
-            describe_focus(&fixture)
-        ));
-    }
-    if !settles(|| {
-        fixture.view.listing_filter().is_none() && !fixture.view.results_replace_listing()
-    }) {
-        return Err(format!(
-            "Escape did not close the filter after deleting all results; filter {:?}",
-            fixture.view.listing_filter()
-        ));
-    }
-    Ok(())
+    escape_closes_filter(&fixture)
 }
 
 #[test]
@@ -932,8 +925,10 @@ fn deleting_only_result_moves_focus_to_filter_entry() {
         || {
             let mut failures = Vec::new();
             for mode in [BrowserMode::List, BrowserMode::Icons] {
-                if let Err(error) = delete_only_result_case(mode) {
-                    failures.push(format!("{mode:?}: {error}"));
+                for route in [DeleteRoute::Trash, DeleteRoute::Permanent] {
+                    if let Err(error) = delete_only_result_case(mode, route) {
+                        failures.push(format!("{mode:?}, {route:?}: {error}"));
+                    }
                 }
             }
             report(failures);
