@@ -1,6 +1,6 @@
 {
   "%{category_keys} categories · %{search_keys} search · %{list_keys} list · %{move_keys} move · %{cycle_keys} cycle · %{close_keys} close": "%{category_keys} catégories · %{search_keys} recherche · %{list_keys} liste · %{move_keys} déplacer · %{cycle_keys} parcourir · %{close_keys} fermer",
-  "%{keys}  Shortcuts": "%{keys}  Raccourcis",
+  "%{keys} Shortcuts": "%{keys} Raccourcis",
   "%{keys}  navigate": "%{keys}  naviguer",
   "%{keys}  open containing folder": "%{keys}  ouvrir le dossier parent",
   "%{rate} Mb/s": "%{rate} Mb/s",

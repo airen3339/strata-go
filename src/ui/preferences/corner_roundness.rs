@@ -12,7 +12,7 @@ impl CornerRoundness {
     pub const MIN: u32 = 0;
     pub const MAX: u32 = 200;
     pub const STEP: u32 = 10;
-    pub const DEFAULT: Self = Self(100);
+    pub const DEFAULT: Self = Self(60);
 
     pub fn new(percent: u32) -> Self {
         Self(percent.clamp(Self::MIN, Self::MAX))

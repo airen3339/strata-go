@@ -1,6 +1,6 @@
 {
   "%{category_keys} categories · %{search_keys} search · %{list_keys} list · %{move_keys} move · %{cycle_keys} cycle · %{close_keys} close": "%{category_keys} 범주 · %{search_keys} 검색 · %{list_keys} 목록 · %{move_keys} 이동 · %{cycle_keys} 순환 · %{close_keys} 닫기",
-  "%{keys}  Shortcuts": "%{keys}  단축키",
+  "%{keys} Shortcuts": "%{keys} 단축키",
   "%{keys}  navigate": "%{keys}  이동",
   "%{keys}  open containing folder": "%{keys}  포함하는 폴더 열기",
   "%{rate} Mb/s": "%{rate}Mb/s",

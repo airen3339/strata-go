@@ -1,6 +1,6 @@
 {
   "%{category_keys} categories · %{search_keys} search · %{list_keys} list · %{move_keys} move · %{cycle_keys} cycle · %{close_keys} close": "%{category_keys} категории · %{search_keys} поиск · %{list_keys} список · %{move_keys} перемещение · %{cycle_keys} смена области · %{close_keys} закрыть",
-  "%{keys}  Shortcuts": "%{keys}  Комбинации клавиш",
+  "%{keys} Shortcuts": "%{keys} Комбинации клавиш",
   "%{keys}  navigate": "%{keys}  навигация",
   "%{keys}  open containing folder": "%{keys}  открыть содержащую папку",
   "%{rate} Mb/s": "%{rate} Мбит/с",

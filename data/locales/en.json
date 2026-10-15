@@ -1,6 +1,6 @@
 {
   "%{category_keys} categories · %{search_keys} search · %{list_keys} list · %{move_keys} move · %{cycle_keys} cycle · %{close_keys} close": "%{category_keys} categories · %{search_keys} search · %{list_keys} list · %{move_keys} move · %{cycle_keys} cycle · %{close_keys} close",
-  "%{keys}  Shortcuts": "%{keys}  Shortcuts",
+  "%{keys} Shortcuts": "%{keys} Shortcuts",
   "%{keys}  navigate": "%{keys}  navigate",
   "%{keys}  open containing folder": "%{keys}  open containing folder",
   "%{rate} Mb/s": "%{rate} Mb/s",

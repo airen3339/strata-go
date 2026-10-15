@@ -1,6 +1,6 @@
 {
   "%{category_keys} categories · %{search_keys} search · %{list_keys} list · %{move_keys} move · %{cycle_keys} cycle · %{close_keys} close": "%{category_keys} categorie · %{search_keys} ricerca · %{list_keys} elenco · %{move_keys} naviga · %{cycle_keys} cambia · %{close_keys} chiudi",
-  "%{keys}  Shortcuts": "%{keys}  Scorciatoie",
+  "%{keys} Shortcuts": "%{keys} Scorciatoie",
   "%{keys}  navigate": "%{keys}  naviga",
   "%{keys}  open containing folder": "%{keys}  apri cartella contenitore",
   "%{rate} Mb/s": "%{rate} Mb/s",

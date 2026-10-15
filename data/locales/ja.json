@@ -1,6 +1,6 @@
 {
   "%{category_keys} categories · %{search_keys} search · %{list_keys} list · %{move_keys} move · %{cycle_keys} cycle · %{close_keys} close": "%{category_keys} カテゴリ · %{search_keys} 検索 · %{list_keys} リスト · %{move_keys} 移動 · %{cycle_keys} 切り替え · %{close_keys} 閉じる",
-  "%{keys}  Shortcuts": "%{keys}  ショートカット",
+  "%{keys} Shortcuts": "%{keys} ショートカット",
   "%{keys}  navigate": "%{keys}  移動",
   "%{keys}  open containing folder": "%{keys}  ファイルの場所を開く",
   "%{rate} Mb/s": "%{rate} Mb/s",
