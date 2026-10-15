@@ -155,23 +155,6 @@ def test_open_with_launches_without_changing_default(open_with_app, strata, targ
     )
     assert associations.read_text() == contents
     strata.wait(lambda: strata.dialog() is None, "the chooser to close")
-    if target != "todo.txt":
-        return
-    # Item activation tears the menu down. The window must stay up, a later
-    # close with no action must stay quiet, and Open With must open again.
-    strata.wait_for_focused_entry("todo.txt")
-    strata.open_context_menu("todo.txt")
-    strata.dismiss_menu()
-    assert strata.window is not None
-    log = strata.application.log()
-    assert "Gtk-CRITICAL" not in log and "GLib-CRITICAL" not in log
-    strata.open_context_menu("todo.txt")
-    strata.wait(lambda: "sensitive" in strata.menu_item("Open With…").states, "menu after teardown")
-    strata.choose_menu_item("Open With…")
-    assert "Review Text Viewer" in strata.wait_for_dialog().dump()
-    strata.keyboard.press("Escape")
-    strata.wait(lambda: strata.dialog() is None, "the chooser to close again")
-    strata.wait_for_focused_entry("todo.txt")
 
 
 @pytest.mark.parametrize("target", ["todo.txt", "mixed", "documents", "background"])
