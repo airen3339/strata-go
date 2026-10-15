@@ -207,8 +207,12 @@ first member. Enter opens the preview even when automatic previews are disabled;
 double-click and the archive's context menu still offer extraction. In Icons
 and List, Enter retains its archive extraction behavior.
 
-Other archive previews start at the archive root with the first member
-highlighted. In List and Columns modes, arrow keys act on the focused pane,
+In every view, moving the cursor onto an archive while the preview is open
+updates the preview without taking keyboard focus: a plain archive shows its
+members with none highlighted, and a password-protected archive shows its
+password prompt unfocused. Opening the preview on an archive with **Space**
+enters it directly, highlighting the first member or focusing the password
+field. In List and Columns modes, arrow keys act on the focused pane,
 not merely on an open preview. From the listing, **Right** enters the open
 preview. While the preview owns focus, its header shows the accent top border
 instead of the Miller column. Returning to the listing restores its cursor
