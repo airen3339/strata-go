@@ -777,28 +777,27 @@ fn shell_escape_path_preserves_newlines_and_single_quotes() {
 }
 
 #[test]
-fn shell_escape_path_escapes_non_utf8_bytes_using_ansi_c_quoting() {
+fn shell_escape_path_quotes_only_non_utf8_components() {
     use std::ffi::OsStr;
     use std::os::unix::ffi::OsStrExt;
 
-    assert_eq!(
-        shell_escape_path(Path::new(OsStr::from_bytes(b"/path/to/bad\xff.txt"))),
-        "/path/to/$'bad\\xff.txt'"
-    );
-    assert_eq!(
-        shell_escape_path(Path::new(OsStr::from_bytes(b"/mnt/Mass 1/bad\xff.txt"))),
-        "/mnt/Mass\\ 1/$'bad\\xff.txt'"
-    );
-    assert_eq!(
-        shell_escape_path(Path::new(OsStr::from_bytes(
-            b"/path/to/caf\xc3\xa9\xff.txt"
-        ))),
-        "/path/to/$'café\\xff.txt'"
-    );
-    assert_eq!(
-        shell_escape_path(Path::new(OsStr::from_bytes(b"bad\xff.txt"))),
-        "$'bad\\xff.txt'"
-    );
+    for (path, expected) in [
+        (
+            &b"/mnt/Mass 1/bad\xff.txt"[..],
+            "/mnt/Mass\\ 1/$'bad\\xff.txt'",
+        ),
+        (b"/path/to/caf\xc3\xa9\xff.txt", "/path/to/$'café\\xff.txt'"),
+        (b"bad\xff it's\\.txt", "$'bad\\xff it\\'s\\\\.txt'"),
+        (
+            b"/tmp/line\nbreak/bad\xff\xc2\x85",
+            "/tmp/$'line\\x0abreak'/$'bad\\xff\\xc2\\x85'",
+        ),
+    ] {
+        assert_eq!(
+            shell_escape_path(Path::new(OsStr::from_bytes(path))),
+            expected
+        );
+    }
     assert_eq!(
         copy_path_text(
             &Location::local(Path::new(OsStr::from_bytes(b"/path/to/bad\xff"))),
@@ -809,51 +808,25 @@ fn shell_escape_path_escapes_non_utf8_bytes_using_ansi_c_quoting() {
 }
 
 #[test]
-fn copy_locations_copies_escaped_non_utf8_path_to_clipboard() {
-    crate::test_support::gtk_test(
-        "ui::browser::clipboard::tests::copy_locations_copies_escaped_non_utf8_path_to_clipboard",
-        || {
-            use std::ffi::OsStr;
-            use std::os::unix::ffi::OsStrExt;
+fn copied_non_utf8_paths_resolve_in_bash() {
+    use std::ffi::OsStr;
+    use std::os::unix::ffi::OsStrExt;
 
-            let dir = tempfile::tempdir().expect("temporary directory");
-            let file_name = OsStr::from_bytes(b"bad\xff.txt");
-            let file_path = dir.path().join(file_name);
-            std::fs::write(&file_path, b"content").expect("write bad file");
+    let dir = tempfile::tempdir().expect("temporary directory");
+    let directory = dir.path().join(OsStr::from_bytes(b"line\nbreak \xfe"));
+    std::fs::create_dir(&directory).expect("create directory");
+    let file = directory.join(OsStr::from_bytes(b"bad\xff it's\x85.txt"));
+    std::fs::write(&file, b"content").expect("write file");
 
-            let entry = crate::test_support::operations::entry(Location::local(&file_path));
-            copy_locations(&[entry]);
-
-            let display = gtk::gdk::Display::default().expect("display");
-            let clipboard = display.clipboard();
-            let text = Rc::new(RefCell::new(None));
-            let text_clone = text.clone();
-            clipboard.read_text_async(None::<&gio::Cancellable>, move |res| {
-                if let Ok(Some(s)) = res {
-                    *text_clone.borrow_mut() = Some(s.to_string());
-                }
-            });
-            pump_main_loop_until(Duration::from_secs(1), || text.borrow().is_some());
-
-            let copied = text.borrow().clone().expect("clipboard text");
-            let expected_suffix = "$'bad\\xff.txt'";
-            assert!(
-                copied.ends_with(expected_suffix),
-                "expected {copied} to end with {expected_suffix}"
-            );
-
-            // Execute in bash to prove that pasting the copied string resolves the file on disk
-            let status = std::process::Command::new("bash")
-                .arg("-c")
-                .arg(format!("test -e {copied}"))
-                .status()
-                .expect("bash execution");
-            assert!(
-                status.success(),
-                "pasting {copied} into bash must access the file"
-            );
-        },
-    );
+    for (path, is_directory) in [(&directory, true), (&file, false)] {
+        let copied = copy_path_text(&Location::local(path), is_directory);
+        let status = std::process::Command::new("bash")
+            .arg("-c")
+            .arg(format!("test -e {copied}"))
+            .status()
+            .expect("run bash");
+        assert!(status.success(), "bash could not resolve {copied:?}");
+    }
 }
 
 fn pump_main_loop_until(timeout: Duration, condition: impl Fn() -> bool) {
