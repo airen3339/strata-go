@@ -43,6 +43,7 @@ pub(super) struct ActionMenuSection {
     refresh_pending: Cell<bool>,
     selection: RefCell<Option<SelectionMenuContext>>,
     pressed_inside: Rc<Cell<bool>>,
+    popover_disposed: Rc<Cell<bool>>,
 }
 
 #[derive(Clone)]
@@ -63,14 +64,36 @@ fn refresh_on_change<T>(
     }
 }
 
+fn watch_dispose(widget: &impl IsA<gtk::Widget>, disposed: &Rc<Cell<bool>>) {
+    let disposed = disposed.clone();
+    widget.connect_destroy(move |_| disposed.set(true));
+}
+
+// GTK 4.14 disposes generated menu children while this popover is still
+// parented. Parent and child queries then assert and the process segfaults.
+// Empty a live menu before unparenting it, and skip a disposed one entirely.
+fn release_popover(popover: &gtk::PopoverMenu, disposed: &Cell<bool>, hidden_only: bool) {
+    if disposed.get() || popover.in_destruction() {
+        return;
+    }
+    if hidden_only && popover.is_visible() {
+        return;
+    }
+    if popover.menu_model().is_some() {
+        popover.set_menu_model(gio::MenuModel::NONE);
+    }
+    if disposed.get() || popover.in_destruction() || popover.parent().is_none() {
+        return;
+    }
+    popover.unparent();
+}
+
 impl Drop for ActionMenuSection {
     fn drop(&mut self) {
         for handler in self.monitor_handlers.get_mut().drain(..) {
             self.monitor.disconnect(handler);
         }
-        if self.popover.parent().is_some() {
-            self.popover.unparent();
-        }
+        release_popover(&self.popover, &self.popover_disposed, false);
     }
 }
 
@@ -152,11 +175,18 @@ impl ActionMenuSection {
         }
         let actions = gio::SimpleActionGroup::new();
         popover.insert_action_group("custom", Some(&actions));
-        popover.connect_closed(|popover| {
+        let popover_disposed = Rc::new(Cell::new(false));
+        watch_dispose(&popover, &popover_disposed);
+        if let Some(child) = popover.child() {
+            watch_dispose(&child, &popover_disposed);
+        }
+        let disposed_for_close = popover_disposed.clone();
+        popover.connect_closed(move |popover| {
             let Some(clock) = popover.frame_clock() else {
                 return;
             };
             let weak = popover.downgrade();
+            let disposed = disposed_for_close.clone();
             let handler = Rc::new(std::cell::RefCell::new(None));
             let handler_for_signal = handler.clone();
             let id = clock.connect_after_paint(move |clock| {
@@ -164,12 +194,10 @@ impl ActionMenuSection {
                     clock.disconnect(id);
                 }
                 let weak = weak.clone();
+                let disposed = disposed.clone();
                 gtk::glib::idle_add_local_once(move || {
-                    if let Some(popover) = weak.upgrade()
-                        && !popover.is_visible()
-                        && popover.parent().is_some()
-                    {
-                        popover.unparent();
+                    if let Some(popover) = weak.upgrade() {
+                        release_popover(&popover, &disposed, true);
                     }
                 });
             });
@@ -216,6 +244,7 @@ impl ActionMenuSection {
             refresh_pending: Cell::new(false),
             selection: RefCell::new(None),
             pressed_inside,
+            popover_disposed,
         });
         let monitor = &menu.monitor;
         if menu.transfer_sections.is_some() {
