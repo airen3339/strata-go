@@ -4,6 +4,8 @@ mod bookmarks;
 mod keyboard_dispatch;
 mod keyboard_policy;
 mod preferences;
+mod rail;
+mod sidebar;
 
 use crate::test_support::gtk_test;
 
