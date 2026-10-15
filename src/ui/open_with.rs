@@ -36,10 +36,15 @@ pub(in crate::ui) fn launch_with_portal(
     files: Vec<gio::File>,
     always_ask: bool,
 ) {
-    let window = parent.as_ref().root().and_downcast::<gtk::Window>();
+    let window = parent
+        .as_ref()
+        .root()
+        .and_downcast::<gtk::Window>()
+        .map(|window| window.downgrade());
     let parent = parent.as_ref().downgrade();
     glib::MainContext::default().spawn_local(async move {
         for file in files {
+            let window = window.as_ref().and_then(glib::WeakRef::upgrade);
             let launcher = gtk::FileLauncher::new(Some(&file));
             launcher.set_always_ask(always_ask);
             let Err(error) = launcher.launch_future(window.as_ref()).await else {
