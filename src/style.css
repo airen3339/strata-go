@@ -6404,9 +6404,9 @@ two-column presentation. */
 .about-logo {
   min-width: 58px;
   min-height: 58px;
-  border: 1px solid alpha(@strata_dim_text, 0.35);
+  border: 1px solid @strata_border;
   border-radius: 14px;
-  background: shade(@strata_dim_text, 0.3);
+  background: @strata_surface;
 }
 
 .about-name {

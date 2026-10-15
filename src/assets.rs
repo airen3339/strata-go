@@ -57,6 +57,7 @@ pub mod icons {
     pub const GLOBE: &str = "strata-globe";
     pub const CODE_XML: &str = "strata-code-xml";
     pub const BUG: &str = "strata-bug";
+    pub const STRATA_LOGO: &str = "strata-logo";
     pub const BOX: &str = "strata-box";
     pub const SCALE: &str = "strata-scale";
     pub const CORNER_DOWN_RIGHT: &str = "strata-corner-down-right";
@@ -537,6 +538,17 @@ fn primary_icon_texture_at(
 ) -> Option<gdk::Texture> {
     if name.starts_with(CATPPUCCIN_ICON_PREFIX) {
         return catppuccin_icon_texture_at(name, color, texture_px, logical_px, context);
+    }
+    if name == icons::STRATA_LOGO {
+        let data = gio::resources_lookup_data(
+            "/io/github/lgse/Strata/brand/strata-logo-white.svg",
+            gio::ResourceLookupFlags::NONE,
+        )
+        .ok()?;
+        let source = std::str::from_utf8(data.as_ref())
+            .ok()?
+            .replace("#ffffff", color);
+        return texture_from_svg(name, color, texture_px, source);
     }
     let path = format!("/io/github/lgse/Strata/icons/scalable/actions/{name}.svg");
     let data = gio::resources_lookup_data(&path, gio::ResourceLookupFlags::NONE).ok()?;
