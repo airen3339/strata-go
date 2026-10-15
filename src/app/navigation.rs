@@ -1919,9 +1919,7 @@ impl NavigationState {
             .collect()
     }
 
-    /// The pane's committed fill in listing order, or its cursor item when
-    /// nothing is filled. A load cursor is not a fill, and another pane's
-    /// open-path marker is never a target.
+    /// `filled_entries`, or the pane's cursor item when nothing is filled.
     pub fn command_entries(&self, depth: usize) -> Vec<FileEntry> {
         let filled = self.filled_entries(depth);
         if !filled.is_empty() {

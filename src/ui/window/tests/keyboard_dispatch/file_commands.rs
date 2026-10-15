@@ -758,7 +758,6 @@ fn ctrl_alt_n_with_no_selection_creates_plain_new_folder() {
             let directory = fixture._directory.path().to_path_buf();
             let browser = fixture.view.browser();
 
-            // Deselecting items in a folder containing files leaves existing files and creates an empty folder
             browser.clear_active_selection();
             assert_eq!(browser.selected_count(), 0);
             focus_files(&fixture);
@@ -774,7 +773,6 @@ fn ctrl_alt_n_with_no_selection_creates_plain_new_folder() {
             assert!(directory.join("c.txt").is_file());
             plain(&fixture, Key::Escape);
 
-            // In a freshly opened directory where cursor is only a load cursor, creates an empty folder
             let sub = directory.join("sub");
             std::fs::create_dir(&sub).expect("sub directory");
             std::fs::write(sub.join("x.txt"), b"x").expect("file");
