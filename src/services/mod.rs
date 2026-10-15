@@ -103,7 +103,7 @@ pub(crate) use search::{
 };
 pub(crate) use search::{
     RefusedFolders, SearchCoverage, SearchEvent, SearchExclusions, SearchHandle, SearchItem,
-    filter_name_matches, filter_query_allows_typos, fold_for_search, index_filter,
+    SearchLimits, filter_name_matches, filter_query_allows_typos, fold_for_search, index_filter,
     index_folder_paths, index_paths, index_trees_with_exclusions,
 };
 pub(crate) use update_check::{

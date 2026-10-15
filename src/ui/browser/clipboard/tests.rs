@@ -146,7 +146,6 @@ fn drag_preview_icon_renders_single_and_multiple_entries() {
 
             let themes = crate::ui::theme::ThemeManager::shared();
             themes.select_theme("tokyo-night");
-            crate::ui::window::load_styles();
             let window = gtk::Window::new();
             let base = gtk::Box::new(gtk::Orientation::Horizontal, 0);
             window.set_child(Some(&base));
