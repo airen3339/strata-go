@@ -180,6 +180,33 @@ fn browser_windows_keep_gtk_from_adding_a_default_title_bar() {
 }
 
 #[test]
+fn window_controls_follow_the_live_decoration_layout() {
+    gtk_test(
+        "ui::window::composition::tabs::tests::window_controls_follow_the_live_decoration_layout",
+        || {
+            let (window, tabs) = open();
+            let settings = window.settings();
+            let parent = |button: &gtk::Button| button.parent().and_downcast::<gtk::Box>();
+            settings.set_gtk_decoration_layout(Some("close:appmenu"));
+            let header = &tabs.active_tab().content.header;
+            assert_eq!(parent(&header.close).as_ref(), Some(&header.leading));
+            assert_eq!(parent(&header.minimize).as_ref(), Some(&header.actions));
+            tabs.new_tab();
+            let header = &tabs.active_tab().content.header;
+            assert_eq!(parent(&header.close).as_ref(), Some(&tabs.strip.start));
+            settings.set_gtk_decoration_layout(Some("appmenu:minimize,maximize,close"));
+            assert_eq!(parent(&header.close).as_ref(), Some(&tabs.strip.end));
+            assert_eq!(parent(&header.maximize).as_ref(), Some(&header.actions));
+            assert_eq!(
+                header.actions.last_child().as_ref(),
+                Some(header.maximize.upcast_ref())
+            );
+            window.destroy();
+        },
+    );
+}
+
+#[test]
 fn saved_window_buttons_survive_tab_chrome_refreshes() {
     gtk_test(
         "ui::window::composition::tabs::tests::saved_window_buttons_survive_tab_chrome_refreshes",

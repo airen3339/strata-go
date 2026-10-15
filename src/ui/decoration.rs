@@ -13,6 +13,65 @@ pub(crate) fn claim_titlebar(window: &impl IsA<gtk::Window>) {
     window.set_titlebar(Some(&placeholder));
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum WindowControl {
+    Minimize,
+    Maximize,
+    Close,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct ControlLayout {
+    pub(crate) start: Vec<WindowControl>,
+    pub(crate) end: Vec<WindowControl>,
+}
+
+/// Places window controls the way `gtk-decoration-layout` does: names before
+/// the colon lead the header, names after it trail. Strata's own preferences
+/// decide visibility, so controls the layout omits still get a slot at the
+/// start of the trailing side.
+pub(crate) fn control_layout(layout: &str) -> ControlLayout {
+    let (start, end) = layout.split_once(':').unwrap_or((layout, ""));
+    let mut seen = Vec::new();
+    let mut parse = |side: &str| {
+        side.split(',')
+            .filter_map(|name| match name.trim() {
+                "minimize" => Some(WindowControl::Minimize),
+                "maximize" => Some(WindowControl::Maximize),
+                "close" => Some(WindowControl::Close),
+                _ => None,
+            })
+            .filter(|control| {
+                let new = !seen.contains(control);
+                seen.push(*control);
+                new
+            })
+            .collect::<Vec<_>>()
+    };
+    let start = parse(start);
+    let listed = parse(end);
+    let mut end: Vec<_> = [
+        WindowControl::Minimize,
+        WindowControl::Maximize,
+        WindowControl::Close,
+    ]
+    .into_iter()
+    .filter(|control| !seen.contains(control))
+    .collect();
+    end.extend(listed);
+    ControlLayout { start, end }
+}
+
+pub(crate) fn current_control_layout(widget: &impl IsA<gtk::Widget>) -> ControlLayout {
+    control_layout(
+        &widget
+            .as_ref()
+            .settings()
+            .gtk_decoration_layout()
+            .unwrap_or_default(),
+    )
+}
+
 /// GTK only builds its default title bar at realize time for windows it does
 /// not already consider client-decorated.
 #[cfg(test)]

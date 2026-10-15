@@ -12,6 +12,7 @@ use crate::{
     assets::{self, icons},
     ui::{
         browser::BrowserView,
+        decoration::{ControlLayout, WindowControl},
         marquee::OriginClick,
         preferences::PreferenceManager,
         preview::PreviewDrawer,
@@ -33,9 +34,8 @@ pub(super) struct Header {
     pub(super) sidebar_toggle: SidebarToggle,
     pub(super) search: gtk::Button,
     pub(super) settings: gtk::Button,
-    #[cfg(test)]
+    pub(super) leading: gtk::Box,
     pub(super) minimize: gtk::Button,
-    #[cfg(test)]
     pub(super) maximize: gtk::Button,
     pub(super) close: gtk::Button,
 }
@@ -136,12 +136,11 @@ impl Header {
         actions.append(&search);
         actions.append(&appearance);
         actions.append(&settings);
-        actions.append(&minimize);
-        actions.append(&maximize);
-        actions.append(&close);
+        let leading = gtk::Box::new(gtk::Orientation::Horizontal, 0);
         let content = gtk::Box::new(gtk::Orientation::Horizontal, 0);
         content.set_hexpand(true);
         content.set_valign(gtk::Align::Center);
+        content.append(&leading);
         content.append(&sidebar_toggle);
         content.append(&location);
         content.append(&actions);
@@ -152,14 +151,41 @@ impl Header {
             sidebar_toggle,
             search,
             settings,
-            #[cfg(test)]
+            leading,
             minimize,
-            #[cfg(test)]
             maximize,
             close,
             actions,
             new_tab,
         }
+    }
+
+    /// `close_slots` hosts the close button outside the header, as the tab
+    /// strip does while several tabs are open.
+    pub(super) fn place_window_controls(
+        &self,
+        layout: &ControlLayout,
+        close_slots: Option<(&gtk::Box, &gtk::Box)>,
+    ) {
+        let (close_start, close_end) = close_slots.unwrap_or((&self.leading, &self.actions));
+        for (controls, host, close_host) in [
+            (&layout.start, &self.leading, close_start),
+            (&layout.end, &self.actions, close_end),
+        ] {
+            for control in controls {
+                let (button, host) = match control {
+                    WindowControl::Minimize => (&self.minimize, host),
+                    WindowControl::Maximize => (&self.maximize, host),
+                    WindowControl::Close => (&self.close, close_host),
+                };
+                if let Some(parent) = button.parent().and_downcast::<gtk::Box>() {
+                    parent.remove(button);
+                }
+                host.append(button);
+            }
+        }
+        self.leading
+            .set_visible(self.leading.first_child().is_some());
     }
 }
 
