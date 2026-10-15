@@ -182,28 +182,20 @@ fn interface_font_choices_follow_the_preference_across_windows() {
                 .and_then(|search| search.next_sibling())
                 .and_downcast::<gtk::ScrolledWindow>()
                 .and_then(|scroll| scroll.child())
-                .and_then(|viewport| viewport.first_child())
-                .and_downcast::<gtk::Box>()
+                .and_downcast::<gtk::ListView>()
                 .expect("font list");
+            let model = list.model().expect("font model");
             let empty = body.last_child().expect("empty label");
-            let options = || {
-                let mut options = Vec::new();
-                let mut child = list.first_child();
-                while let Some(option) = child {
-                    child = option.next_sibling();
-                    options.push(option.downcast::<gtk::Button>().expect("option"));
-                }
-                options
-            };
-            assert!(!options().is_empty(), "the list includes Default");
+            assert!(model.n_items() > 0, "the list includes Default");
 
             search.set_text("no font is named this");
-            assert!(options().iter().all(|option| !option.is_visible()));
+            assert_eq!(model.n_items(), 0);
             assert!(empty.is_visible());
             search.set_text("");
+            assert!(model.n_items() > 0);
             assert!(!empty.is_visible());
 
-            options()[0].emit_clicked();
+            list.emit_by_name::<()>("activate", &[&0u32]);
             assert_eq!(preferences.interface_font(), None);
             for button in &buttons {
                 assert_eq!(button.label().as_deref(), Some("Default"));

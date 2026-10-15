@@ -3858,7 +3858,8 @@ dropdown.form-control popover listview {
   padding: 8px;
 }
 
-dropdown.form-control popover listview {
+dropdown.form-control popover listview,
+.font-choice-list {
   background: @strata_surface;
   color: @strata_text;
 }
@@ -3870,6 +3871,7 @@ dropdown.form-control popover listview {
 }
 
 .column-menu-option,
+.font-choice-list > row,
 dropdown.form-control popover row {
   background: transparent;
   border: none;
@@ -3882,6 +3884,7 @@ dropdown.form-control popover row {
 }
 
 .column-menu-option:hover,
+.font-choice-list > row:hover,
 dropdown.form-control popover row:hover,
 dropdown.form-control popover row:selected {
   background: alpha(@strata_accent, 0.15);
@@ -3889,6 +3892,7 @@ dropdown.form-control popover row:selected {
 }
 
 .column-menu-option:active,
+.font-choice-list > row:active,
 dropdown.form-control popover row:active {
   background: alpha(@strata_accent, 0.22);
   transform: scale(0.97);
@@ -3896,6 +3900,7 @@ dropdown.form-control popover row:active {
 
 
 .column-menu-option:focus-visible,
+.font-choice-list > row:focus-visible,
 dropdown.form-control popover row:focus-visible {
   outline: 2px solid @strata_accent;
   outline-offset: -2px;

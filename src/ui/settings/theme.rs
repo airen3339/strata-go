@@ -454,23 +454,83 @@ fn append_text_size_option(content: &gtk::Box, preferences: &Rc<PreferenceManage
     group.append(&text_size_row);
 }
 
-struct FontOption {
-    family: Option<String>,
-    button: gtk::Button,
-    check: gtk::Image,
-    key: String,
-}
-
-/// Lists installed families when first opened, each shown in its own typeface.
+/// Lists installed families when first opened. Names use the interface font:
+/// loading each family to preview it stalls opening and scrolling.
 fn interface_font_choice(preferences: &Rc<PreferenceManager>) -> gtk::MenuButton {
-    let list = gtk::Box::new(gtk::Orientation::Vertical, 2);
+    // An empty string stands for Default.
+    let families = gtk::StringList::new(&[]);
+    let query: Rc<RefCell<String>> = Rc::default();
+    let filter = {
+        let query = query.clone();
+        gtk::CustomFilter::new(move |item| {
+            let query = query.borrow();
+            item.downcast_ref::<gtk::StringObject>()
+                .is_some_and(|family| {
+                    font_label(&family.string())
+                        .to_lowercase()
+                        .contains(query.as_str())
+                })
+        })
+    };
+    let filtered = gtk::FilterListModel::new(Some(families.clone()), Some(filter.clone()));
+    let rows: Rc<RefCell<Vec<glib::WeakRef<gtk::ListItem>>>> = Rc::default();
+    let factory = gtk::SignalListItemFactory::new();
+    {
+        let rows = rows.clone();
+        factory.connect_setup(move |_, item| {
+            let Some(item) = item.downcast_ref::<gtk::ListItem>() else {
+                return;
+            };
+            let label = gtk::Label::new(None);
+            label.set_xalign(0.0);
+            label.set_hexpand(true);
+            label.set_ellipsize(gtk::pango::EllipsizeMode::End);
+            let check = crate::assets::primary_icon(icons::CHECK, 16);
+            let row = gtk::Box::new(gtk::Orientation::Horizontal, 10);
+            row.append(&label);
+            row.append(&check);
+            item.set_child(Some(&row));
+            rows.borrow_mut().push(item.downgrade());
+        });
+    }
+    {
+        let preferences = preferences.clone();
+        factory.connect_bind(move |_, item| {
+            let Some(item) = item.downcast_ref::<gtk::ListItem>() else {
+                return;
+            };
+            let Some(family) = item.item().and_downcast::<gtk::StringObject>() else {
+                return;
+            };
+            let family = family.string();
+            let Some(row) = item.child() else {
+                return;
+            };
+            let (Some(label), Some(check)) = (
+                row.first_child().and_downcast::<gtk::Label>(),
+                row.last_child(),
+            ) else {
+                return;
+            };
+            label.set_text(&font_label(&family));
+            check.set_visible(is_chosen_font(&preferences, &family));
+        });
+    }
+    let list = gtk::ListView::new(
+        Some(gtk::NoSelection::new(Some(filtered.clone()))),
+        Some(factory),
+    );
+    list.set_single_click_activate(true);
     list.add_css_class("column-menu");
+    list.add_css_class("font-choice-list");
+    crate::ui::accessibility::set_label(&list, &crate::i18n::tr("Interface font"));
     let scroll = gtk::ScrolledWindow::builder()
         .child(&list)
         .hscrollbar_policy(gtk::PolicyType::Never)
         .vscrollbar_policy(gtk::PolicyType::Automatic)
         .propagate_natural_height(true)
-        .max_content_height(360)
+        .max_content_height(320)
+        .min_content_width(240)
         .build();
     scroll.add_css_class("context-menu-scroll");
     let search = crate::ui::controls::form_entry();
@@ -508,82 +568,85 @@ fn interface_font_choice(preferences: &Rc<PreferenceManager>) -> gtk::MenuButton
             }
         },
     );
-
-    let options: Rc<RefCell<Vec<FontOption>>> = Rc::default();
     {
-        let options = options.clone();
-        preferences.bind_preference(
-            &list,
-            PreferenceManager::interface_font,
-            move |_, family| {
-                for option in options.borrow().iter() {
-                    option.check.set_visible(option.family == family);
+        let rows = rows.clone();
+        let weak_preferences = Rc::downgrade(preferences);
+        preferences.bind_preference(&list, PreferenceManager::interface_font, move |_, _| {
+            let Some(preferences) = weak_preferences.upgrade() else {
+                return;
+            };
+            rows.borrow_mut().retain(|item| {
+                let Some(item) = item.upgrade() else {
+                    return false;
+                };
+                let family = item
+                    .item()
+                    .and_downcast::<gtk::StringObject>()
+                    .map(|family| family.string());
+                if let Some(check) = item.child().and_then(|row| row.last_child()) {
+                    check.set_visible(
+                        family.is_some_and(|family| is_chosen_font(&preferences, &family)),
+                    );
                 }
-            },
-        );
+                true
+            });
+        });
     }
     {
-        let options = options.clone();
         let empty = empty.downgrade();
         let scroll = scroll.downgrade();
+        let filtered = filtered.clone();
         search.connect_changed(move |search| {
-            let query = search.text().to_lowercase();
-            let query = query.trim();
-            let mut any = false;
-            for option in options.borrow().iter() {
-                let visible = option.key.contains(query);
-                option.button.set_visible(visible);
-                any |= visible;
-            }
+            query.replace(search.text().trim().to_lowercase());
+            filter.changed(gtk::FilterChange::Different);
+            let any = filtered.n_items() > 0;
             if let (Some(empty), Some(scroll)) = (empty.upgrade(), scroll.upgrade()) {
                 empty.set_visible(!any);
                 scroll.set_visible(any);
             }
         });
     }
-    let preferences = preferences.clone();
-    let weak_button = button.downgrade();
-    popover.connect_show(move |popover| {
-        if options.borrow().is_empty() {
-            let selected = preferences.interface_font();
-            for family in std::iter::once(None).chain(installed_font_families(popover).map(Some)) {
-                let label = family.clone().unwrap_or_else(|| crate::i18n::tr("Default"));
-                let (option, check) = crate::ui::controls::menu_option(&label, family == selected);
-                if let Some(family) = &family
-                    && let Some(text) = option
-                        .child()
-                        .and_then(|row| row.first_child())
-                        .and_downcast::<gtk::Label>()
-                {
-                    // A family-only description keeps the label's CSS size.
-                    let mut description = gtk::pango::FontDescription::new();
-                    description.set_family(family);
-                    let attributes = gtk::pango::AttrList::new();
-                    attributes.insert(gtk::pango::AttrFontDesc::new(&description));
-                    text.set_attributes(Some(&attributes));
-                }
-                let preferences = preferences.clone();
-                let weak_button = weak_button.clone();
-                let chosen = family.clone();
-                option.connect_clicked(move |_| {
-                    preferences.set_interface_font(chosen.clone());
-                    if let Some(button) = weak_button.upgrade() {
-                        button.popdown();
-                    }
-                });
-                list.append(&option);
-                options.borrow_mut().push(FontOption {
-                    key: label.to_lowercase(),
-                    family,
-                    button: option,
-                    check,
-                });
+    {
+        let preferences = preferences.clone();
+        let weak_button = button.downgrade();
+        list.connect_activate(move |list, position| {
+            let Some(family) = list
+                .model()
+                .and_then(|model| model.item(position))
+                .and_downcast::<gtk::StringObject>()
+            else {
+                return;
+            };
+            let family = family.string();
+            preferences.set_interface_font((!family.is_empty()).then(|| family.to_string()));
+            if let Some(button) = weak_button.upgrade() {
+                button.popdown();
             }
+        });
+    }
+    popover.connect_show(move |popover| {
+        if families.n_items() == 0 {
+            let names = std::iter::once(String::new())
+                .chain(installed_font_families(popover))
+                .collect::<Vec<_>>();
+            families.splice(0, 0, &names.iter().map(String::as_str).collect::<Vec<_>>());
         }
         search.set_text("");
         search.grab_focus();
     });
     button
+}
+
+fn font_label(family: &str) -> String {
+    if family.is_empty() {
+        crate::i18n::tr("Default")
+    } else {
+        family.to_owned()
+    }
+}
+
+fn is_chosen_font(preferences: &PreferenceManager, family: &str) -> bool {
+    preferences.interface_font().as_deref().unwrap_or_default() == family
 }
 
 fn installed_font_families(widget: &impl IsA<gtk::Widget>) -> impl Iterator<Item = String> {
