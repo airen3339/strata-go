@@ -121,7 +121,7 @@ fn version_line() -> String {
     format!(
         "{} {}",
         env!("CARGO_PKG_NAME"),
-        build_info::installed_version()
+        build_info::displayed_version()
     )
 }
 

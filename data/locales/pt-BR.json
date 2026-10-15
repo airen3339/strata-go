@@ -1,6 +1,6 @@
 {
   "%{category_keys} categories · %{search_keys} search · %{list_keys} list · %{move_keys} move · %{cycle_keys} cycle · %{close_keys} close": "%{category_keys} categorias · %{search_keys} buscar · %{list_keys} lista · %{move_keys} mover · %{cycle_keys} alternar · %{close_keys} fechar",
-  "%{keys}  Shortcuts": "%{keys}  Atalhos",
+  "%{keys} Shortcuts": "%{keys} Atalhos",
   "%{keys}  navigate": "%{keys}  navegar",
   "%{keys}  open containing folder": "%{keys}  abrir pasta que contém o item",
   "%{rate} Mb/s": "%{rate} Mb/s",
@@ -28,7 +28,7 @@
   "A command action needs a program": "Uma ação de comando precisa de um programa",
   "A device input/output error occurred": "Ocorreu um erro de entrada/saída no dispositivo",
   "A documented starter that logs paths and reports progress without changing files.": "Um modelo inicial documentado que registra caminhos e informa o progresso sem alterar arquivos.",
-  "A keyboard-first file manager for Linux.": "Um gerenciador de arquivos para Linux voltado ao uso do teclado.",
+  "Navigate every layer.": "Navegue por todas as camadas.",
   "AUDIO CODEC": "CODEC DE ÁUDIO",
   "About": "Sobre",
   "Accent": "Destaque",

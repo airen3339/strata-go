@@ -1,6 +1,6 @@
 {
   "%{category_keys} categories · %{search_keys} search · %{list_keys} list · %{move_keys} move · %{cycle_keys} cycle · %{close_keys} close": "%{category_keys} カテゴリ · %{search_keys} 検索 · %{list_keys} リスト · %{move_keys} 移動 · %{cycle_keys} 切り替え · %{close_keys} 閉じる",
-  "%{keys}  Shortcuts": "%{keys}  ショートカット",
+  "%{keys} Shortcuts": "%{keys} ショートカット",
   "%{keys}  navigate": "%{keys}  移動",
   "%{keys}  open containing folder": "%{keys}  ファイルの場所を開く",
   "%{rate} Mb/s": "%{rate} Mb/s",
@@ -28,7 +28,7 @@
   "A command action needs a program": "コマンドのアクションにはプログラムが必要です",
   "A device input/output error occurred": "デバイスの入出力エラーが発生しました",
   "A documented starter that logs paths and reports progress without changing files.": "ファイルを変更せずにパスを記録して進行状況を報告する、説明付きのひな形です。",
-  "A keyboard-first file manager for Linux.": "キーボード操作を重視した Linux 用ファイルマネージャー。",
+  "Navigate every layer.": "あらゆる階層をナビゲート。",
   "AUDIO CODEC": "オーディオコーデック",
   "About": "このアプリについて",
   "Accent": "アクセント",

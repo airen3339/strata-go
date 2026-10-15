@@ -5783,11 +5783,6 @@ menubutton.icons-thumbnail-menu > button:focus-visible {
   padding: 0 4px 2px;
 }
 
-.list-fast-scroll .list-row,
-.list-fast-scroll .file-list-mode row {
-  transition: none;
-}
-
 .file-icons > child .icons-card.drop-destination .icons-card-icon-frame,
 .file-icons > child .icons-card:drop(active) .icons-card-icon-frame {
   background: alpha(@strata_highlight, 0.82);
@@ -6409,9 +6404,9 @@ two-column presentation. */
 .about-logo {
   min-width: 58px;
   min-height: 58px;
-  border: 1px solid alpha(@strata_dim_text, 0.35);
+  border: 1px solid @strata_border;
   border-radius: 14px;
-  background: shade(@strata_dim_text, 0.3);
+  background: @strata_surface;
 }
 
 .about-name {

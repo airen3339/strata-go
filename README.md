@@ -637,7 +637,7 @@ Open **Settings → Appearance** from the gear menu or with <kbd>Ctrl</kbd>+<kbd
 
 Use **Search settings** to filter options across pages and navigate to the closest match, including keywords such as “font size.” In compact windows, the magnifying-glass button opens the search field. Clear the query or press <kbd>Esc</kbd> in the field to restore all settings.
 
-![Strata Theme and appearance settings showing Omarchy following, six bundled themes, and the Add a theme option](docs/assets/strata-themes.png)
+![Strata Appearance settings showing Follow Omarchy, the Omarchy variant, the current theme, and the searchable theme library](docs/assets/strata-themes.png)
 
 ### Follow Omarchy Quattro
 
@@ -706,11 +706,16 @@ Build requirements are the latest stable Rust toolchain, a C toolchain, `pkg-con
 ```bash
 sudo pacman -S --needed base-devel bubblewrap ffmpeg ffmpegthumbnailer fontconfig \
   gstreamer gst-libav gst-plugins-base gst-plugins-good gtk4 gtksourceview5 gvfs poppler-glib
+mise run install-local    # build an optimized release and install it for your user
 mise run start-dev        # rebuild and restart as files change
 mise run dev              # build and launch the main app once
 mise run chooser-dev      # build and open an isolated Save chooser with choices
 mise run check            # format, compile, Clippy, tests, and policy checks
 ```
+
+`start-dev`, `dev`, and `chooser-dev` make unoptimized debug builds for development, which
+scroll and load noticeably slower. Use `install-local` for everyday use. A debug build reports
+its version with a `+debug` suffix in `strata --version` and in Settings → About.
 
 ### Builds without RAR support
 

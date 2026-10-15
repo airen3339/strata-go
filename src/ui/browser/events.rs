@@ -14,6 +14,7 @@ use crate::ui::browser::columns::{
     stop_column_spinner, touch_source_model, update_empty_trash_sensitivity,
 };
 use crate::ui::browser::customization;
+use crate::ui::browser::listing_filter::Target;
 use crate::ui::browser::location::MountStrategy;
 use crate::ui::browser::peek::append_peek_entries;
 use crate::ui::browser::transfer::FinishedSendToCompletion;
@@ -636,7 +637,13 @@ impl ViewState {
                         && (!self.browser.focus_follows_background_load()
                             || self.column_may_take_focus())
                     {
-                        column.focus_surface();
+                        let hits = column
+                            .recursive_search_active
+                            .get()
+                            .then(|| Target::Column(Box::new(column.clone())));
+                        if !hits.is_some_and(|hits| self.focus_results_on_cursor(&hits)) {
+                            column.focus_surface();
+                        }
                     }
                     if !editing
                         && self.mode_views.borrow().mode() == BrowserMode::Columns
@@ -1174,6 +1181,10 @@ impl ViewState {
         self.mode_views
             .borrow_mut()
             .handle_with_deferred_empty(event, defer_empty);
+        let results_focus = self.mode_views.borrow().take_results_focus();
+        if let Some(depth) = results_focus {
+            self.focus_pane_results(depth);
+        }
         self.reconcile_pending_rename();
         match event {
             BrowserEvent::ColumnAdded { depth, .. } | BrowserEvent::ColumnReloaded { depth } => {
