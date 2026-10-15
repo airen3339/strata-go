@@ -1785,7 +1785,16 @@ fn render_reference(
     if !found {
         let empty = gtk::Label::new(Some(&crate::i18n::tr("No matching shortcuts")));
         empty.add_css_class("shortcut-reference-note");
+        empty.set_wrap(true);
+        empty.set_justify(gtk::Justification::Center);
+        empty.set_halign(gtk::Align::Center);
+        empty.set_valign(gtk::Align::Center);
+        empty.set_vexpand(true);
+        empty.set_hexpand(true);
+        reference.set_vexpand(true);
         reference.append(&empty);
+    } else {
+        reference.set_vexpand(false);
     }
 }
 
