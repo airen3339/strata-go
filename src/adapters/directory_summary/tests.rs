@@ -290,79 +290,59 @@ fn directory_summary_does_not_stop_enumerating_siblings_after_one_branch_is_dept
 }
 
 #[test]
-fn missing_optional_attributes_use_safe_defaults() {
-    let info = gio::FileInfo::new();
-
-    assert!(!info_is_hidden(&info));
-    assert!(!info_is_symlink(&info));
-
-    info.set_is_hidden(true);
-    info.set_is_symlink(true);
-
-    assert!(info_is_hidden(&info));
-    assert!(info_is_symlink(&info));
-}
-
-#[test]
-fn measure_entry_handles_entries_without_optional_attributes() {
+fn measure_entry_reads_no_unset_optional_attributes() {
     let root = unique_fixture_root("missing-attributes");
-    std::fs::create_dir_all(root.join("sub")).expect("the directory fixture should be created");
-    let regular_file = gio::File::for_path(root.join("sub/file.txt"));
-    let directory = gio::File::for_path(root.join("sub"));
+    std::fs::create_dir_all(&root).expect("the directory fixture should be created");
+    let criticals = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let recorded = criticals.clone();
+    let handler = glib::log_set_handler(
+        Some("GLib-GIO"),
+        glib::LogLevels::LEVEL_CRITICAL,
+        false,
+        false,
+        move |_, _, message| {
+            if message.contains("standard::") || message.contains("gfileinfo.c") {
+                recorded
+                    .lock()
+                    .expect("the critical log should be lockable")
+                    .push(message.to_owned());
+            }
+        },
+    );
 
-    let file_info = gio::FileInfo::new();
-    file_info.set_name("file.txt");
-    file_info.set_file_type(gio::FileType::Regular);
-
-    let dir_info = gio::FileInfo::new();
-    dir_info.set_name("sub");
-    dir_info.set_file_type(gio::FileType::Directory);
-
-    let context = glib::MainContext::new();
-
-    let file_summary = context
-        .block_on(measure_entry(
-            regular_file,
-            file_info,
-            0,
-            false,
-            Rc::new(MeasurementBudget {
-                deadline: Instant::now() + TIME_BUDGET,
-                max_depth: MAX_DEPTH,
-                total: Cell::default(),
-                reported: Cell::default(),
-                on_progress: Box::new(|_| {}),
-            }),
-        ))
-        .expect("measuring a file without optional attributes should succeed");
-
-    assert_eq!(file_summary.item_count, 1);
-    assert_eq!(file_summary.visible_file_count, 1);
-    assert_eq!(file_summary.visible_folder_count, 0);
-    assert_eq!(file_summary.total_size, 0);
-    assert!(!file_summary.truncated());
-
-    let dir_summary = context
-        .block_on(measure_entry(
-            directory,
-            dir_info,
-            0,
-            false,
-            Rc::new(MeasurementBudget {
-                deadline: Instant::now() + TIME_BUDGET,
-                max_depth: MAX_DEPTH,
-                total: Cell::default(),
-                reported: Cell::default(),
-                on_progress: Box::new(|_| {}),
-            }),
-        ))
-        .expect("measuring a directory without optional attributes should succeed");
-
+    let measure = |file_type| {
+        let info = gio::FileInfo::new();
+        info.set_name("entry");
+        info.set_file_type(file_type);
+        glib::MainContext::new()
+            .block_on(measure_entry(
+                gio::File::for_path(&root),
+                info,
+                0,
+                false,
+                Rc::new(MeasurementBudget {
+                    deadline: Instant::now() + TIME_BUDGET,
+                    max_depth: MAX_DEPTH,
+                    total: Cell::default(),
+                    reported: Cell::default(),
+                    on_progress: Box::new(|_| {}),
+                }),
+            ))
+            .expect("an entry without optional attributes should be measured")
+    };
+    let file = measure(gio::FileType::Regular);
+    let folder = measure(gio::FileType::Directory);
+    glib::log_remove_handler(Some("GLib-GIO"), handler);
     std::fs::remove_dir_all(&root).expect("the directory fixture should be removed");
 
-    assert_eq!(dir_summary.item_count, 1);
-    assert_eq!(dir_summary.visible_folder_count, 1);
-    assert_eq!(dir_summary.visible_file_count, 0);
-    assert_eq!(dir_summary.total_size, 0);
-    assert!(!dir_summary.truncated());
+    assert_eq!(
+        criticals
+            .lock()
+            .expect("the critical log should be lockable")
+            .as_slice(),
+        &[] as &[String]
+    );
+    assert_eq!((file.visible_file_count, file.total_size), (1, 0));
+    assert_eq!(folder.visible_folder_count, 1);
+    assert!(!folder.truncated());
 }

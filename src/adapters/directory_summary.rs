@@ -12,6 +12,8 @@ use std::{
 
 use gio::prelude::*;
 
+use super::local_files::{info_is_hidden, info_is_symlink};
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct MeasurementIssues {
     pub(crate) unreadable: bool,
@@ -176,14 +178,6 @@ async fn measure_children(
 }
 
 type MeasurementFuture = Pin<Box<dyn Future<Output = Result<DirectorySummary, glib::Error>>>>;
-
-fn info_is_hidden(info: &gio::FileInfo) -> bool {
-    info.has_attribute(gio::FILE_ATTRIBUTE_STANDARD_IS_HIDDEN) && info.is_hidden()
-}
-
-fn info_is_symlink(info: &gio::FileInfo) -> bool {
-    info.has_attribute(gio::FILE_ATTRIBUTE_STANDARD_IS_SYMLINK) && info.is_symlink()
-}
 
 fn measure_entry(
     file: gio::File,
