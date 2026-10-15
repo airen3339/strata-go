@@ -67,6 +67,7 @@ pub(in crate::ui) fn non_default_preferences() -> Preferences {
         sidebar_compact: true,
         show_hidden: true,
         text_size: TextSize::new(24),
+        corner_roundness: CornerRoundness::new(40),
         interface_renderer: InterfaceRenderer::Cairo,
         language: crate::i18n::Language::English,
         folders_first: false,

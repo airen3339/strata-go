@@ -24,6 +24,7 @@ use super::icons_cell::{MAX_ICONS_THUMBNAIL_SIZE, MIN_ICONS_THUMBNAIL_SIZE};
 pub(in crate::ui) const SEND_TO_RECENT_DESTINATIONS_LIMIT: usize = 3;
 
 mod bindings;
+mod corner_roundness;
 #[cfg(test)]
 pub(in crate::ui) mod fixtures;
 mod folder_view_settings;
@@ -33,6 +34,7 @@ mod save_notice;
 mod text_size;
 mod trashed;
 pub(in crate::ui) use bindings::notify_live;
+pub use corner_roundness::CornerRoundness;
 pub(crate) use folder_view_settings::flush_pending_folder_views;
 pub use text_size::TextSize;
 
@@ -164,6 +166,8 @@ pub(in crate::ui) struct Preferences {
     #[serde(default)]
     text_size: TextSize,
     #[serde(default)]
+    corner_roundness: CornerRoundness,
+    #[serde(default)]
     interface_renderer: InterfaceRenderer,
     #[serde(default)]
     language: crate::i18n::Language,
@@ -294,6 +298,7 @@ impl Default for Preferences {
             sidebar_compact: false,
             show_hidden: false,
             text_size: TextSize::default(),
+            corner_roundness: CornerRoundness::default(),
             interface_renderer: InterfaceRenderer::default(),
             language: crate::i18n::Language::default(),
             folders_first: true,
@@ -1334,6 +1339,18 @@ impl PreferenceManager {
             return;
         }
         self.preferences.borrow_mut().text_size = size;
+        self.save_preferences();
+    }
+
+    pub fn corner_roundness(&self) -> CornerRoundness {
+        self.preferences.borrow().corner_roundness
+    }
+
+    pub fn set_corner_roundness(&self, roundness: CornerRoundness) {
+        if self.corner_roundness() == roundness {
+            return;
+        }
+        self.preferences.borrow_mut().corner_roundness = roundness;
         self.save_preferences();
     }
 
