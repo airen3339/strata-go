@@ -456,6 +456,9 @@ pub struct ModeViews {
     suppress_focus_scroll: Cell<bool>,
     /// Set while a footer prompt moves the cursor; the prompt keeps the keys.
     cursor_keeps_focus: Cell<bool>,
+    /// A pane whose results, rather than its hidden listing, take the focus a
+    /// `FocusChanged` asked for. The view state focuses them on their cursor.
+    results_take_focus: Cell<Option<usize>>,
 }
 
 impl ModeViews {
@@ -532,6 +535,7 @@ impl ModeViews {
             focus_before_header: RefCell::new(None),
             suppress_focus_scroll: Cell::new(false),
             cursor_keeps_focus: Cell::new(false),
+            results_take_focus: Cell::new(None),
         }
     }
 
@@ -1106,10 +1110,18 @@ impl ModeViews {
         gtk::ToggleButton,
         super::inline_search::InlineSearch,
     )> {
-        let pane = self
-            .panes_at(self.browser.active_depth()?)
-            .into_iter()
-            .next()?;
+        self.filter_at(self.browser.active_depth()?)
+    }
+
+    pub(in crate::ui) fn filter_at(
+        &self,
+        depth: usize,
+    ) -> Option<(
+        gtk::Entry,
+        gtk::ToggleButton,
+        super::inline_search::InlineSearch,
+    )> {
+        let pane = self.panes_at(depth).into_iter().next()?;
         Some((
             pane.filter_entry.clone()?,
             pane.filter_button.clone()?,
@@ -1639,6 +1651,10 @@ impl ModeViews {
                 None
             }
         })
+    }
+
+    pub(in crate::ui) fn take_results_focus(&self) -> Option<usize> {
+        self.results_take_focus.take()
     }
 
     pub fn focus_visible_pane(&self, depth: usize) {
