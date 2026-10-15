@@ -27,7 +27,7 @@ use crate::{
         LocationIdentity, LocationValidationError, MetadataOutcome, MetadataRequest,
         MetadataUpdate, RequestId, backend_unavailable_message, bytes_support_named_family,
         is_hidden_name, is_image_path, is_media_path, native_hidden_names, native_kind,
-        sanitize_failure_message,
+        sanitize_failure_message, symlink_kind,
     },
 };
 
@@ -375,17 +375,9 @@ fn entry_from_info(location: Location, info: gio::FileInfo) -> FileEntry {
             EntryKind::Directory
         }
         (gio::FileType::Regular, false) => EntryKind::File,
-        (gio::FileType::SymbolicLink, _) => {
-            if let Some(path) = location.native_path() {
-                match std::fs::metadata(path) {
-                    Ok(metadata) if metadata.is_dir() => EntryKind::DirectorySymbolicLink,
-                    Ok(metadata) if metadata.is_file() => EntryKind::FileSymbolicLink,
-                    _ => EntryKind::SymbolicLink,
-                }
-            } else {
-                EntryKind::SymbolicLink
-            }
-        }
+        (gio::FileType::SymbolicLink, _) => location
+            .native_path()
+            .map_or(EntryKind::SymbolicLink, symlink_kind),
         _ => EntryKind::Other,
     };
     let size = if matches!(

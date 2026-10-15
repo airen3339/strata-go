@@ -279,7 +279,6 @@ fn aggregate_directory_summary_does_not_recurse_into_directory_symlinks() {
         .expect("query realdir entry");
     assert_eq!(real_dir_entry.kind, crate::model::EntryKind::Directory);
 
-    // Symlink to a folder counts as a single item of 0 bytes without recursing into target.
     let link_summary = context.block_on(super::aggregate_directory_summary(std::slice::from_ref(
         &dir_link_entry,
     )));
@@ -289,7 +288,6 @@ fn aggregate_directory_summary_does_not_recurse_into_directory_symlinks() {
     assert_eq!(link_summary.visible_folder_count, 0);
     assert!(!link_summary.truncated());
 
-    // Actual directory recurses into its contents.
     let dir_summary = context.block_on(super::aggregate_directory_summary(std::slice::from_ref(
         &real_dir_entry,
     )));
@@ -299,7 +297,6 @@ fn aggregate_directory_summary_does_not_recurse_into_directory_symlinks() {
     assert_eq!(dir_summary.visible_folder_count, 0);
     assert!(!dir_summary.truncated());
 
-    // Combined selection totals accurately.
     let combined_summary = context.block_on(super::aggregate_directory_summary(&[
         dir_link_entry,
         crate::test_support::operations::entry(crate::model::Location::local(
