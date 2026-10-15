@@ -139,6 +139,7 @@ impl TabStrip {
         let actions = gtk::Box::new(gtk::Orientation::Horizontal, 0);
         actions.set_valign(gtk::Align::Center);
         let start = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+        start.add_css_class("window-controls-start");
         start.set_valign(gtk::Align::Center);
         let end = gtk::Box::new(gtk::Orientation::Horizontal, 0);
         end.add_css_class("header-actions");

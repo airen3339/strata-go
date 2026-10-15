@@ -12,7 +12,7 @@ use crate::{
     assets::{self, icons},
     ui::{
         browser::BrowserView,
-        decoration::{ControlLayout, WindowControl},
+        decoration::{self, ControlLayout, WindowControl},
         marquee::OriginClick,
         preferences::PreferenceManager,
         preview::PreviewDrawer,
@@ -137,6 +137,7 @@ impl Header {
         actions.append(&appearance);
         actions.append(&settings);
         let leading = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+        leading.add_css_class("window-controls-start");
         let content = gtk::Box::new(gtk::Orientation::Horizontal, 0);
         content.set_hexpand(true);
         content.set_valign(gtk::Align::Center);
@@ -145,7 +146,7 @@ impl Header {
         content.append(&location);
         content.append(&actions);
         widget.set_title_widget(Some(&content));
-        Self {
+        let header = Self {
             widget,
             content,
             sidebar_toggle,
@@ -157,35 +158,31 @@ impl Header {
             close,
             actions,
             new_tab,
-        }
+        };
+        header.place_window_controls(&decoration::current_control_layout(window), None);
+        header
     }
 
-    /// `close_slots` hosts the close button outside the header, as the tab
-    /// strip does while several tabs are open.
     pub(super) fn place_window_controls(
         &self,
         layout: &ControlLayout,
-        close_slots: Option<(&gtk::Box, &gtk::Box)>,
+        slots: Option<(&gtk::Box, &gtk::Box)>,
     ) {
-        let (close_start, close_end) = close_slots.unwrap_or((&self.leading, &self.actions));
-        for (controls, host, close_host) in [
-            (&layout.start, &self.leading, close_start),
-            (&layout.end, &self.actions, close_end),
-        ] {
-            for control in controls {
-                let (button, host) = match control {
-                    WindowControl::Minimize => (&self.minimize, host),
-                    WindowControl::Maximize => (&self.maximize, host),
-                    WindowControl::Close => (&self.close, close_host),
-                };
-                if let Some(parent) = button.parent().and_downcast::<gtk::Box>() {
-                    parent.remove(button);
-                }
-                host.append(button);
-            }
-        }
-        self.leading
-            .set_visible(self.leading.first_child().is_some());
+        let (start, end, after) = match slots {
+            Some((start, end)) => (start, end, None),
+            None => (
+                &self.leading,
+                &self.actions,
+                Some(self.settings.clone().upcast()),
+            ),
+        };
+        let button = |control: &WindowControl| match control {
+            WindowControl::Minimize => &self.minimize,
+            WindowControl::Maximize => &self.maximize,
+            WindowControl::Close => &self.close,
+        };
+        decoration::place_controls(start, None, layout.start.iter().map(button));
+        decoration::place_controls(end, after, layout.end.iter().map(button));
     }
 }
 

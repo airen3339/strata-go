@@ -43,8 +43,8 @@ fn decoration_layout_assigns_each_control_a_side() {
         ("appmenu:close", vec![], vec![Minimize, Maximize, Close]),
         (
             "icon, close :maximize",
-            vec![Close],
-            vec![Minimize, Maximize],
+            vec![],
+            vec![Minimize, Close, Maximize],
         ),
         ("close", vec![Close], vec![Minimize, Maximize]),
         ("close:close", vec![Close], vec![Minimize, Maximize]),

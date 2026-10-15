@@ -26,16 +26,12 @@ pub(crate) struct ControlLayout {
     pub(crate) end: Vec<WindowControl>,
 }
 
-/// Places window controls the way `gtk-decoration-layout` does: names before
-/// the colon lead the header, names after it trail. Strata's own preferences
-/// decide visibility, so controls the layout omits still get a slot at the
-/// start of the trailing side.
 pub(crate) fn control_layout(layout: &str) -> ControlLayout {
     let (start, end) = layout.split_once(':').unwrap_or((layout, ""));
     let mut seen = Vec::new();
     let mut parse = |side: &str| {
         side.split(',')
-            .filter_map(|name| match name.trim() {
+            .filter_map(|name| match name {
                 "minimize" => Some(WindowControl::Minimize),
                 "maximize" => Some(WindowControl::Maximize),
                 "close" => Some(WindowControl::Close),
@@ -43,7 +39,9 @@ pub(crate) fn control_layout(layout: &str) -> ControlLayout {
             })
             .filter(|control| {
                 let new = !seen.contains(control);
-                seen.push(*control);
+                if new {
+                    seen.push(*control);
+                }
                 new
             })
             .collect::<Vec<_>>()
@@ -63,13 +61,46 @@ pub(crate) fn control_layout(layout: &str) -> ControlLayout {
 }
 
 pub(crate) fn current_control_layout(widget: &impl IsA<gtk::Widget>) -> ControlLayout {
-    control_layout(
-        &widget
-            .as_ref()
-            .settings()
-            .gtk_decoration_layout()
-            .unwrap_or_default(),
-    )
+    settings_control_layout(&widget.as_ref().settings())
+}
+
+fn settings_control_layout(settings: &gtk::Settings) -> ControlLayout {
+    control_layout(&settings.gtk_decoration_layout().unwrap_or_default())
+}
+
+pub(crate) fn follow_control_layout(
+    window: &impl IsA<gtk::Window>,
+    apply: impl Fn(&ControlLayout) + 'static,
+) {
+    let settings = window.as_ref().settings();
+    apply(&settings_control_layout(&settings));
+    let handler = settings.connect_gtk_decoration_layout_notify(move |settings| {
+        apply(&settings_control_layout(settings));
+    });
+    let handler = std::cell::Cell::new(Some(handler));
+    window.as_ref().connect_unrealize(move |_| {
+        if let Some(handler) = handler.take() {
+            settings.disconnect(handler);
+        }
+    });
+}
+
+pub(crate) fn place_controls<'a>(
+    host: &gtk::Box,
+    mut after: Option<gtk::Widget>,
+    controls: impl IntoIterator<Item = &'a gtk::Button>,
+) {
+    for control in controls {
+        if control.parent().as_ref() == Some(host.upcast_ref()) {
+            host.reorder_child_after(control, after.as_ref());
+        } else {
+            if let Some(parent) = control.parent().and_downcast::<gtk::Box>() {
+                parent.remove(control);
+            }
+            host.insert_child_after(control, after.as_ref());
+        }
+        after = Some(control.clone().upcast());
+    }
 }
 
 /// GTK only builds its default title bar at realize time for windows it does

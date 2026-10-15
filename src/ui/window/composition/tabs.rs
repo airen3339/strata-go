@@ -82,18 +82,9 @@ impl TabWindow {
         });
         state.add(None);
         let weak = Rc::downgrade(&state);
-        let layout_handler = window
-            .settings()
-            .connect_gtk_decoration_layout_notify(move |_| {
-                if let Some(state) = weak.upgrade() {
-                    state.refresh_chrome();
-                }
-            });
-        let settings = window.settings();
-        let layout_handler = Cell::new(Some(layout_handler));
-        window.connect_destroy(move |_| {
-            if let Some(handler) = layout_handler.take() {
-                settings.disconnect(handler);
+        crate::ui::decoration::follow_control_layout(window, move |_| {
+            if let Some(state) = weak.upgrade() {
+                state.refresh_chrome();
             }
         });
         state.install_actions(window);
