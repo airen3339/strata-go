@@ -2963,6 +2963,7 @@ fn install_scroll_refresh(
         scroll: scroll.downgrade(),
         scrolling,
         last_scroll: Cell::new(std::time::Instant::now()),
+        started: Cell::new(0),
         armed: Cell::new(false),
         on_refresh: Box::new(on_refresh),
     });
@@ -2972,6 +2973,7 @@ fn install_scroll_refresh(
             settle.scrolling.set(true);
             settle.last_scroll.set(std::time::Instant::now());
             if !settle.armed.replace(true) {
+                settle.started.set(glib::monotonic_time());
                 ScrollSettle::arm(&settle, settle.delay());
             }
         });
@@ -2982,6 +2984,7 @@ struct ScrollSettle {
     scroll: glib::WeakRef<gtk::ScrolledWindow>,
     scrolling: Rc<Cell<bool>>,
     last_scroll: Cell<std::time::Instant>,
+    started: Cell<i64>,
     armed: Cell<bool>,
     on_refresh: Box<dyn Fn()>,
 }
@@ -2995,6 +2998,13 @@ impl ScrollSettle {
             .scroll
             .upgrade()
             .and_then(|scroll| scroll.frame_clock())
+            // fps() averages the whole frame history, so an idle gap before this scroll would
+            // stretch the delay.
+            .filter(|clock| {
+                clock
+                    .timings(clock.history_start())
+                    .is_some_and(|timings| timings.frame_time() >= self.started.get())
+            })
             .map(|clock| clock.fps())
             .filter(|fps| *fps > 0.0)
             .map_or(std::time::Duration::ZERO, |fps| {
