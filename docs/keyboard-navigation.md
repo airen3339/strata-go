@@ -68,7 +68,7 @@ The last navigation input determines the destination of Ctrl+V:
 3. Ctrl+V itself does **not** change ownership. A parked pointer cannot override subsequent keyboard navigation. Layout/scroll changes underneath an unmoving pointer do not count as pointer motion.
 4. Outside the columns, pointer mode falls back to the focused/active directory. Stale depths are discarded. Icons and List continue to use their single active directory.
 
-The terminal shortcut uses the same directory fallback, but still prefers an explicitly selected directory. New Folder remains keyboard-focus scoped. Context-menu paste and drag-and-drop retain their explicit destinations.
+The terminal shortcut uses the same directory fallback, but still prefers an explicitly selected directory: the one selected in the active column, or in Columns the folder selected in the pointer's column when it is open as the active column, such as a folder just clicked open. New Folder remains keyboard-focus scoped. Context-menu paste and drag-and-drop retain their explicit destinations.
 
 Keyboard navigation suppresses stale row-hover effects and pending folder peeks until deliberate pointer input resumes. It does not erase selection or the open folder path.
 

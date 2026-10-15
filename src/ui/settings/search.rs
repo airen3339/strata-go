@@ -254,6 +254,12 @@ const TARGETS: &[Target] = &[
         aliases: "date time format relative iso 8601 long absolute modified timestamp clock appearance",
     },
     Target {
+        id: "roundness",
+        page: "theme",
+        title: "Corner roundness",
+        aliases: "appearance corners radius rounded square shape borders",
+    },
+    Target {
         id: "file-icon-colors",
         page: "theme",
         title: "File icon colors",

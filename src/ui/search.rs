@@ -115,6 +115,9 @@ impl SearchDialog {
         )));
         status.add_css_class("search-status");
         status.set_wrap(true);
+        status.set_justify(gtk::Justification::Center);
+        status.set_halign(gtk::Align::Center);
+        status.set_valign(gtk::Align::Center);
 
         let list = gtk::ListBox::new();
         list.add_css_class("search-results");

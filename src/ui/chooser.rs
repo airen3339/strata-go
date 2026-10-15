@@ -1506,6 +1506,7 @@ fn build_chooser_hosted(
         .default_height(initial_height)
         .modal(request.modal)
         .build();
+    crate::ui::decoration::claim_titlebar(&window);
     if let Some(host) = &host {
         window.set_transient_for(Some(&host.parent));
         window.set_destroy_with_parent(true);
@@ -2322,6 +2323,9 @@ fn install_shortcuts(
             ])
         {
             return glib::Propagation::Proceed;
+        }
+        if preview.reset_pdf_zoom(press) {
+            return glib::Propagation::Stop;
         }
         if let Some(result) = tenxer.handle(press) {
             return result;
