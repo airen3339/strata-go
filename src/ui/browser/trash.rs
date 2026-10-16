@@ -113,7 +113,7 @@ fn restore_error_summary(errors: &[String]) -> String {
 /// provider may keep its own copy, so only local storage is "permanent".
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum DeletionReach {
-    /// Local block storage, including FUSE drivers for local devices (`fuseblk`).
+    /// Includes `fuseblk` drives and local FUSE overlays such as mergerfs.
     Local,
     Remote,
 }

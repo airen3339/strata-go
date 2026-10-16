@@ -159,7 +159,6 @@ fn native_path(file: &gio::File) -> Option<PathBuf> {
     file.has_uri_scheme("file").then(|| file.path()).flatten()
 }
 
-/// Returns the FUSE mount holding `file`, if any, so the caller can record it.
 async fn classify(
     environment: &dyn TrashEnvironment,
     file: &gio::File,
