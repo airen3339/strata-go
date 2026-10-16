@@ -445,15 +445,33 @@ fn escape_from_a_focused_result_dismisses_the_filter_before_the_preview() {
     );
 }
 
-fn location_space_case(mode: BrowserMode) -> Result<(), String> {
+#[derive(Clone, Copy, Debug)]
+enum SpaceFocus {
+    Location,
+    Sidebar,
+    Toolbar,
+}
+
+fn space_case(mode: BrowserMode, target: SpaceFocus) -> Result<(), String> {
     let fixture = filtered_fixture(mode, false);
     let field = show_filter_with_results(&fixture, "alpha", &["alpha-report.txt"])?;
     focus_first_result(&fixture, &field)?;
-    if !fixture.press(Key::l, ModifierType::CONTROL_MASK)
-        || !settles(|| fixture.view.location_has_focus())
-    {
+    let focused = match target {
+        SpaceFocus::Location => {
+            fixture.press(Key::l, ModifierType::CONTROL_MASK)
+                && settles(|| fixture.view.location_has_focus())
+        }
+        SpaceFocus::Sidebar => {
+            fixture.sidebar.state.focus_active_place();
+            settles(|| {
+                focus(&fixture).is_some_and(|focused| focused.is_ancestor(&fixture.sidebar.widget))
+            })
+        }
+        SpaceFocus::Toolbar => fixture.sidebar_toggle.grab_focus(),
+    };
+    if !focused {
         return Err(format!(
-            "Ctrl+L did not focus the location bar; focus is on {}",
+            "{target:?} did not take focus; focus is on {}",
             describe_focus(&fixture)
         ));
     }
@@ -462,31 +480,35 @@ fn location_space_case(mode: BrowserMode) -> Result<(), String> {
         .selected_search_results()
         .is_some_and(|hits| !hits.is_empty())
     {
-        return Err("opening the location bar dropped the selected hit".to_owned());
+        return Err(format!("focusing {target:?} dropped the selected hit"));
     }
     if fixture.press(Key::space, ModifierType::empty()) {
-        return Err("Space in the location bar acted on the selected hit".to_owned());
+        return Err(format!("Space on {target:?} acted on the selected hit"));
     }
     pump(100);
     if fixture.preview.is_enabled() {
-        return Err("Space in the location bar opened the preview".to_owned());
+        return Err(format!("Space on {target:?} opened the preview"));
     }
     Ok(())
 }
 
 #[test]
-fn the_location_bar_types_space_while_a_hit_is_selected() {
+fn space_acts_on_a_selected_hit_only_from_the_filter() {
     crate::test_support::gtk_test(
-        "ui::window::tests::keyboard_dispatch::filter_focus::the_location_bar_types_space_while_a_hit_is_selected",
+        "ui::window::tests::keyboard_dispatch::filter_focus::space_acts_on_a_selected_hit_only_from_the_filter",
         || {
-            let failures = [BrowserMode::Columns, BrowserMode::List, BrowserMode::Icons]
-                .into_iter()
-                .filter_map(|mode| {
-                    location_space_case(mode)
-                        .err()
-                        .map(|error| format!("{mode:?}: {error}"))
-                })
-                .collect();
+            let mut failures = Vec::new();
+            for mode in [BrowserMode::Columns, BrowserMode::List, BrowserMode::Icons] {
+                for target in [
+                    SpaceFocus::Location,
+                    SpaceFocus::Sidebar,
+                    SpaceFocus::Toolbar,
+                ] {
+                    if let Err(error) = space_case(mode, target) {
+                        failures.push(format!("{mode:?}: {error}"));
+                    }
+                }
+            }
             report(failures);
         },
     );
