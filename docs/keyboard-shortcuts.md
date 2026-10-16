@@ -86,6 +86,10 @@ Shortcuts follow the key's label first, then its physical position:
   Strata (`GTK_IM_MODULE=fcitx` or `ibus`, and every input method on X11),
   GTK's own dead keys, and the Compose key would otherwise get each key after
   Strata's handlers.
+- **Input method switch keys reach the focused text field.** **Ctrl+Space**
+  (fcitx5), **Super+Space** (IBus), **Shift** and **Shift+Space** go to the input
+  method in every text field, the F1 search included. Strata's own
+  **Ctrl+Space** toggles selection only in a file list.
 - **Zhuyin starts syllables with digit and punctuation keys.** Zhuyin input
   methods, such as chewing, type initials and finals on the digit row and on
   `-` `,` `.` `/` `;`, and tones with 3, 4, 6, 7 and Space. Array30 and

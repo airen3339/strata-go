@@ -249,7 +249,7 @@ when released. In
 
 ## Shortcut footer
 
-Every mode has a compact footer with **F1 · Shortcuts** on the left and clipboard status and the item count on the right. **Settings → General → Browsing → Show F1 Shortcuts button** controls the button's visibility (on by default). The preference is saved and updates all open windows immediately. Item counts and clipboard status remain visible when the button is hidden. F1 always opens the complete, mode-specific reference; closing it restores the button's configured visibility. F1, Escape, or a click outside it closes the reference, which blocks file-operation shortcuts while open. It stays open when the window loses focus. The reference is the only in-app keybinding list; it shows only the currently active map and live-updates when 10xer mode changes.
+Every mode has a compact footer with **F1 · Shortcuts** on the left and clipboard status and the item count on the right. **Settings → General → Browsing → Show F1 Shortcuts button** controls the button's visibility (on by default). The preference is saved and updates all open windows immediately. Item counts and clipboard status remain visible when the button is hidden. F1 always opens the complete, mode-specific reference; closing it restores the button's configured visibility. F1, Escape, or a click outside it closes the reference, which blocks file operations and commands such as **F5**, **Ctrl+K** and **Ctrl+,** while open. Its search field still takes text-editing and input method keys, such as **Ctrl+Left** and **Ctrl+Space**. It stays open when the window loses focus. The reference is the only in-app keybinding list; it shows only the currently active map and live-updates when 10xer mode changes.
 
 ## 10xer mode
 

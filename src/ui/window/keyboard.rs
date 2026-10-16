@@ -808,6 +808,9 @@ impl Dispatcher {
     /// Where GTK's accelerators ran: window actions, then a focused text
     /// field's editing keys.
     fn after_yield(&self, press: &KeyPress) -> Propagation {
+        if self.shortcuts.reference_is_open() {
+            return edit_focused_text(&self.window, press);
+        }
         match self.window_action(press) {
             Propagation::Proceed => edit_focused_text(&self.window, press),
             handled => handled,
