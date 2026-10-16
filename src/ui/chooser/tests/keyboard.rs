@@ -85,6 +85,20 @@ impl Chooser {
             .emit_by_name::<bool>("key-pressed", &[&key, &0u32, &modifiers])
     }
 
+    fn press_reference(&self, key: Key) -> bool {
+        let panel = widget_with_class(self.state.window.upcast_ref(), "shortcut-reference-panel")
+            .expect("reference panel");
+        let controllers = panel.observe_controllers();
+        (0..controllers.n_items())
+            .find_map(|index| {
+                controllers
+                    .item(index)
+                    .and_downcast::<gtk::EventControllerKey>()
+            })
+            .expect("reference key controller")
+            .emit_by_name::<bool>("key-pressed", &[&key, &0u32, &ModifierType::empty()])
+    }
+
     fn focus_files(&self) {
         self.state.view.browser().focus_active();
         wait_until(|| self.state.view.item_view_has_focus());
@@ -507,7 +521,6 @@ fn chooser_shortcuts_stay_off_while_the_reference_stays_open_outside_tenxer() {
                 (Key::Up, alt),
                 (Key::Left, alt),
                 (Key::Home, alt),
-                (Key::Escape, none),
             ] {
                 assert!(
                     !chooser.press_with(key, modifiers),
@@ -516,8 +529,10 @@ fn chooser_shortcuts_stay_off_while_the_reference_stays_open_outside_tenxer() {
             }
             assert_eq!(chooser.state.view.view_mode(), BrowserMode::List);
             assert_eq!(browser.active_location(), location);
+            assert!(!chooser.press(Key::Escape), "the chooser took Esc");
+            assert!(chooser.press_reference(Key::Escape));
+            assert!(!chooser.reference_visible());
             assert!(chooser.open_request(), "Esc cancelled the request");
-            assert!(chooser.reference_search_focused());
         },
     );
 }
