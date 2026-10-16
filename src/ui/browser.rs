@@ -2170,6 +2170,18 @@ impl BrowserView {
             })
     }
 
+    pub(in crate::ui) fn search_result_for_space(&self) -> Option<FileEntry> {
+        let focused = self.state.overlay.root().and_then(|root| root.focus());
+        if focused
+            .as_ref()
+            .is_some_and(crate::ui::focus_navigation::editable)
+            && !self.filter_has_focus()
+        {
+            return None;
+        }
+        self.selected_search_result()
+    }
+
     pub(super) fn connect_search_selection_changed(&self, handler: Rc<dyn Fn()>) {
         self.state
             .search_selection_handlers
