@@ -2280,6 +2280,10 @@ impl Browser {
         self.state.borrow().command_entries(depth)
     }
 
+    pub fn filled_entries(&self, depth: usize) -> Vec<FileEntry> {
+        self.state.borrow().filled_entries(depth)
+    }
+
     pub fn selected_count(&self) -> usize {
         self.state.borrow().selected_count()
     }

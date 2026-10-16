@@ -687,6 +687,120 @@ fn browsing_control_and_shortcut_update_both_windows() {
 }
 
 #[test]
+fn saved_sidebar_compact_starts_railed_and_the_toggle_steps_both_windows() {
+    gtk_test(
+        "ui::window::tests::preferences::saved_sidebar_compact_starts_railed_and_the_toggle_steps_both_windows",
+        || {
+            write_settings("sidebar_compact = true\n");
+            let manager = PreferenceManager::shared();
+            assert!(manager.sidebar_compact());
+            let first = OpenWindow::open();
+            let second = OpenWindow::open();
+            settle();
+            for open in [&first, &second] {
+                assert!(open.content.sidebar_visible());
+                assert!(
+                    open.content.sidebar.state.rail.get(),
+                    "a saved compact sidebar starts as the rail in a wide window"
+                );
+            }
+            first.content.sidebar_toggle().emit_clicked();
+            settle();
+            assert!(!manager.sidebar_expanded(), "the rail's next step hides");
+            for open in [&first, &second] {
+                wait_until_or(
+                    || !open.content.sidebar_visible(),
+                    || sidebar_report(&[&first, &second], &manager),
+                );
+            }
+            second.content.sidebar_toggle().emit_clicked();
+            settle();
+            assert!(manager.sidebar_expanded());
+            assert!(
+                !manager.sidebar_compact(),
+                "hidden steps to the full sidebar"
+            );
+            for open in [&first, &second] {
+                wait_until_or(
+                    || open.content.sidebar_visible(),
+                    || sidebar_report(&[&first, &second], &manager),
+                );
+                assert!(!open.content.sidebar.state.rail.get());
+            }
+            first.content.sidebar_toggle().emit_clicked();
+            settle();
+            assert!(manager.sidebar_compact(), "full steps to the rail");
+            for open in [&first, &second] {
+                wait_until_or(
+                    || open.content.sidebar.state.rail.get(),
+                    || sidebar_report(&[&first, &second], &manager),
+                );
+                assert!(open.content.sidebar_visible());
+            }
+            let saved = std::fs::read_to_string(settings_file()).expect("saved settings");
+            assert!(saved.contains("sidebar_compact = true"), "{saved}");
+        },
+    );
+}
+
+#[test]
+fn narrow_window_rails_automatically_and_the_toggle_reaches_every_mode() {
+    gtk_test(
+        "ui::window::tests::preferences::narrow_window_rails_automatically_and_the_toggle_reaches_every_mode",
+        || {
+            let manager = PreferenceManager::shared();
+            manager.set_browser_mode(BrowserMode::Columns);
+            let open = OpenWindow::open_with_width(700);
+            let sidebar = &open.content.sidebar.state;
+            wait_until_or(|| sidebar.rail.get(), || sidebar_report(&[&open], &manager));
+            assert!(!manager.sidebar_compact(), "an automatic rail is not saved");
+
+            let ctrl_b = || {
+                press(
+                    &open.window,
+                    gtk::gdk::Key::b,
+                    gtk::gdk::ModifierType::CONTROL_MASK,
+                )
+            };
+            ctrl_b();
+            wait_until_or(
+                || !open.content.sidebar_visible(),
+                || sidebar_report(&[&open], &manager),
+            );
+            assert!(!manager.sidebar_expanded());
+
+            ctrl_b();
+            assert!(
+                !sidebar.rail.get(),
+                "showing a hidden sidebar asks for the full sidebar"
+            );
+            wait_until_or(
+                || open.content.sidebar_visible(),
+                || sidebar_report(&[&open], &manager),
+            );
+            settle_for(std::time::Duration::from_millis(400));
+            assert!(
+                !sidebar.rail.get(),
+                "the full sidebar stays while the shortage is unchanged"
+            );
+            assert!(!manager.sidebar_compact());
+
+            ctrl_b();
+            wait_until_or(|| sidebar.rail.get(), || sidebar_report(&[&open], &manager));
+            assert!(manager.sidebar_compact(), "full steps to the rail");
+            assert!(open.content.sidebar_visible());
+
+            ctrl_b();
+            wait_until_or(
+                || !open.content.sidebar_visible(),
+                || sidebar_report(&[&open], &manager),
+            );
+            assert!(manager.sidebar_compact(), "hiding keeps the compact choice");
+        },
+    );
+}
+
+#[test]
 fn saved_sidebar_collapsed_restores_and_ctrl_b_updates_both_windows() {
     gtk_test(
         "ui::window::tests::preferences::saved_sidebar_collapsed_restores_and_ctrl_b_updates_both_windows",
@@ -709,7 +823,28 @@ fn saved_sidebar_collapsed_restores_and_ctrl_b_updates_both_windows() {
             assert!(manager.sidebar_expanded());
             for open in [&first, &second] {
                 assert!(open.content.sidebar_toggle().is_active());
-                wait_until(|| open.content.sidebar_visible());
+                wait_until_or(
+                    || open.content.sidebar_visible(),
+                    || sidebar_report(&[&first, &second], &manager),
+                );
+            }
+            press(
+                &second.window,
+                gtk::gdk::Key::b,
+                gtk::gdk::ModifierType::CONTROL_MASK,
+            );
+            settle();
+            assert!(manager.sidebar_expanded());
+            assert!(
+                manager.sidebar_compact(),
+                "the full sidebar steps to the rail"
+            );
+            for open in [&first, &second] {
+                assert!(open.content.sidebar_toggle().is_active());
+                wait_until_or(
+                    || open.content.sidebar.state.rail.get(),
+                    || sidebar_report(&[&first, &second], &manager),
+                );
             }
             press(
                 &second.window,
@@ -720,7 +855,10 @@ fn saved_sidebar_collapsed_restores_and_ctrl_b_updates_both_windows() {
             assert!(!manager.sidebar_expanded());
             for open in [&first, &second] {
                 assert!(!open.content.sidebar_toggle().is_active());
-                wait_until(|| !open.content.sidebar_visible());
+                wait_until_or(
+                    || !open.content.sidebar_visible(),
+                    || sidebar_report(&[&first, &second], &manager),
+                );
             }
             let saved = std::fs::read_to_string(settings_file()).expect("saved settings");
             assert!(saved.contains("sidebar_expanded = false"), "{saved}");
@@ -1365,6 +1503,262 @@ fn unreadable_folder_settings_use_defaults_and_are_never_overwritten() {
     );
 }
 
+#[test]
+fn list_column_options_open_after_switching_from_columns() {
+    gtk_test(
+        "ui::window::tests::preferences::list_column_options_open_after_switching_from_columns",
+        || {
+            let open = OpenWindow::open();
+            let _directory = load_folder(&open);
+            assert_eq!(open.content.browser.view_mode(), BrowserMode::Columns);
+            open.content.browser.set_view_mode(BrowserMode::List);
+            let mut appearance = None;
+            walk(open.window.upcast_ref(), &mut |widget| {
+                if widget.has_css_class("header-action")
+                    && let Some(menu) = widget.downcast_ref::<gtk::MenuButton>()
+                {
+                    appearance = Some(menu.clone());
+                }
+            });
+            let appearance = appearance.expect("Appearance menu");
+            appearance.popup();
+            let popover = appearance.popover().expect("Appearance popover");
+            let customize = label_named(popover.upcast_ref(), "Customize columns…")
+                .ancestor(gtk::Button::static_type())
+                .and_downcast::<gtk::Button>()
+                .expect("customize columns action");
+            assert!(customize.is_sensitive());
+            customize.emit_clicked();
+            wait_until(|| {
+                class_in_shown_pane(&open.content.browser.widget(), "column-popover")
+                    .iter()
+                    .any(gtk::Widget::is_mapped)
+            });
+        },
+    );
+}
+
+#[test]
+fn list_column_customization_preserves_saved_and_live_folder_sorts() {
+    gtk_test(
+        "ui::window::tests::preferences::list_column_customization_preserves_saved_and_live_folder_sorts",
+        || {
+            use crate::model::{FolderSort, Location, SortDirection, SortKey};
+            use crate::ui::preferences::ListColumnId;
+
+            let directory = tempfile::tempdir().expect("sort fixture");
+            std::fs::write(directory.path().join("a-large.txt"), b"large file")
+                .expect("large file");
+            std::fs::write(directory.path().join("z-small.txt"), b"a").expect("small file");
+            let location = Location::local(directory.path());
+            write_settings("browser_mode = 'list'\nlist_hidden_columns = ['size']\n");
+            write_folder_views(&format!(
+                "version = 1\n[[folder]]\npath = \"{}\"\nsort = \"size\"\ndirection = \"descending\"\n",
+                directory.path().display()
+            ));
+            let manager = PreferenceManager::shared();
+            let first = OpenWindow::open();
+            let second = OpenWindow::open();
+            let sorting = |open: &OpenWindow| {
+                open.content
+                    .browser
+                    .browser()
+                    .column_preferences(0)
+                    .map(|preferences| preferences.sort())
+            };
+            let size_descending = (SortKey::Size, SortDirection::Descending);
+            let check_sort = |open: &OpenWindow, direction| {
+                let first_name = match direction {
+                    SortDirection::Ascending => "z-small.txt",
+                    SortDirection::Descending => "a-large.txt",
+                };
+                wait_until(|| {
+                    sorting(open) == Some((SortKey::Size, direction))
+                        && open
+                            .content
+                            .browser
+                            .browser()
+                            .entry_at(0, 0)
+                            .is_some_and(|entry| entry.display_name == first_name)
+                });
+            };
+            for open in [&first, &second] {
+                open.content.browser.navigate_location(location.clone());
+                wait_until(|| !column_loading(open, 0));
+                check_sort(open, SortDirection::Descending);
+                assert!(settings_closed(open));
+                assert!(!list_heading(&open.content.browser.widget(), "Size").is_mapped());
+            }
+            assert_eq!(
+                manager.default_sort(),
+                (SortKey::Name, SortDirection::Ascending)
+            );
+            assert_eq!(
+                manager.resolve_folder_sort(&location, false),
+                FolderSort::Saved(size_descending.0, size_descending.1)
+            );
+
+            manager.set_list_column_visible(ListColumnId::Size, true);
+            for open in [&first, &second] {
+                assert!(list_heading(&open.content.browser.widget(), "Size").is_mapped());
+                check_sort(open, SortDirection::Descending);
+            }
+            list_heading(&first.content.browser.widget(), "Size").emit_clicked();
+            for open in [&first, &second] {
+                check_sort(open, SortDirection::Ascending);
+            }
+            list_heading(&second.content.browser.widget(), "Size").emit_clicked();
+            for open in [&first, &second] {
+                check_sort(open, SortDirection::Descending);
+            }
+            manager.set_list_column_visible(ListColumnId::Size, false);
+            settle();
+            for open in [&first, &second] {
+                check_sort(open, SortDirection::Descending);
+                assert!(!list_heading(&open.content.browser.widget(), "Size").is_mapped());
+            }
+
+            for mode in [BrowserMode::Columns, BrowserMode::Icons, BrowserMode::List] {
+                manager.set_browser_mode(mode);
+                for open in [&first, &second] {
+                    wait_until(|| open.content.browser.view_mode() == mode);
+                    check_sort(open, SortDirection::Descending);
+                }
+                if mode == BrowserMode::Icons {
+                    manager.set_list_column_visible(ListColumnId::Size, true);
+                }
+            }
+            for open in [&first, &second] {
+                assert!(list_heading(&open.content.browser.widget(), "Size").is_mapped());
+            }
+            manager.set_list_column_visible(ListColumnId::Size, false);
+            settle();
+            manager.reset_list_columns();
+            for open in [&first, &second] {
+                assert!(list_heading(&open.content.browser.widget(), "Size").is_mapped());
+                check_sort(open, SortDirection::Descending);
+            }
+            assert_eq!(
+                manager.resolve_folder_sort(&location, false),
+                FolderSort::Saved(size_descending.0, size_descending.1)
+            );
+            manager.flush_folder_views();
+            assert!(folder_views_file().contains("sort = \"size\""));
+
+            manager.set_remember_folder_views(false);
+            let local_sorts = [
+                (&first, SortDirection::Ascending),
+                (&second, SortDirection::Descending),
+            ];
+            for (open, direction) in local_sorts {
+                open.content
+                    .browser
+                    .browser()
+                    .set_sort(0, SortKey::Size, direction);
+                check_sort(open, direction);
+                wait_until(|| manager.default_sort() == (SortKey::Size, direction));
+            }
+            manager.set_list_column_visible(ListColumnId::Size, false);
+            settle();
+            for (open, direction) in local_sorts {
+                check_sort(open, direction);
+            }
+            manager.set_list_column_visible(ListColumnId::Size, true);
+            for (open, direction) in local_sorts {
+                assert!(list_heading(&open.content.browser.widget(), "Size").is_mapped());
+                check_sort(open, direction);
+            }
+            assert_eq!(manager.default_sort(), size_descending);
+        },
+    );
+}
+
+#[test]
+fn show_thumbnails_saved_and_live_preferences_apply_across_windows_and_views() {
+    gtk_test(
+        "ui::window::tests::preferences::show_thumbnails_saved_and_live_preferences_apply_across_windows_and_views",
+        || {
+            use crate::ui::thumbnail::{
+                ThumbnailSlot, cached_thumbnail, remember_thumbnail_for_test,
+            };
+
+            write_settings("show_thumbnails = false\nbrowser_mode = 'list'\n");
+            let directory = tempfile::tempdir().expect("image folder");
+            let path = directory.path().join("photo.png");
+            let texture: gtk::gdk::Texture = gtk::gdk::MemoryTexture::new(
+                1,
+                1,
+                gtk::gdk::MemoryFormat::R8g8b8a8,
+                &gtk::glib::Bytes::from_owned(vec![120, 80, 40, 255]),
+                4,
+            )
+            .upcast();
+            texture.save_to_png(&path).expect("image fixture");
+            let manager = PreferenceManager::shared();
+            let windows = [OpenWindow::open(), OpenWindow::open()];
+            for open in &windows {
+                open.content
+                    .browser
+                    .navigate_location(crate::model::Location::local(directory.path()));
+                let entry = loaded_entry(open, &path);
+                remember_thumbnail_for_test(&entry, texture.clone());
+                assert_eq!(
+                    cached_thumbnail(&entry),
+                    Some(texture.clone()),
+                    "preview cache remains usable"
+                );
+            }
+            let slots = || {
+                windows
+                    .iter()
+                    .map(|open| {
+                        let mut found = Vec::new();
+                        walk(&open.content.browser.widget(), &mut |widget| {
+                            if widget.is_mapped()
+                                && let Some(slot) = widget.downcast_ref::<ThumbnailSlot>()
+                                && slot.provider_path().as_deref() == path.to_str()
+                            {
+                                found.push(slot.clone());
+                            }
+                        });
+                        found
+                    })
+                    .collect::<Vec<_>>()
+            };
+            let shown = |enabled| {
+                slots().iter().all(|window_slots| {
+                    !window_slots.is_empty()
+                        && window_slots
+                            .iter()
+                            .all(|slot| slot.texture().is_some() == enabled)
+                })
+            };
+            wait_until(|| shown(false));
+            for mode in [BrowserMode::List, BrowserMode::Columns, BrowserMode::Icons] {
+                manager.set_browser_mode(mode);
+                wait_until(|| {
+                    windows
+                        .iter()
+                        .all(|open| open.content.browser.view_mode() == mode)
+                });
+                wait_until(|| shown(false));
+                manager.set_show_thumbnails(true);
+                wait_until(|| shown(true));
+                manager.set_show_thumbnails(false);
+                wait_until(|| shown(false));
+            }
+            assert!(
+                std::fs::read_to_string(settings_file())
+                    .expect("saved settings")
+                    .contains("show_thumbnails = false")
+            );
+            for open in windows {
+                open.window.close();
+            }
+        },
+    );
+}
+
 struct OpenWindow {
     window: gtk::ApplicationWindow,
     content: super::super::composition::WindowContent,
@@ -1372,11 +1766,15 @@ struct OpenWindow {
 
 impl OpenWindow {
     fn open() -> Self {
+        Self::open_with_width(1200)
+    }
+
+    fn open_with_width(width: i32) -> Self {
         let preferences = PreferenceManager::shared();
         let window = gtk::ApplicationWindow::builder()
             .application(&test_application())
             .title("Strata")
-            .default_width(1200)
+            .default_width(width)
             .default_height(760)
             .build();
         let content = super::super::composition::WindowContent::new(&window, &preferences);
@@ -1578,11 +1976,37 @@ fn settle_for(duration: std::time::Duration) {
 }
 
 fn wait_until(condition: impl Fn() -> bool) {
+    wait_until_or(condition, || "timed out".to_owned());
+}
+
+/// Like [`wait_until`], with `report` describing what was seen on a timeout.
+fn wait_until_or(condition: impl Fn() -> bool, report: impl Fn() -> String) {
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
     while !condition() {
-        assert!(std::time::Instant::now() < deadline, "timed out");
+        assert!(std::time::Instant::now() < deadline, "{}", report());
         settle_for(std::time::Duration::from_millis(20));
     }
+}
+
+fn sidebar_report(windows: &[&OpenWindow], manager: &PreferenceManager) -> String {
+    let windows = windows
+        .iter()
+        .enumerate()
+        .map(|(index, open)| {
+            format!(
+                "window {index}: toggle active={} visible={} rail={}",
+                open.content.sidebar_toggle().is_active(),
+                open.content.sidebar_visible(),
+                open.content.sidebar.state.rail.get()
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("; ");
+    format!(
+        "{windows}; saved expanded={} compact={}",
+        manager.sidebar_expanded(),
+        manager.sidebar_compact()
+    )
 }
 
 fn filter_buttons(open: &OpenWindow) -> Vec<gtk::ToggleButton> {

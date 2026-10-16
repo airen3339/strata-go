@@ -253,8 +253,7 @@ fn file_filter_matches(filter: &gtk::FileFilter, entry: &FileEntry) -> bool {
     info.set_name(Path::new(&entry.native_name));
     info.set_display_name(&entry.display_name);
     info.set_file_type(gio::FileType::Regular);
-    let (content_type, _) =
-        gio::content_type_guess(Some(Path::new(&entry.native_name)), None::<&[u8]>);
+    let (content_type, _) = crate::services::guess_content_type(Path::new(&entry.native_name));
     info.set_content_type(&content_type);
     filter.match_(&info)
 }
@@ -1506,6 +1505,7 @@ fn build_chooser_hosted(
         .default_height(initial_height)
         .modal(request.modal)
         .build();
+    crate::ui::decoration::claim_titlebar(&window);
     if let Some(host) = &host {
         window.set_transient_for(Some(&host.parent));
         window.set_destroy_with_parent(true);
@@ -1527,23 +1527,9 @@ fn build_chooser_hosted(
         });
     }
     let header = gtk::HeaderBar::new();
+    header.add_css_class("browser-header");
     header.set_show_title_buttons(false);
-    let sidebar_toggle = gtk::ToggleButton::builder().active(true).build();
-    theme.bind_preference(
-        &sidebar_toggle,
-        PreferenceManager::tenxer_mode,
-        |toggle, tenxer| {
-            toggle.set_tooltip_text(Some(
-                &crate::ui::shortcut_reference::sidebar_toggle_tooltip(tenxer),
-            ));
-        },
-    );
-    sidebar_toggle.set_child(Some(&crate::assets::primary_icon(
-        crate::assets::icons::PANEL_LEFT,
-        17,
-    )));
-    sidebar_toggle.add_css_class("sidebar-toggle");
-    sidebar_toggle.set_cursor_from_name(Some("pointer"));
+    let sidebar_toggle = super::sidebar_toggle::SidebarToggle::new();
     let location = view.location_widget();
     location.set_hexpand(true);
     let appearance = build_appearance_menu(&view, &browser, theme.clone(), &preview);
@@ -1576,6 +1562,7 @@ fn build_chooser_hosted(
     let confined = source.root_limit.is_some();
     let sidebar = build_sidebar(view.clone(), theme.clone(), true);
     sidebar.schedule_after_first_paint(&window);
+    bind_chooser_sidebar_modes(&sidebar, &sidebar_toggle, &theme);
     let content = gtk::Paned::new(gtk::Orientation::Horizontal);
     content.set_wide_handle(false);
     content.set_position(SIDEBAR_WIDTH);
@@ -1901,7 +1888,7 @@ fn build_chooser_hosted(
     let tenxer = tenxer_keys(
         &state,
         &sidebar,
-        &sidebar_toggle,
+        sidebar_toggle.upcast_ref(),
         &header_content,
         &preview,
         &footer,
@@ -1910,7 +1897,7 @@ fn build_chooser_hosted(
         &window,
         &state,
         &sidebar,
-        &sidebar_toggle,
+        sidebar_toggle.upcast_ref(),
         header_content.upcast_ref(),
         &preview,
         tenxer,
@@ -2199,6 +2186,50 @@ fn chooser_footer(
     (footer, holder)
 }
 
+/// The chooser keeps its sidebar modes for the dialog only.
+fn bind_chooser_sidebar_modes(
+    sidebar: &SidebarView,
+    toggle: &super::sidebar_toggle::SidebarToggle,
+    preferences: &Rc<PreferenceManager>,
+) {
+    use super::sidebar_toggle::SidebarMode;
+    let state = Rc::downgrade(&sidebar.state);
+    let stepping_toggle = toggle.clone();
+    toggle.set_step(move || {
+        let Some(state) = state.upgrade() else {
+            return;
+        };
+        match SidebarMode::of(stepping_toggle.is_active(), state.rail.get()).next() {
+            SidebarMode::Expanded => {
+                state.set_compact(false);
+                stepping_toggle.set_active(true);
+            }
+            SidebarMode::Compact => state.set_compact(true),
+            SidebarMode::Hidden => stepping_toggle.set_active(false),
+        }
+    });
+    let describe = {
+        let toggle = toggle.clone();
+        let state = Rc::downgrade(&sidebar.state);
+        let preferences = preferences.clone();
+        Rc::new(move || {
+            if let Some(state) = state.upgrade() {
+                toggle.describe(
+                    SidebarMode::of(toggle.is_active(), state.rail.get()),
+                    preferences.tenxer_mode(),
+                );
+            }
+        })
+    };
+    let on_toggled = describe.clone();
+    toggle.connect_toggled(move |_| on_toggled());
+    let on_rail = describe.clone();
+    sidebar.state.connect_rail_changed(move |_| on_rail());
+    preferences.bind_preference(toggle, PreferenceManager::tenxer_mode, move |_, _| {
+        describe();
+    });
+}
+
 fn tenxer_keys(
     state: &Rc<ChooserState>,
     sidebar: &SidebarView,
@@ -2292,6 +2323,9 @@ fn install_shortcuts(
             ])
         {
             return glib::Propagation::Proceed;
+        }
+        if preview.reset_pdf_zoom(press) {
+            return glib::Propagation::Stop;
         }
         if let Some(result) = tenxer.handle(press) {
             return result;
@@ -2507,7 +2541,7 @@ fn install_shortcuts(
                 .as_ref()
                 .is_none_or(|host| !host.confined)
             {
-                sidebar_toggle.set_active(!sidebar_toggle.is_active());
+                sidebar_toggle.emit_clicked();
             }
             return glib::Propagation::Stop;
         }

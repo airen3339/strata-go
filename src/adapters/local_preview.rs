@@ -22,7 +22,8 @@ use crate::{
         LoadHandle, MediaPreviewSize, ModelFormat, ModelRender, Preview, PreviewContent,
         PreviewEvent, PreviewProvider, PreviewRequest, SandboxedMedia, content_family,
         document_kind, has_plain_text_extension, is_non_executable_extensionless_dotfile,
-        layout_document, normalize_preview_text, parse_document,
+        layout_document, looks_like_text, normalize_preview_text, parse_document, read_head_sample,
+        reconcile_with_sample,
     },
 };
 
@@ -254,9 +255,18 @@ impl LocalPreviewProvider {
         let abort_safe = Rc::new(Cell::new(true));
         let abort_safe_for_task = abort_safe.clone();
         let task = glib::MainContext::default().spawn_local(async move {
-            let (guessed_type, uncertain) =
-                gio::content_type_guess(Some(Path::new(&entry.native_name)), None::<&[u8]>);
-            let mut content_type = guessed_type.to_string();
+            let sample = match entry.location.native_path() {
+                Some(path) => {
+                    let path = path.to_path_buf();
+                    gio::spawn_blocking(move || read_head_sample(&path))
+                        .await
+                        .ok()
+                        .flatten()
+                }
+                None => None,
+            };
+            let (mut content_type, uncertain) =
+                crate::services::guess_content_type(Path::new(&entry.native_name));
             let mut content = content_family(&content_type);
             if crate::services::is_model(&entry.native_name) {
                 content = PreviewContent::Unsupported;
@@ -322,8 +332,16 @@ impl LocalPreviewProvider {
                 content = resolved;
                 content_type = queried_type;
             }
+            let sample_is_text = sample.as_deref().map(looks_like_text);
+            if let Some(sample) = &sample
+                && !crate::services::is_model(&entry.native_name)
+            {
+                reconcile_with_sample(&mut content_type, &mut content, sample);
+            }
 
-            if let Some(format) = crate::services::archive_preview_format(&entry.native_name) {
+            if let Some(format) = crate::services::archive_preview_format(&entry.native_name)
+                .filter(|_| sample_is_text != Some(true))
+            {
                 let archive_path = match entry.location.native_path() {
                     Some(path) => path.to_path_buf(),
                     None => {
@@ -402,7 +420,9 @@ impl LocalPreviewProvider {
             let sandboxed = if crate::services::table::is_workbook(&content_type, &entry.native_name)
             {
                 Some(ParseOperation::PreviewWorkbook)
-            } else if crate::services::docx::is_document(&content_type, &entry.native_name) {
+            } else if crate::services::docx::is_document(&content_type, &entry.native_name)
+                && sample_is_text != Some(true)
+            {
                 Some(ParseOperation::PreviewDocument)
             } else {
                 None
@@ -447,7 +467,8 @@ impl LocalPreviewProvider {
                 &content_type,
                 &entry.native_name,
                 entry.location.native_path().is_some(),
-            );
+            )
+            .filter(|_| sample.is_none() || matches!(content, PreviewContent::Text { .. }));
             if document_kind.is_some() {
                 content = PreviewContent::Document {
                     source: String::new(),
@@ -525,6 +546,11 @@ impl LocalPreviewProvider {
                 PreviewContent::Pdf { .. } => Some(ParseOperation::PreviewPdf(pdf_render_size(
                     request.media_size,
                 ))),
+                PreviewContent::Image
+                    if crate::sandbox::raw_metadata::is_raw(Path::new(&entry.native_name)) =>
+                {
+                    Some(ParseOperation::PreviewRaw)
+                }
                 PreviewContent::Image => Some(ParseOperation::PreviewImage),
                 PreviewContent::Media => None,
                 PreviewContent::Text { .. }
@@ -538,7 +564,10 @@ impl LocalPreviewProvider {
             }};
             if let Some(operation) = &operation {
                 let staged = if entry.location.native_path().is_none() {
-                    if !matches!(operation, ParseOperation::PreviewImage) {
+                    if !matches!(
+                        operation,
+                        ParseOperation::PreviewImage | ParseOperation::PreviewRaw
+                    ) {
                         emit(PreviewEvent::Failed {
                             request_id,
                             entry,
@@ -866,7 +895,22 @@ async fn read_text(
 }
 
 fn decode_text_sample(sample: &[u8]) -> String {
-    normalize_preview_text(&String::from_utf8_lossy(sample)).into_owned()
+    let decoded = match sample {
+        [0xFF, 0xFE, body @ ..] => decode_utf16(body, u16::from_le_bytes),
+        [0xFE, 0xFF, body @ ..] => decode_utf16(body, u16::from_be_bytes),
+        _ => String::from_utf8_lossy(sample).into_owned(),
+    };
+    normalize_preview_text(&decoded).into_owned()
+}
+
+fn decode_utf16(body: &[u8], unit: fn([u8; 2]) -> u16) -> String {
+    let units: Vec<u16> = body
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|pair| unit(*pair))
+        .collect();
+    String::from_utf16_lossy(&units)
 }
 
 #[cfg(test)]

@@ -25,8 +25,9 @@ use crate::{
     services::{
         DirectoryChange, DirectoryEvent, DirectoryRequest, FileSource, LoadHandle,
         LocationIdentity, LocationValidationError, MetadataOutcome, MetadataRequest,
-        MetadataUpdate, RequestId, backend_unavailable_message, is_hidden_name, is_image_path,
-        is_media_path, native_hidden_names, native_kind, sanitize_failure_message,
+        MetadataUpdate, RequestId, backend_unavailable_message, bytes_support_named_family,
+        is_hidden_name, is_image_path, is_media_path, native_hidden_names, native_kind,
+        sanitize_failure_message, symlink_kind,
     },
 };
 
@@ -289,11 +290,11 @@ fn remote_directory_failure(request_id: RequestId, error: &glib::Error) -> Direc
     }
 }
 
-fn info_is_hidden(info: &gio::FileInfo) -> bool {
+pub(super) fn info_is_hidden(info: &gio::FileInfo) -> bool {
     info.has_attribute(gio::FILE_ATTRIBUTE_STANDARD_IS_HIDDEN) && info.is_hidden()
 }
 
-fn info_is_symlink(info: &gio::FileInfo) -> bool {
+pub(super) fn info_is_symlink(info: &gio::FileInfo) -> bool {
     info.has_attribute(gio::FILE_ATTRIBUTE_STANDARD_IS_SYMLINK) && info.is_symlink()
 }
 
@@ -374,7 +375,9 @@ fn entry_from_info(location: Location, info: gio::FileInfo) -> FileEntry {
             EntryKind::Directory
         }
         (gio::FileType::Regular, false) => EntryKind::File,
-        (gio::FileType::SymbolicLink, _) => EntryKind::SymbolicLink,
+        (gio::FileType::SymbolicLink, _) => location
+            .native_path()
+            .map_or(EntryKind::SymbolicLink, symlink_kind),
         _ => EntryKind::Other,
     };
     let size = if matches!(
@@ -1843,8 +1846,9 @@ fn fill_icon_details_with_probe(
     if cancellable.is_cancelled() || Instant::now() >= deadline {
         return false;
     }
-    let needs_metadata =
-        info.file_type() == gio::FileType::Regular && (is_image_path(path) || is_media_path(path));
+    let needs_metadata = info.file_type() == gio::FileType::Regular
+        && (is_image_path(path) || is_media_path(path))
+        && bytes_support_named_family(path);
     if needs_metadata {
         #[cfg(test)]
         if let Ok(mut counts) = media_metadata_probe_counts().lock() {
