@@ -1547,13 +1547,17 @@ impl ShortcutFooter {
         true
     }
 
-    /// In a text field, a key that reads as `~` only through the layout fallback
-    /// types its own character instead.
     fn tilde_toggles(&self, press: &KeyPress, reference_open: bool) -> bool {
-        super::preferences::PreferenceManager::shared().tenxer_mode()
-            && press.is(TENXER_REFERENCE)
-            && (reference_open || !self.prompt_has_focus())
-            && !(press.used_fallback() && self.typing_has_focus())
+        if !super::preferences::PreferenceManager::shared().tenxer_mode()
+            || !press.is(TENXER_REFERENCE)
+        {
+            return false;
+        }
+        if reference_open {
+            !(press.used_fallback() && self.typing_has_focus())
+        } else {
+            !self.prompt_has_focus() && !self.typing_has_focus()
+        }
     }
 
     fn typing_has_focus(&self) -> bool {

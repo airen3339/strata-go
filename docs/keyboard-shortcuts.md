@@ -297,8 +297,10 @@ field.
 Plain keys that only the fallback recognizes stay text where typing goes:
 type-to-search starts with the **þ** that Icelandic types on the US `/` key
 instead of opening an empty filter, and in 10xer mode the Russian **Ё** key
-reads as **~** but types **Ё** into the location bar or the F1 search instead
-of toggling the reference.
+reads as **~** but types **Ё** into the F1 search instead of closing the
+reference. In 10xer mode, text fields such as the location bar type **~**
+itself rather than opening the reference; only the open reference's search
+closes it on **~**.
 
 A focused cell of a document table follows the same rule for copy and select
 all. The table's key handler runs the cell's action, because it owns the
