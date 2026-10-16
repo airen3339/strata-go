@@ -207,6 +207,10 @@ impl ChooserKeys {
         self.dispatcher.handle_chooser_key(&browser, press)
     }
 
+    pub(in crate::ui) fn reference_is_open(&self) -> bool {
+        self.dispatcher.shortcuts.reference_is_open()
+    }
+
     /// Returns false for a folder or no entry so the caller can navigate instead.
     pub(in crate::ui) fn confirm_focused(&self) -> bool {
         self.browser

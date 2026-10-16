@@ -481,6 +481,48 @@ fn escape_dismisses_one_interaction_before_cancelling_and_the_toggle_keeps_the_r
 }
 
 #[test]
+fn chooser_shortcuts_stay_off_while_the_reference_stays_open_outside_tenxer() {
+    crate::test_support::gtk_test(
+        "ui::chooser::tests::keyboard::chooser_shortcuts_stay_off_while_the_reference_stays_open_outside_tenxer",
+        || {
+            let chooser = Chooser::open(single_file(), BrowserMode::List, &["a.txt", "folder/"]);
+            chooser.focus_files();
+            assert!(chooser.press(Key::F1));
+            wait_until(|| chooser.reference_search_focused());
+            PreferenceManager::shared().set_tenxer_mode(false);
+            wait_until(|| !chooser.footer_visible());
+            assert!(chooser.reference_visible());
+            let browser = chooser.state.view.browser();
+            let location = browser.active_location();
+            let (none, control, alt) = (
+                ModifierType::empty(),
+                ModifierType::CONTROL_MASK,
+                ModifierType::ALT_MASK,
+            );
+            for (key, modifiers) in [
+                (Key::F5, none),
+                (Key::h, control),
+                (Key::period, control),
+                (Key::_2, control),
+                (Key::Up, alt),
+                (Key::Left, alt),
+                (Key::Home, alt),
+                (Key::Escape, none),
+            ] {
+                assert!(
+                    !chooser.press_with(key, modifiers),
+                    "{modifiers:?}+{key:?} acted behind the reference"
+                );
+            }
+            assert_eq!(chooser.state.view.view_mode(), BrowserMode::List);
+            assert_eq!(browser.active_location(), location);
+            assert!(chooser.open_request(), "Esc cancelled the request");
+            assert!(chooser.reference_search_focused());
+        },
+    );
+}
+
+#[test]
 fn live_mode_changes_switch_the_chooser_between_maps() {
     crate::test_support::gtk_test(
         "ui::chooser::tests::keyboard::live_mode_changes_switch_the_chooser_between_maps",

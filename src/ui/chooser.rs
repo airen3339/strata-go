@@ -2334,6 +2334,9 @@ fn install_shortcuts(
             preferences.set_text_size(size);
             return glib::Propagation::Stop;
         }
+        if tenxer.reference_is_open() {
+            return glib::Propagation::Proceed;
+        }
         let browser = state.view.browser();
         let held = press.modifiers();
         let control = held.contains(ModifierType::CONTROL_MASK);
