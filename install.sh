@@ -63,7 +63,7 @@ installer_locale() {
 declare -A INSTALLER_MESSAGES=()
 case "$(installer_locale)" in
   en) INSTALLER_MESSAGES=(
-    [setup]=SETUP
+    [setup]='Interactive installer'
     [tagline]='Navigate every layer.'
     [partial]='Strata is installed, but setup did not finish.'
     [failed]='Installation did not finish.'
@@ -123,7 +123,7 @@ case "$(installer_locale)" in
     [progress]='%{percent}%'
   ) ;;
   fr) INSTALLER_MESSAGES=(
-    [setup]=INSTALLATION
+    [setup]='Programme d’installation interactif'
     [tagline]='Parcourez chaque couche.'
     [partial]='Strata est installé, mais la configuration n’est pas terminée.'
     [failed]='L’installation n’est pas terminée.'
@@ -183,7 +183,7 @@ case "$(installer_locale)" in
     [progress]='%{percent} %'
   ) ;;
   de) INSTALLER_MESSAGES=(
-    [setup]=EINRICHTUNG
+    [setup]='Interaktives Installationsprogramm'
     [tagline]='Jede Ebene erkunden.'
     [partial]='Strata ist installiert, aber die Einrichtung wurde nicht abgeschlossen.'
     [failed]='Die Installation wurde nicht abgeschlossen.'
@@ -243,7 +243,7 @@ case "$(installer_locale)" in
     [progress]='%{percent} %'
   ) ;;
   es) INSTALLER_MESSAGES=(
-    [setup]='INSTALACIÓN'
+    [setup]='Instalador interactivo'
     [tagline]='Navega por cada capa.'
     [partial]='Strata está instalado, pero la configuración no terminó.'
     [failed]='La instalación no terminó.'
@@ -303,7 +303,7 @@ case "$(installer_locale)" in
     [progress]='%{percent} %'
   ) ;;
   ja) INSTALLER_MESSAGES=(
-    [setup]='セットアップ'
+    [setup]='対話式インストーラー'
     [tagline]='すべての階層をナビゲート。'
     [partial]='Strata はインストール済みですが、設定は完了していません。'
     [failed]='インストールは完了していません。'
@@ -363,7 +363,7 @@ case "$(installer_locale)" in
     [progress]='%{percent}%'
   ) ;;
   pt-BR) INSTALLER_MESSAGES=(
-    [setup]='INSTALAÇÃO'
+    [setup]='Instalador interativo'
     [tagline]='Navegue por todas as camadas.'
     [partial]='O Strata está instalado, mas a configuração não foi concluída.'
     [failed]='A instalação não foi concluída.'
@@ -423,7 +423,7 @@ case "$(installer_locale)" in
     [progress]='%{percent}%'
   ) ;;
   ko) INSTALLER_MESSAGES=(
-    [setup]='설치'
+    [setup]='대화형 설치 프로그램'
     [tagline]='모든 계층을 탐색하세요.'
     [partial]='Strata는 설치되었지만 설정이 완료되지 않았습니다.'
     [failed]='설치가 완료되지 않았습니다.'
@@ -483,7 +483,7 @@ case "$(installer_locale)" in
     [progress]='%{percent}%'
   ) ;;
   vi) INSTALLER_MESSAGES=(
-    [setup]='CÀI ĐẶT'
+    [setup]='Trình cài đặt tương tác'
     [tagline]='Duyệt qua mọi lớp.'
     [partial]='Strata đã được cài đặt nhưng chưa hoàn tất thiết lập.'
     [failed]='Chưa hoàn tất cài đặt.'
@@ -543,7 +543,7 @@ case "$(installer_locale)" in
     [progress]='%{percent}%'
   ) ;;
   it) INSTALLER_MESSAGES=(
-    [setup]=INSTALLAZIONE
+    [setup]='Programma di installazione interattivo'
     [tagline]='Naviga in ogni livello.'
     [partial]='Strata è installato, ma la configurazione non è stata completata.'
     [failed]='L’installazione non è stata completata.'
@@ -603,7 +603,7 @@ case "$(installer_locale)" in
     [progress]='%{percent}%'
   ) ;;
   ru) INSTALLER_MESSAGES=(
-    [setup]='УСТАНОВКА'
+    [setup]='Интерактивная установка'
     [tagline]='Перемещайтесь по всем уровням.'
     [partial]='Strata установлена, но настройка не завершена.'
     [failed]='Установка не завершена.'
@@ -663,7 +663,7 @@ case "$(installer_locale)" in
     [progress]='%{percent} %'
   ) ;;
   zh-CN) INSTALLER_MESSAGES=(
-    [setup]='安装'
+    [setup]='交互式安装程序'
     [tagline]='穿梭每一层文件夹。'
     [partial]='Strata 已安装，但设置尚未完成。'
     [failed]='安装尚未完成。'
@@ -823,15 +823,14 @@ progress_bar() {
   local -a layers=("$COLOR_LAYER_ONE" "$COLOR_LAYER_TWO" "$COLOR_ACCENT")
   for ((i = 0; i < 27; i++)); do
     if ((i < filled)); then
-      color=${layers[i / 9]} cell='▆'
+      color=${layers[i / 9]} cell='▓'
       [[ $marker != '✓' ]] || color=$COLOR_SUCCESS
-    elif ((i == filled)); then
-      color=$COLOR_ACCENT$COLOR_BOLD cell='▸'
+    elif ((i == filled && percent > 0)); then
+      color=$COLOR_ACCENT$COLOR_BOLD cell='▒'
     else
-      color=$COLOR_DIM cell='▁'
+      color=$COLOR_DIM cell='░'
     fi
     ribbon+=$COLOR_RESET$color$cell
-    if ((i % 3 == 2 && i < 26)); then ribbon+=' '; fi
   done
   color=$COLOR_ACCENT
   [[ $marker != '✓' ]] || color=$COLOR_SUCCESS
@@ -914,10 +913,40 @@ verify_provenance() {
 }
 
 show_banner() {
-  printf '\n  %s%sSTRATA%s  %s/ %s%s\n' "$COLOR_ACCENT" "$COLOR_BOLD" "$COLOR_RESET" \
-    "$COLOR_DIM" "$(text setup)" "$COLOR_RESET"
-  printf '  %s%s%s\n' "$COLOR_DIM" "$(text tagline)" "$COLOR_RESET"
-  divider
+  local reset="" bold=""
+  local -a main_colors=("" "" "" "" "" "" "" "" "" "")
+  local -a top_colors=("" "" "") bottom_colors=("" "" "")
+
+  if [[ -t 1 && ${TERM:-dumb} != dumb && -z ${NO_COLOR:-} ]]; then
+    reset=$'\033[0m'
+    bold=$'\033[1m'
+    main_colors=(
+      $'\033[38;2;199;210;255m'
+      $'\033[38;2;193;205;252m'
+      $'\033[38;2;187;200;250m'
+      $'\033[38;2;181;196;247m'
+      $'\033[38;2;175;191;245m'
+      $'\033[38;2;169;186;242m'
+      $'\033[38;2;163;181;240m'
+      $'\033[38;2;157;177;237m'
+      $'\033[38;2;151;172;235m'
+      $'\033[38;2;145;167;232m'
+    )
+    top_colors=($'\033[38;2;156;203;255m' $'\033[38;2;127;185;255m' $'\033[38;2;98;168;255m')
+    bottom_colors=($'\033[38;2;157;140;255m' $'\033[38;2;130;128;255m' $'\033[38;2;102;116;255m')
+  fi
+
+  printf '\n'
+  printf '%b%s%b\n' "${main_colors[0]}" '         ▄▄██▄' "$reset"
+  printf '%b%s%b%s%b         %bS T R A T A%b\n' "${main_colors[1]}" '      ▄████▀▀   ' "${top_colors[0]}" '▄▄▄' "$reset" "$bold" "$reset"
+  printf '%b%s%b%s%b       %s\n' "${main_colors[2]}" '   ▄████▀      ' "${top_colors[1]}" '▀▀███▄' "$reset" "$(text tagline)"
+  printf '%b%s%b%s%b\n' "${main_colors[3]}" '   ███    ████▄▄   ' "${top_colors[2]}" '▀▀' "$reset"
+  printf '%b%s%b\n' "${main_colors[4]}" '   ███▄▄    ▀▀███▄▄' "$reset"
+  printf '%b%s%b\n' "${main_colors[5]}" '    ▀▀███▄▄    ▀▀████' "$reset"
+  printf '%b%s%b%s%b\n' "${bottom_colors[0]}" '   ▄' "${main_colors[6]}" '   ▀▀████▄    ███' "$reset"
+  printf '%b%s%b%s%b\n' "${bottom_colors[1]}" '   ███▄▄' "${main_colors[7]}" '   ▀▀   ▄████' "$reset"
+  printf '%b%s%b%s%b         %s\n' "${bottom_colors[2]}" '    ▀▀█▀▀' "${main_colors[8]}" '   ▄▄███▀▀' "$reset" "$(text setup)"
+  printf '%b%s%b\n\n' "${main_colors[9]}" '          ████▀▀' "$reset"
 }
 
 read_menu_key() {
@@ -940,7 +969,10 @@ select_menu() {
   local -n menu_labels=$labels_name menu_hints=$hints_name menu_choices=$choices_name
   local active=0 i answer marker color
   if [[ $RICH_TERMINAL == yes ]]; then
-    printf '\0337\033[?25l'
+    local menu_rows=$((${#menu_labels[@]} + 12))
+    # Reserve space before saving the cursor so redraws cannot scroll its anchor.
+    for ((i = 0; i < menu_rows; i++)); do printf '\n'; done
+    printf '\033[%dA\0337\033[?25l' "$menu_rows"
   fi
   while true; do
     [[ $RICH_TERMINAL != yes ]] || printf '\0338\033[J'

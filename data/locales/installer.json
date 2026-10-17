@@ -1,7 +1,7 @@
 {
   "_version": 2,
   "installer.setup": {
-    "en": "SETUP", "fr": "INSTALLATION", "de": "EINRICHTUNG", "es": "INSTALACIÓN", "ja": "セットアップ", "pt-BR": "INSTALAÇÃO", "ko": "설치", "vi": "CÀI ĐẶT", "it": "INSTALLAZIONE", "ru": "УСТАНОВКА", "zh-CN": "安装"
+    "en": "Interactive installer", "fr": "Programme d’installation interactif", "de": "Interaktives Installationsprogramm", "es": "Instalador interactivo", "ja": "対話式インストーラー", "pt-BR": "Instalador interativo", "ko": "대화형 설치 프로그램", "vi": "Trình cài đặt tương tác", "it": "Programma di installazione interattivo", "ru": "Интерактивная установка", "zh-CN": "交互式安装程序"
   },
   "installer.tagline": {
     "en": "Navigate every layer.", "fr": "Parcourez chaque couche.", "de": "Jede Ebene erkunden.", "es": "Navega por cada capa.", "ja": "すべての階層をナビゲート。", "pt-BR": "Navegue por todas as camadas.", "ko": "모든 계층을 탐색하세요.", "vi": "Duyệt qua mọi lớp.", "it": "Naviga in ogni livello.", "ru": "Перемещайтесь по всем уровням.", "zh-CN": "穿梭每一层文件夹。"

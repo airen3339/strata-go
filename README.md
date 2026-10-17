@@ -79,11 +79,13 @@ curl -fsSL https://raw.githubusercontent.com/lgse/strata/main/install.sh | bash
 ```
 
 Use the arrow keys and Enter to choose a setup; Space toggles custom options.
-Small or basic terminals use numbered choices instead. Colors follow your
-terminal palette; `NO_COLOR=1` disables them. Download progress uses actual transfer
-percentages, with a spinner when the total size is unknown. Selected packages share
-one package-manager transaction, with its normal confirmation. Pass `--verbose`
-for detailed download and verification output; failures always show diagnostics.
+Small or basic terminals use numbered choices instead. The original block-art logo
+uses its Tokyo Night pale-blue, blue, and violet brand colors; other colors follow
+your terminal palette. `NO_COLOR=1` disables colors. A continuous dithered progress
+bar shows actual transfer percentages, with a spinner when the total is unknown.
+Selected packages share one package-manager transaction, with its normal
+confirmation. Pass `--verbose` for detailed download and verification output;
+failures always show diagnostics.
 Integration results always remain visible, including service-restart notices.
 Detailed logs are retained for failures, warnings, and integration notices; package
 operations are logged without recording terminal password input.
