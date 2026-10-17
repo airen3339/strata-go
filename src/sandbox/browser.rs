@@ -431,12 +431,7 @@ fn preview_pool() -> &'static Pool {
     })
 }
 
-/// Whether thumbnails reuse persistent workers rather than one-shot sandboxes.
-pub(crate) fn workers_available() -> bool {
-    workers_supported()
-}
-
-fn workers_supported() -> bool {
+pub(crate) fn workers_supported() -> bool {
     static SUPPORTED: OnceLock<bool> = OnceLock::new();
     *SUPPORTED.get_or_init(|| {
         let supported = worker::supported();

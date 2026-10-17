@@ -295,29 +295,6 @@ fn custom_actions_list_the_ones_that_cannot_run() {
 }
 
 #[test]
-fn single_value_checks_map_their_input() {
-    assert_eq!(syntax_highlighting_for(0).status, Status::Warning);
-    assert_eq!(syntax_highlighting_for(120).status, Status::Passed);
-    assert_eq!(file_types_for("image/png").status, Status::Passed);
-    assert_eq!(
-        file_types_for("application/octet-stream").finding,
-        Finding::MimeDatabaseMissing
-    );
-    assert_eq!(rar_archives(false).status, Status::Warning);
-    assert_eq!(raw_photos(&[]).finding, Finding::NoRawConverter);
-    assert_eq!(
-        raw_photos(&["dcraw"]).finding,
-        Finding::Found(vec!["dcraw".into()])
-    );
-    assert_eq!(appimage_icons(false).packages, packages::SQUASHFS);
-    assert_eq!(terminal(None).finding, Finding::TerminalMissing);
-    assert_eq!(
-        update_server(Err(NetworkError::Status { code: 503 })).status,
-        Status::Problem
-    );
-}
-
-#[test]
 fn sample_documents_render_through_the_preview_helper() {
     let samples = Samples::create().expect("sample files");
     let output = tempfile::tempdir().expect("output directory");

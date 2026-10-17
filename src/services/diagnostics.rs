@@ -364,7 +364,7 @@ fn preview_checks(sender: &Sender<Check>) {
                 Path::new(sandbox::PRLIMIT),
                 || render_one_shot(&samples.image),
             ));
-            send(workers(sandbox::browser::workers_available(), || {
+            send(workers(sandbox::browser::workers_supported(), || {
                 render_pooled(&samples.image, ParseOperation::ThumbnailImage)
             }));
             send(sample_check(CheckId::PdfThumbnails, || {

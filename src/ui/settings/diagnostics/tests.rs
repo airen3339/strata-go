@@ -44,7 +44,7 @@ fn rows(page: &gtk::Widget) -> Vec<gtk::Widget> {
         .collect()
 }
 
-/// The message and visible detail of the row titled `id`.
+/// The message, visible detail, and whether a fix shows for the row titled `id`.
 fn row_text(page: &gtk::Widget, id: CheckId) -> (String, Option<String>, bool) {
     let title = crate::i18n::tr(title(id));
     let row = rows(page)
