@@ -10,7 +10,7 @@ use std::{
 
 use gtk::{glib, prelude::*};
 
-use super::{control_row, page_content, scrollable_page, search, settings_group};
+use super::{page_content, scrollable_page, search, settings_group};
 use crate::{
     assets::{self, icons},
     services::{
@@ -18,7 +18,11 @@ use crate::{
         diagnostics::{self, Check, CheckId, Finding, GROUPS, Group, InstallHint, Status},
         package_manager::PackageManager,
     },
-    ui::{accessibility, controls::copyable_command, terminal::Terminal},
+    ui::{
+        accessibility,
+        controls::copyable_command,
+        terminal::{self, Terminal},
+    },
 };
 
 #[cfg(test)]
@@ -36,23 +40,38 @@ pub(super) fn diagnostics_page() -> gtk::Widget {
 fn diagnostics_page_with(spawn: Spawner) -> gtk::Widget {
     let content = page_content();
     content.add_css_class("settings-diagnostics-page");
+    let row = gtk::Box::new(gtk::Orientation::Vertical, 2);
+    row.add_css_class("settings-option");
+    search::tag(&row, RUN_TITLE);
+    let copy_box = gtk::Box::new(gtk::Orientation::Vertical, 2);
+    copy_box.set_hexpand(true);
+    let title = gtk::Label::new(Some(&crate::i18n::tr(RUN_TITLE)));
+    title.set_xalign(0.0);
+    title.add_css_class("settings-option-title");
+    let description = gtk::Label::new(Some(&crate::i18n::tr(
+        "Checks the tools and services that previews, locations, devices and desktop integration rely on. Sample files are rendered in the preview sandbox and GitHub is contacted to test the connection. Nothing is changed or installed.",
+    )));
+    description.set_xalign(0.0);
+    description.set_wrap(true);
+    description.add_css_class("settings-option-description");
     let actions = gtk::Box::new(gtk::Orientation::Horizontal, 8);
     actions.add_css_class("settings-integration-actions");
-    actions.set_valign(gtk::Align::Center);
+    actions.add_css_class("diagnostics-actions");
+    actions.set_halign(gtk::Align::End);
     let copy = gtk::Button::with_label(&crate::i18n::tr("Copy report"));
-    copy.add_css_class("settings-update-check");
+    copy.add_css_class("action-dialog-cancel");
     copy.set_widget_name("diagnostics-copy");
     copy.set_sensitive(false);
     let run = gtk::Button::with_label(&crate::i18n::tr("Run"));
-    run.add_css_class("settings-update-check");
+    run.add_css_class("action-dialog-confirm");
     run.set_widget_name("diagnostics-run");
     actions.append(&copy);
     actions.append(&run);
-    settings_group(&content, "").append(&control_row(
-        RUN_TITLE,
-        "Checks the tools and services that previews, locations, devices and desktop integration rely on. Sample files are rendered in the preview sandbox and GitHub is contacted to test the connection. Nothing is changed or installed.",
-        &actions,
-    ));
+    copy_box.append(&title);
+    copy_box.append(&description);
+    copy_box.append(&actions);
+    row.append(&copy_box);
+    settings_group(&content, "").append(&row);
 
     // Search shows or hides this container, so it stays visible and starts empty.
     let output = gtk::Box::new(gtk::Orientation::Vertical, 0);
@@ -74,11 +93,14 @@ fn diagnostics_page_with(spawn: Spawner) -> gtk::Widget {
         groups,
         rows: RefCell::default(),
         results: Rc::default(),
+        environment: Rc::default(),
         running: Cell::new(false),
         spawn,
     });
-    let results = page.results.clone();
-    copy.connect_clicked(move |button| copy_report(button, &results.borrow()));
+    let (results, environment) = (page.results.clone(), page.environment.clone());
+    copy.connect_clicked(move |button| {
+        copy_report(button, &environment.borrow(), &results.borrow());
+    });
     run.connect_clicked(move |_| page.start());
     scrollable_page(&content, None)
 }
@@ -97,6 +119,7 @@ struct Page {
     groups: gtk::Box,
     rows: RefCell<HashMap<CheckId, Row>>,
     results: Rc<RefCell<Vec<Check>>>,
+    environment: Rc<RefCell<Vec<(String, String)>>>,
     running: Cell<bool>,
     spawn: Spawner,
 }
@@ -143,6 +166,13 @@ impl Page {
         while let Some(child) = self.groups.first_child() {
             self.groups.remove(&child);
         }
+        let environment = environment(&self.groups);
+        let system = settings_group(&self.groups, "SYSTEM");
+        system.add_css_class("diagnostics-system");
+        for (label, value) in &environment {
+            super::about::append_detail(&system, label, value);
+        }
+        self.environment.replace(environment);
         let mut rows = self.rows.borrow_mut();
         rows.clear();
         for (group, ids) in GROUPS {
@@ -303,7 +333,7 @@ fn show(row: &Row, check: &Check, manager: Option<PackageManager>) {
         Some(InstallHint::Command(command)) => {
             row.fix
                 .append(&fix_label(&crate::i18n::tr("Install with:")));
-            row.fix.append(&copyable_command(&command));
+            row.fix.append(&install_command(&command));
         }
         Some(InstallHint::Package(package)) => {
             row.fix.append(&fix_label(&rust_i18n::t!(
@@ -313,6 +343,66 @@ fn show(row: &Row, check: &Check, manager: Option<PackageManager>) {
         }
         None => {}
     }
+}
+
+/// The copyable command, with a play button that runs it in the user's terminal.
+fn install_command(command: &str) -> gtk::Box {
+    let container = gtk::Box::new(gtk::Orientation::Vertical, 6);
+    let field = copyable_command(command);
+    field.add_css_class("diagnostics-command");
+    container.append(&field);
+    let Some(terminal) = Terminal::resolve() else {
+        return container;
+    };
+    let label = crate::i18n::tr("Run in terminal");
+    let run = gtk::Button::builder()
+        .tooltip_text(&label)
+        .halign(gtk::Align::End)
+        .valign(gtk::Align::Center)
+        .margin_end(32)
+        .build();
+    run.add_css_class("preview-command-copy");
+    run.set_widget_name("diagnostics-run-command");
+    run.set_has_frame(false);
+    run.set_cursor_from_name(Some("pointer"));
+    run.set_child(Some(&assets::primary_icon(icons::PLAY, 16)));
+    accessibility::set_label(&run, &label);
+    field.add_overlay(&run);
+    let status = fix_label("");
+    status.add_css_class("diagnostics-command-status");
+    status.set_visible(false);
+    container.append(&status);
+    let arguments = terminal_install_arguments(command);
+    run.connect_clicked(move |_| {
+        match terminal::spawn_reaped(terminal.exec_command(&arguments)) {
+            Ok(()) => {
+                status.remove_css_class("error");
+                status.set_text(&crate::i18n::tr(
+                    "The command opened in your terminal. Run diagnostics again when it finishes.",
+                ));
+            }
+            Err(error) => {
+                status.add_css_class("error");
+                status.set_text(&terminal.launch_failure(&error));
+            }
+        }
+        status.set_visible(true);
+    });
+    container
+}
+
+/// Keeps the terminal open after the install so its output stays readable. The
+/// prompt and command words are positional arguments, never parsed by the shell.
+fn terminal_install_arguments(command: &str) -> Vec<String> {
+    let mut arguments = vec![
+        "sh".to_owned(),
+        "-c".to_owned(),
+        r#"prompt=$1; shift; "$@"; printf '\n%s ' "$prompt"; read -r _"#.to_owned(),
+        "sh".to_owned(),
+        crate::i18n::tr("Press Enter to close."),
+    ];
+    arguments.extend(command.split_whitespace().map(str::to_owned));
+    arguments
 }
 
 fn fix_label(text: &str) -> gtk::Label {
@@ -493,10 +583,8 @@ fn detail(check: &Check) -> Option<String> {
     }
 }
 
-fn copy_report(button: &gtk::Button, results: &[Check]) {
-    button
-        .clipboard()
-        .set_text(&report(&environment(button), results));
+fn copy_report(button: &gtk::Button, environment: &[(String, String)], results: &[Check]) {
+    button.clipboard().set_text(&report(environment, results));
     button.set_label(&crate::i18n::tr("Copied"));
     let button = button.downgrade();
     glib::timeout_add_local_once(COPY_FEEDBACK, move || {

@@ -1392,5 +1392,9 @@
   "Desktop environment": "Окружение рабочего стола",
   "Display server": "Графический сервер",
   "Strata diagnostics": "Диагностика Strata",
-  "settings_keywords.diagnostics": "неполадки проблемы проверка зависимости отсутствуют пакеты отчёт ошибка"
+  "settings_keywords.diagnostics": "неполадки проблемы проверка зависимости отсутствуют пакеты отчёт ошибка",
+  "SYSTEM": "СИСТЕМА",
+  "Run in terminal": "Выполнить в терминале",
+  "Press Enter to close.": "Нажмите Enter, чтобы закрыть.",
+  "The command opened in your terminal. Run diagnostics again when it finishes.": "Команда открыта в терминале. Когда она завершится, снова запустите диагностику."
 }

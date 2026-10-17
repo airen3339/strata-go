@@ -1392,5 +1392,9 @@
   "Desktop environment": "Environnement de bureau",
   "Display server": "Serveur d’affichage",
   "Strata diagnostics": "Diagnostic de Strata",
-  "settings_keywords.diagnostics": "dépannage problèmes vérification dépendances manquant paquets rapport bogue bac à sable"
+  "settings_keywords.diagnostics": "dépannage problèmes vérification dépendances manquant paquets rapport bogue bac à sable",
+  "SYSTEM": "SYSTÈME",
+  "Run in terminal": "Exécuter dans le terminal",
+  "Press Enter to close.": "Appuyez sur Entrée pour fermer.",
+  "The command opened in your terminal. Run diagnostics again when it finishes.": "La commande s’est ouverte dans votre terminal. Relancez le diagnostic une fois qu’elle est terminée."
 }

@@ -6140,6 +6140,18 @@ two-column presentation. */
   margin: 36px 4px 12px;
 }
 
+.diagnostics-actions {
+  margin-top: 10px;
+}
+
+.diagnostics-command > entry.preview-command-entry {
+  padding-right: 72px;
+}
+
+.diagnostics-command-status.error {
+  color: @strata_danger;
+}
+
 .diagnostics-summary {
   color: @strata_dim_text;
   margin: 18px 4px 0;
@@ -6689,6 +6701,16 @@ two-column presentation. */
   min-height: 36px;
   padding-top: 10px;
   padding-bottom: 10px;
+}
+
+.settings-dialog .diagnostics-system {
+  padding: 8px 0;
+}
+
+.settings-dialog .diagnostics-system .about-detail-row {
+  min-height: 0;
+  padding: 3px 18px;
+  border: none;
 }
 
 .settings-global-search {

@@ -1392,5 +1392,9 @@
   "Desktop environment": "Môi trường máy tính để bàn",
   "Display server": "Máy chủ hiển thị",
   "Strata diagnostics": "Chẩn đoán Strata",
-  "settings_keywords.diagnostics": "khắc phục sự cố kiểm tra phụ thuộc thiếu gói báo cáo lỗi"
+  "settings_keywords.diagnostics": "khắc phục sự cố kiểm tra phụ thuộc thiếu gói báo cáo lỗi",
+  "SYSTEM": "HỆ THỐNG",
+  "Run in terminal": "Chạy trong terminal",
+  "Press Enter to close.": "Nhấn Enter để đóng.",
+  "The command opened in your terminal. Run diagnostics again when it finishes.": "Lệnh đã được mở trong terminal. Hãy chạy lại chẩn đoán khi lệnh hoàn tất."
 }

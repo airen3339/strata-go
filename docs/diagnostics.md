@@ -40,7 +40,9 @@ cannot be diagnosed in-app: the dynamic loader fails before Strata starts.
 Each result is passed, warning, or problem. A failed check names the package
 that fixes it, with an install command for the distribution detected from
 `os-release` (`services::package_manager`), or the Arch package name as a
-reference when no command is known. **Copy report** copies the results with the
+reference when no command is known. When a terminal is available, the command
+has a play button that runs it in the terminal, passing each word as an argument
+rather than through a shell, and keeps the window open until Enter is pressed. **Copy report** copies the results with the
 version, installation method, toolkit, kernel, desktop, display server, and
 renderer. It names custom actions that cannot run, so users should review it
 before posting.

@@ -1392,5 +1392,9 @@
   "Desktop environment": "Desktop environment",
   "Display server": "Display server",
   "Strata diagnostics": "Strata diagnostics",
-  "settings_keywords.diagnostics": "troubleshoot troubleshooting problems health check dependencies missing packages report bug sandbox bubblewrap ffmpeg gstreamer gvfs sftp smb udisks portal"
+  "settings_keywords.diagnostics": "troubleshoot troubleshooting problems health check dependencies missing packages report bug sandbox bubblewrap ffmpeg gstreamer gvfs sftp smb udisks portal",
+  "SYSTEM": "SYSTEM",
+  "Run in terminal": "Run in terminal",
+  "Press Enter to close.": "Press Enter to close.",
+  "The command opened in your terminal. Run diagnostics again when it finishes.": "The command opened in your terminal. Run diagnostics again when it finishes."
 }

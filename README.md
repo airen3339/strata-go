@@ -210,7 +210,8 @@ backends; see [Connecting phones](#connecting-phones).
 
 If previews, thumbnails, network locations, or drives don't work after installation,
 open **Settings → Diagnostics** and select **Run**. It tests each of these features,
-names any missing package with an install command for your distribution, and
+names any missing package with an install command for your distribution that
+you can copy or run in your terminal, and
 **Copy report** copies the results for a bug report.
 
 #### 2. Download and verify

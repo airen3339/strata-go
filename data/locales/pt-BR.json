@@ -1392,5 +1392,9 @@
   "Desktop environment": "Ambiente de área de trabalho",
   "Display server": "Servidor gráfico",
   "Strata diagnostics": "Diagnóstico do Strata",
-  "settings_keywords.diagnostics": "solução problemas verificação dependências ausentes pacotes relatório erro"
+  "settings_keywords.diagnostics": "solução problemas verificação dependências ausentes pacotes relatório erro",
+  "SYSTEM": "SISTEMA",
+  "Run in terminal": "Executar no terminal",
+  "Press Enter to close.": "Pressione Enter para fechar.",
+  "The command opened in your terminal. Run diagnostics again when it finishes.": "O comando foi aberto no seu terminal. Execute o diagnóstico novamente quando ele terminar."
 }

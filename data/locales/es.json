@@ -1392,5 +1392,9 @@
   "Desktop environment": "Entorno de escritorio",
   "Display server": "Servidor gráfico",
   "Strata diagnostics": "Diagnóstico de Strata",
-  "settings_keywords.diagnostics": "solución problemas comprobación dependencias faltan paquetes informe error"
+  "settings_keywords.diagnostics": "solución problemas comprobación dependencias faltan paquetes informe error",
+  "SYSTEM": "SISTEMA",
+  "Run in terminal": "Ejecutar en la terminal",
+  "Press Enter to close.": "Pulsa Intro para cerrar.",
+  "The command opened in your terminal. Run diagnostics again when it finishes.": "El comando se abrió en tu terminal. Vuelve a ejecutar el diagnóstico cuando termine."
 }

@@ -1392,5 +1392,9 @@
   "Desktop environment": "데스크톱 환경",
   "Display server": "디스플레이 서버",
   "Strata diagnostics": "Strata 진단",
-  "settings_keywords.diagnostics": "문제 해결 점검 종속성 누락 패키지 보고서 버그"
+  "settings_keywords.diagnostics": "문제 해결 점검 종속성 누락 패키지 보고서 버그",
+  "SYSTEM": "시스템",
+  "Run in terminal": "터미널에서 실행",
+  "Press Enter to close.": "닫으려면 Enter 키를 누르세요.",
+  "The command opened in your terminal. Run diagnostics again when it finishes.": "터미널에서 명령을 열었습니다. 완료되면 진단을 다시 실행하세요."
 }

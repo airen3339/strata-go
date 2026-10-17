@@ -1392,5 +1392,9 @@
   "Desktop environment": "デスクトップ環境",
   "Display server": "ディスプレイサーバー",
   "Strata diagnostics": "Strata の診断",
-  "settings_keywords.diagnostics": "トラブルシューティング 問題 確認 依存関係 不足 パッケージ レポート 不具合"
+  "settings_keywords.diagnostics": "トラブルシューティング 問題 確認 依存関係 不足 パッケージ レポート 不具合",
+  "SYSTEM": "システム",
+  "Run in terminal": "ターミナルで実行",
+  "Press Enter to close.": "Enter キーを押すと閉じます。",
+  "The command opened in your terminal. Run diagnostics again when it finishes.": "コマンドをターミナルで開きました。完了したら、もう一度診断を実行してください。"
 }

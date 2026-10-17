@@ -1392,5 +1392,9 @@
   "Desktop environment": "桌面环境",
   "Display server": "显示服务器",
   "Strata diagnostics": "Strata 诊断",
-  "settings_keywords.diagnostics": "故障排除 问题 检查 依赖项 缺少 软件包 报告 错误"
+  "settings_keywords.diagnostics": "故障排除 问题 检查 依赖项 缺少 软件包 报告 错误",
+  "SYSTEM": "系统",
+  "Run in terminal": "在终端中运行",
+  "Press Enter to close.": "按 Enter 键关闭。",
+  "The command opened in your terminal. Run diagnostics again when it finishes.": "已在终端中打开命令。完成后请重新运行诊断。"
 }
