@@ -108,7 +108,7 @@ pub(super) fn about_page() -> gtk::Widget {
     scrollable_page(&content, None)
 }
 
-fn toolkit_version() -> String {
+pub(super) fn toolkit_version() -> String {
     format!(
         "GTK {}.{}.{}",
         gtk::major_version(),
