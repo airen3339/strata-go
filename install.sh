@@ -303,7 +303,14 @@ install_file_manager_service() {
   sed "s|^Exec=/usr/bin/strata |Exec=$escaped_bin |" \
     "$extracted/$APP_ID.FileManager1.service" >"$staged"
   install -Dm644 "$staged" "$target"
-  info 'Strata now handles "Open file location" requests.'
+  if gdbus call --session --timeout 5 \
+    --dest org.freedesktop.DBus \
+    --object-path /org/freedesktop/DBus \
+    --method org.freedesktop.DBus.ReloadConfig >/dev/null 2>&1; then
+    info 'Strata now handles "Open file location" requests.'
+  else
+    warn 'Installed the FileManager1 service, but could not reload the session bus. Log out and back in to use Strata for "Open file location" requests.'
+  fi
 }
 
 configure_omarchy_bindings() {

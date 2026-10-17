@@ -311,6 +311,16 @@ sed "s|^Exec=/usr/bin/strata |Exec=$HOME/.local/bin/strata |" \
   > ~/.local/share/dbus-1/services/io.github.lgse.Strata.FileManager1.service
 ```
 
+After manually installing or removing the service, reload the current session bus so it sees the change immediately:
+
+```bash
+gdbus call --session --dest org.freedesktop.DBus \
+  --object-path /org/freedesktop/DBus \
+  --method org.freedesktop.DBus.ReloadConfig
+```
+
+The interactive installer does this automatically. If it cannot reload the bus, it keeps the service installed and warns you to log out and back in before testing.
+
 A per-user provider takes precedence over system providers shipped by other file managers. Before enabling Strata manually, remove any other per-user service whose `Name` is `org.freedesktop.FileManager1`; two providers for the same name in one service directory are chosen arbitrarily. If another file manager already owns the bus name, exit it before testing. Use `mise run uninstall-file-manager` for a source installation, or remove the per-user service file, to disable Strata again.
 
 Strata then answers `ShowFolders`, `ShowItems`, and `ShowItemProperties`, opening the directory that holds the named items with those items selected:
