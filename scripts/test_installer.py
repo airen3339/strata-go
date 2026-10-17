@@ -103,7 +103,10 @@ class InstallerTerminal:
 
 
 class InstallerFixture:
-    def __init__(self, *, omarchy: bool = False, verify_status: int = 0, release_files: dict[str, str | None] | None = None):
+    def __init__(
+        self, *, omarchy: bool = False, verify_status: int = 0,
+        release_files: dict[str, str | None] | None = None, github_cli: str = "authenticated",
+    ):
         self.directory = tempfile.TemporaryDirectory(prefix="strata-installer-")
         self.root = pathlib.Path(self.directory.name)
         self.home = self.root / "home"
@@ -192,7 +195,9 @@ fi
 [[ ${1:-} != -n ]] || shift
 exec "$@"
 ''')
-        self.command("gh", '''[[ $1 != auth ]] || exit 0
+        if github_cli != "missing":
+            authenticated = 0 if github_cli == "authenticated" else 1
+            self.command("gh", f'''[[ $1 != auth ]] || exit {authenticated}
 printf "gh %s\\n" "$*" >> "$CALLS"
 printf 'fixture verification details\\n'
 exit "$VERIFY_RESULT"
@@ -487,19 +492,26 @@ class InstallerTests(unittest.TestCase):
         self.assertIn("requires Omarchy 3 or 4", result.stderr)
 
     def test_recommended_setup_installs_launcher_without_changing_defaults(self) -> None:
-        with InstallerFixture() as fixture:
-            terminal = fixture.terminal(piped=True)
-            terminal.expect("Enter continue")
-            terminal.send(b"\r")
-            self.assertEqual(terminal.finish(), 0, terminal.output)
-            self.assertTrue((fixture.home / ".local/bin/strata").is_file())
-            self.assertTrue((fixture.home / "data/applications/io.github.lgse.Strata.desktop").is_file())
-            calls = fixture.recorded_calls()
-            self.assertFalse(any(call.startswith(("xdg-mime", "gdbus")) for call in calls), calls)
-            self.assertEqual(fixture.recorded_application_calls(), [f"{fixture.home}/.local/bin/strata --dismiss-portal-prompt"])
-            self.assertNotIn("fixture verification details", terminal.output)
-            self.assertIn("Ready to explore", terminal.output)
-            self.assertEqual(list((fixture.root / "tmp").glob("*.log")), [])
+        for github_cli, provenance_note in (
+            ("authenticated", None),
+            ("unauthenticated", "GitHub CLI is not authenticated"),
+            ("missing", "GitHub CLI is unavailable"),
+        ):
+            with self.subTest(github_cli=github_cli), InstallerFixture(github_cli=github_cli) as fixture:
+                terminal = fixture.terminal(piped=True)
+                terminal.expect("Enter continue")
+                terminal.send(b"\r")
+                self.assertEqual(terminal.finish(), 0, terminal.output)
+                self.assertTrue((fixture.home / ".local/bin/strata").is_file())
+                self.assertTrue((fixture.home / "data/applications/io.github.lgse.Strata.desktop").is_file())
+                calls = fixture.recorded_calls()
+                self.assertFalse(any(call.startswith(("xdg-mime", "gdbus")) for call in calls), calls)
+                self.assertEqual(fixture.recorded_application_calls(), [f"{fixture.home}/.local/bin/strata --dismiss-portal-prompt"])
+                self.assertNotIn("fixture verification details", terminal.output)
+                if provenance_note:
+                    self.assertIn(provenance_note, terminal.output)
+                self.assertIn("Ready to explore", terminal.output)
+                self.assertEqual(list((fixture.root / "tmp").glob("*.log")), [])
 
     def test_custom_setup_applies_selected_integrations_and_their_dependencies(self) -> None:
         with InstallerFixture() as fixture:

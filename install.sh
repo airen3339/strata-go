@@ -757,9 +757,13 @@ info() {
   printf '  %s✓%s  %s\n' "$COLOR_SUCCESS" "$COLOR_RESET" "$*"
 }
 
+note() {
+  printf '  %s!%s  %s\n' "$COLOR_WARNING" "$COLOR_RESET" "$*" >&2
+}
+
 warn() {
   WARNING_COUNT=$((WARNING_COUNT + 1))
-  printf '  %s!%s  %s\n' "$COLOR_WARNING" "$COLOR_RESET" "$*" >&2
+  note "$@"
   [[ -z $LOG_FILE ]] || printf 'warning: %s\n' "$*" >>"$LOG_FILE"
 }
 
@@ -805,7 +809,7 @@ cancel_installation() {
   exit 0
 }
 
-# Curl owns redirect and content-length handling; unknown totals stay indeterminate.
+# Reads curl's own progress meter, which has no percentage while the total is unknown.
 download_percent() {
   local progress
   progress=$(tail -c 2048 "$TEMP_DIR/task-output" 2>/dev/null) || return 1
@@ -901,11 +905,11 @@ verify_provenance() {
   local archive=$1
 
   if ! command -v gh >/dev/null 2>&1; then
-    warn "GitHub CLI is unavailable; continuing after HTTPS download and checksum verification."
+    note "GitHub CLI is unavailable; continuing after HTTPS download and checksum verification."
     return
   fi
   if ! gh auth status --hostname github.com >/dev/null 2>&1; then
-    warn "GitHub CLI is not authenticated; continuing after HTTPS download and checksum verification."
+    note "GitHub CLI is not authenticated; continuing after HTTPS download and checksum verification."
     return
   fi
 
@@ -1046,7 +1050,7 @@ select_menu() {
             if [[ ${menu_choices[active]} == yes ]]; then menu_choices[active]=no; else menu_choices[active]=yes; fi
             "$changed" "$choices_name" "$active"
           else
-            warn "$(text invalid_selection)"
+            note "$(text invalid_selection)"
           fi
           ;;
       esac
