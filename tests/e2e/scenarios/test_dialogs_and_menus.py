@@ -613,7 +613,8 @@ def test_the_shortcut_reference_search_edits_with_chords_that_reach_nothing_else
     strata.keyboard.type_text("new ")
     strata.wait(lambda: search.text == "open new tab", "Ctrl+Left to move by a word in the search")
     strata.keyboard.press("ctrl+,")
-    time.sleep(0.5)
+    strata.keyboard.type_text("x")
+    strata.wait(lambda: search.text == "open new xtab", "typing to stay in the reference after Ctrl+,")
     assert strata.window.find(role="button", name="Close settings") is None, "Ctrl+, opened Settings"
     assert strata.window.find(role="label", name="Keyboard shortcuts") is not None
     strata.keyboard.press("Escape")
