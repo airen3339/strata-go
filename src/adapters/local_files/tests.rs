@@ -1337,6 +1337,7 @@ fn outcome_of(events: &Rc<RefCell<Vec<DirectoryEvent>>>, id: u64) -> Option<Resu
         DirectoryEvent::Failed {
             request_id,
             message,
+            ..
         } if request_id.0 == id => Some(Err(message.clone())),
         _ => None,
     })

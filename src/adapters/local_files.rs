@@ -466,6 +466,7 @@ fn remote_directory_failure(request_id: RequestId, error: &glib::Error) -> Direc
     DirectoryEvent::Failed {
         request_id,
         message: sanitize_failure_message(&error.to_string()),
+        refused: false,
     }
 }
 
@@ -1020,6 +1021,7 @@ fn enumerate_native(
                 emit(DirectoryEvent::Failed {
                     request_id,
                     message: crate::services::io_error_message(&ErrorKind::TimedOut.into()),
+                    refused: true,
                 });
                 return;
             }
@@ -1027,6 +1029,7 @@ fn enumerate_native(
                 emit(DirectoryEvent::Failed {
                     request_id,
                     message: "Native directory worker failed".to_owned(),
+                    refused: false,
                 });
                 return;
             }
@@ -1099,6 +1102,7 @@ fn enumerate_native(
                 emit(DirectoryEvent::Failed {
                     request_id,
                     message,
+                    refused: false,
                 });
             }
             NativeEnumeration::Cancelled => {}
@@ -1235,6 +1239,7 @@ fn enumerate_recent_with_source(
                 emit(DirectoryEvent::Failed {
                     request_id,
                     message,
+                    refused: false,
                 });
                 return;
             }
@@ -1279,6 +1284,7 @@ fn enumerate_recent_with_source(
                     emit(DirectoryEvent::Failed {
                         request_id,
                         message,
+                        refused: false,
                     });
                     break;
                 }
@@ -1480,6 +1486,7 @@ impl FileSource for LocalFileSource {
                 emit(DirectoryEvent::Failed {
                     request_id,
                     message: crate::services::io_error_message(&ErrorKind::TimedOut.into()),
+                    refused: true,
                 });
                 return;
             };

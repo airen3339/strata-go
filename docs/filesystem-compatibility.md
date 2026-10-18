@@ -1844,6 +1844,12 @@ ended its stuck request with an error, as SMB does with `EHOSTDOWN` after a few 
 failing FUSE daemon does, leaves no request to answer, so the notice stays until F5, Retry or
 navigating sends one. A GVfs request abandoned while it waits never marks its backend.
 
+A folder whose load was turned away or failed while its mount was not answering loads again by
+itself once the mount answers, on GVfs locations too: a default folder or restored tab whose check
+gave up at start-up, a folder opened while another request waited there, or a refresh that waited
+behind a stuck listing of the folder. A folder that failed while its mount answered keeps its error
+until Retry.
+
 ### What a dead server does
 
 Measured in the lab over loopback, with the server stopped:

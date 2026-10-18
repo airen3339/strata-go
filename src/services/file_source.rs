@@ -517,6 +517,8 @@ pub enum DirectoryEvent {
     Failed {
         request_id: RequestId,
         message: String,
+        /// The mount's lane turned the load away before it reached the mount.
+        refused: bool,
     },
     /// Size/mtime arrivals for already-listed entries, positioned by the receiver
     /// against stable locations. Zero or more chunks, then exactly one `MetadataFinished`

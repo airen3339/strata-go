@@ -226,6 +226,7 @@ impl FileSource for ChooserFileSource {
                 emit(DirectoryEvent::Failed {
                     request_id: request.id,
                     message: error.message(),
+                    refused: false,
                 });
                 None
             }

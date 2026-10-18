@@ -404,6 +404,7 @@ impl FileSource for DepartingSource {
             emit(DirectoryEvent::Failed {
                 request_id: request.id,
                 message: "No such file or folder".into(),
+                refused: false,
             });
         } else {
             self.identities.stamp(&request, &emit);

@@ -94,6 +94,7 @@ pub(super) struct ColumnFreshness {
     checking: bool,
     not_responding: bool,
     names_may_lag: bool,
+    retry_when_answering: bool,
 }
 
 impl ColumnFreshness {
@@ -290,6 +291,16 @@ impl Browser {
             });
         }
         self.keep_following_responsiveness(true);
+    }
+
+    pub(super) fn note_listing_failed(&self, depth: usize, refused: bool) {
+        let unanswered = refused
+            || self.location_at(depth).is_some_and(|location| {
+                self.source.responsiveness(&location) != Responsiveness::Answering
+            });
+        if let Some(column) = self.column_freshness(depth) {
+            column.borrow_mut().retry_when_answering = unanswered;
+        }
     }
 
     fn end_listing(&self, depth: usize, column: &mut ColumnFreshness) -> Option<Listing> {
@@ -688,6 +699,7 @@ impl Browser {
     pub(crate) fn follow_responsiveness(self: &Rc<Self>) {
         let mut follow = false;
         let mut changed = Vec::new();
+        let mut answered = Vec::new();
         for (depth, column) in self.freshness_columns().into_iter().enumerate() {
             let Some(location) = self.location_at(depth) else {
                 continue;
@@ -704,9 +716,13 @@ impl Browser {
                 Some(LoadState::Error(_)) => (false, true),
                 _ => (false, false),
             };
+            let answering = responsiveness == Responsiveness::Answering;
             let not_responding = responsiveness == Responsiveness::NotResponding && !failed;
             let mut column = column.borrow_mut();
-            follow |= loading || column.checking || responsiveness != Responsiveness::Answering;
+            if failed && answering && std::mem::take(&mut column.retry_when_answering) {
+                answered.push(depth);
+            }
+            follow |= loading || column.checking || !answering;
             if column.not_responding != not_responding {
                 column.not_responding = not_responding;
                 changed.push((depth, not_responding));
@@ -719,6 +735,9 @@ impl Browser {
             });
         }
         self.keep_following_responsiveness(follow);
+        for depth in answered {
+            self.retry_column(depth);
+        }
     }
 
     fn keep_following_responsiveness(self: &Rc<Self>, follow: bool) {

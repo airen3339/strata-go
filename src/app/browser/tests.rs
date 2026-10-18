@@ -260,6 +260,7 @@ impl FileSource for RetryFileSource {
             emit(DirectoryEvent::Failed {
                 request_id: request.id,
                 message: "temporarily unavailable".into(),
+                refused: false,
             });
         } else {
             emit(DirectoryEvent::Batch {

@@ -65,7 +65,8 @@ impl Browser {
             DirectoryEvent::Failed {
                 request_id,
                 message,
-            } => self.receive_failure(request_id, message),
+                refused,
+            } => self.receive_failure(request_id, message, refused),
             DirectoryEvent::MetadataFilled {
                 request_id,
                 updates,
@@ -193,8 +194,11 @@ impl Browser {
         }
     }
 
-    fn receive_failure(self: &Rc<Self>, request_id: RequestId, message: String) {
+    fn receive_failure(self: &Rc<Self>, request_id: RequestId, message: String, refused: bool) {
         let depth = self.state.borrow().depth_for_request(request_id);
+        if let Some(depth) = depth {
+            self.note_listing_failed(depth, refused);
+        }
         if depth.is_some_and(|depth| self.keep_listing(depth, request_id, true)) {
             return;
         }

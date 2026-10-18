@@ -123,6 +123,7 @@ impl Folders {
             emit(DirectoryEvent::Failed {
                 request_id,
                 message: "The operation timed out".to_owned(),
+                refused: !self.answering(),
             });
             return false;
         };
@@ -151,6 +152,7 @@ impl Folders {
             true => DirectoryEvent::Failed {
                 request_id,
                 message: "A device input/output error occurred".to_owned(),
+                refused: false,
             },
             false => DirectoryEvent::Finished {
                 request_id,
@@ -294,6 +296,7 @@ impl FileSource for Folders {
             emit(DirectoryEvent::Failed {
                 request_id: request.id,
                 message: "The operation timed out".to_owned(),
+                refused: true,
             });
             return LoadHandle::new(|| {});
         }
@@ -1292,6 +1295,238 @@ fn responsiveness_is_followed_only_while_visible_and_a_mount_is_busy_or_stalled(
         (false, true, false, true, false)
     );
     assert!(following());
+}
+
+#[derive(Clone, Copy)]
+enum Waiting {
+    CheckOfTheFolder,
+    ListingInAnotherTab,
+    GvfsRequest,
+    RequestOutlivingTheListing,
+    Nothing,
+    RequestBeforeTheFailure,
+}
+
+#[test]
+fn a_folder_that_failed_while_its_mount_was_stalled_reloads_once_the_mount_answers() {
+    use crate::adapters::{FsOp, FsQuirks, LocalFileSource, Quirks, mount_lanes};
+
+    let _serial = crate::test_support::ASYNC_MAIN_CONTEXT_DEFAULT
+        .lock()
+        .expect("the async test lock should not be poisoned");
+    let context = glib::MainContext::default();
+    let pump_until = |done: &dyn Fn() -> bool| {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !done() && Instant::now() < deadline {
+            context.iteration(false);
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        done()
+    };
+    let mut failures = Vec::new();
+    for (row, waiting) in [
+        (
+            "a folder opened once its check gave up, as at start-up",
+            Waiting::CheckOfTheFolder,
+        ),
+        (
+            "a child folder shown while another tab waits on it",
+            Waiting::ListingInAnotherTab,
+        ),
+        (
+            "a GVfs folder opened while its backend waits",
+            Waiting::GvfsRequest,
+        ),
+        (
+            "a refresh queued behind a listing, refused as the mount comes back",
+            Waiting::RequestOutlivingTheListing,
+        ),
+        (
+            "a folder that failed while its mount answered",
+            Waiting::Nothing,
+        ),
+        (
+            "a folder that failed while its mount answered, after a refused refresh",
+            Waiting::RequestBeforeTheFailure,
+        ),
+    ] {
+        let root = tempfile::tempdir().expect("fixture");
+        let folder = root.path().join("folder");
+        std::fs::create_dir_all(folder.join("stalled")).expect("stalled folder");
+        std::fs::create_dir(folder.join("broken")).expect("broken folder");
+        std::fs::write(folder.join("stalled/listed.txt"), "").expect("listed file");
+        // Its listing and then its monitor's gap check stamp it first.
+        let stamps_before_breaking = match waiting {
+            Waiting::RequestBeforeTheFailure => 2,
+            _ => 0,
+        };
+        let gate = crate::test_support::Gate::default();
+        let _scope = FsQuirks::install(
+            root.path(),
+            Quirks {
+                before: vec![(FsOp::FolderStamp, "stalled", 0, gate.racer())],
+                fail: vec![(
+                    FsOp::FolderStamp,
+                    "broken",
+                    stamps_before_breaking,
+                    rustix::io::Errno::IO,
+                )],
+                ..Quirks::default()
+            },
+        );
+        let (target, depth) = match waiting {
+            Waiting::CheckOfTheFolder | Waiting::RequestOutlivingTheListing => {
+                (Location::local(folder.join("stalled")), 0)
+            }
+            Waiting::ListingInAnotherTab => (Location::local(folder.join("stalled")), 1),
+            Waiting::GvfsRequest => (
+                Location::uri("sftp://strata-recovering-backend.invalid/share"),
+                0,
+            ),
+            Waiting::Nothing => (Location::local(folder.join("broken")), 0),
+            Waiting::RequestBeforeTheFailure => (Location::local(folder.join("broken")), 1),
+        };
+        let browser = Browser::new(Rc::new(LocalFileSource));
+        let events = recorded(&browser);
+        let reloads = || {
+            count(&events, |event| match event {
+                BrowserEvent::ColumnReloaded { depth: reloaded } => *reloaded == depth,
+                _ => false,
+            })
+        };
+        let finished = || {
+            count(&events, |event| {
+                matches!(event, BrowserEvent::LoadFinished { .. })
+            })
+        };
+        let load_state = |wanted: fn(&LoadState) -> bool| {
+            browser
+                .state
+                .borrow()
+                .columns
+                .get(depth)
+                .is_some_and(|column| wanted(&column.load_state))
+        };
+        let failed = || load_state(|state| matches!(state, LoadState::Error(_)));
+        let loading = || load_state(|state| matches!(state, LoadState::Loading));
+        let mut check = None;
+        let mut other_tab = None;
+        let mut request = None;
+        match waiting {
+            Waiting::CheckOfTheFolder => {
+                check =
+                    Some(LocalFileSource.validate_location_async(target.clone(), Rc::new(|_| {})));
+            }
+            Waiting::ListingInAnotherTab => {
+                browser.navigate(Location::local(&folder));
+                pump_until(&|| browser.settled(0));
+                let tab = Browser::new(Rc::new(LocalFileSource));
+                tab.navigate(target.clone());
+                other_tab = Some(tab);
+            }
+            Waiting::GvfsRequest => {
+                request = mount_lanes::admit_remote(
+                    mount_lanes::authority(target.uri_value().unwrap_or_default()),
+                    mount_lanes::Class::Interactive,
+                )
+                .ok();
+            }
+            Waiting::RequestOutlivingTheListing => {
+                request =
+                    mount_lanes::admit(&folder.join("stalled"), mount_lanes::Class::Interactive)
+                        .ok();
+                browser.navigate(target.clone());
+                pump_until(&|| gate.reached());
+                browser.retry_column(depth);
+                for _ in 0..50 {
+                    context.iteration(false);
+                }
+            }
+            Waiting::Nothing => {}
+            Waiting::RequestBeforeTheFailure => {
+                browser.navigate(Location::local(&folder));
+                pump_until(&|| browser.settled(0));
+                browser.show_child(0, target.clone());
+                pump_until(&|| browser.settled(depth) && browser.column_has_monitor(depth));
+                request =
+                    mount_lanes::admit(&folder.join("broken"), mount_lanes::Class::Interactive)
+                        .ok();
+            }
+        }
+        let stalled = matches!(waiting, Waiting::Nothing)
+            || pump_until(&|| LocalFileSource.responsiveness(&target) == Responsiveness::Stalled);
+        drop(check);
+        let finished_before = finished();
+        match waiting {
+            Waiting::ListingInAnotherTab => browser.show_child(0, target.clone()),
+            Waiting::RequestOutlivingTheListing => {}
+            Waiting::RequestBeforeTheFailure => browser.retry_column(depth),
+            _ => browser.navigate(target.clone()),
+        }
+        let opened_while_stalled = match waiting {
+            Waiting::RequestOutlivingTheListing => loading(),
+            Waiting::RequestBeforeTheFailure => {
+                pump_until(&|| finished() > finished_before) && !failed()
+            }
+            _ => pump_until(&failed),
+        };
+        let reloads_before = reloads();
+        browser.follow_responsiveness();
+        let polled_while_stalled = (reloads() - reloads_before, failed());
+
+        let quiet = pump_until(&|| !context.pending());
+        gate.release();
+        if matches!(waiting, Waiting::RequestOutlivingTheListing) {
+            // The lane refuses the queued refresh on the worker; the other request answers before
+            // the browser hears of it.
+            let deadline = Instant::now() + Duration::from_secs(10);
+            while !context.pending() && Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(1));
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        if let Some(request) = request.take() {
+            request.progress().beat();
+        }
+        let answering =
+            pump_until(&|| LocalFileSource.responsiveness(&target) == Responsiveness::Answering);
+        let failed_once_answering = match waiting {
+            Waiting::RequestOutlivingTheListing => pump_until(&failed),
+            Waiting::RequestBeforeTheFailure => {
+                browser.retry_column(depth);
+                pump_until(&failed)
+            }
+            _ => true,
+        };
+
+        let reloads_before = reloads();
+        browser.follow_responsiveness();
+        pump_until(&|| !loading());
+        browser.follow_responsiveness();
+
+        let got = (
+            stalled && opened_while_stalled && quiet && answering && failed_once_answering,
+            polled_while_stalled,
+            names_at(&browser, depth),
+            reloads() - reloads_before,
+            failed(),
+        );
+        let listed = vec!["listed.txt".to_owned()];
+        let expected = match waiting {
+            Waiting::CheckOfTheFolder | Waiting::ListingInAnotherTab => {
+                (true, (0, true), listed, 1, false)
+            }
+            Waiting::RequestOutlivingTheListing => (true, (0, false), listed, 1, false),
+            Waiting::GvfsRequest => (true, (0, true), Vec::new(), 1, true),
+            Waiting::Nothing => (true, (0, true), Vec::new(), 0, true),
+            Waiting::RequestBeforeTheFailure => (true, (0, false), Vec::new(), 0, true),
+        };
+        if got != expected {
+            failures.push(format!("{row}: got {got:?}, expected {expected:?}"));
+        }
+        drop(other_tab);
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
 #[test]
