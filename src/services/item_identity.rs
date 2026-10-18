@@ -93,7 +93,7 @@ impl Evidence {
         match attributes {
             Some((recorded, now)) if recorded.matches(&now, traits) => Proof::Same,
             Some(_) => Proof::Different,
-            None if births.is_some() => Proof::Same,
+            None if folder && births.is_some() => Proof::Same,
             None => Proof::Unproven,
         }
     }

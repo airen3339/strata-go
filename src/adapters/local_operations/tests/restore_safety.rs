@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 use super::super::move_restore_path;
-use super::fs_quirks::{Op, Racer, Support};
+use super::fs_quirks::{Op, OverEmptyDirectory, Racer, Support};
 use super::*;
 use crate::services::{KeptCause, KeptItem, SpecialKind, TransferReport};
 use rustix::io::Errno;
@@ -300,34 +300,64 @@ fn restore_copy_refuses_a_trash_item_replaced_after_it_was_checked() -> Result<(
 #[test]
 fn a_failed_restore_copy_removes_only_what_it_made() -> Result<(), Box<dyn Error>> {
     let _serial = ASYNC_MAIN_CONTEXT_DEFAULT.lock()?;
-    let fixture = tempfile::tempdir()?;
-    let source = fixture.path().join("source");
-    fs::create_dir_all(source.join("sub"))?;
-    fs::write(source.join("contents"), b"original")?;
-    fs::write(source.join("sub/nested"), b"nested")?;
-    let destination = fixture.path().join("destination");
-    let (copy, aside) = (destination.clone(), fixture.path().join("old-copy"));
-    let racer: Racer = Box::new(move || {
-        fs::write(copy.join("foreign"), b"unrelated").expect("add a foreign entry");
-        fs::rename(copy.join("contents"), &aside).expect("move a copied entry aside");
-        fs::write(copy.join("contents"), b"replacement").expect("replace a copied entry");
-    });
-    let _scope = FsQuirks::install(
-        fixture.path(),
-        Quirks {
-            before: vec![(Op::SetTimes, "destination", 0, racer)],
-            fail: vec![(Op::SetTimes, "destination", 0, Errno::IO)],
-            ..Quirks::without_placement()
-        },
-    );
+    let exfat_in_one_tick: Preset = || Quirks {
+        coarse_clock: Some(SystemTime::now() - Duration::from_secs(1)),
+        links: Support::Rejected(Errno::MLINK),
+        rename_flags: Support::Rejected(Errno::INVAL),
+        rename_over_empty_dir: OverEmptyDirectory::NotEmpty,
+        ..Quirks::exfat()
+    };
+    let rows: [(Preset, bool); 3] = [
+        (Quirks::without_placement, false),
+        (exfat_in_one_tick, false),
+        (exfat_in_one_tick, true),
+    ];
+    for (preset, evicted) in rows {
+        let row = format!("{:?}, evicted: {evicted}", preset().mount_type);
+        let fixture = tempfile::tempdir()?;
+        let source = fixture.path().join("source");
+        fs::create_dir_all(source.join("sub"))?;
+        fs::write(source.join("contents"), b"original")?;
+        fs::write(source.join("sub/nested"), b"nested")?;
+        let destination = fixture.path().join("destination");
+        let (copy, aside) = (destination.clone(), fixture.path().join("old-copy"));
+        let racer: Racer = Box::new(move || {
+            fs::write(copy.join("foreign"), b"unrelated").expect("add a foreign entry");
+            if evicted {
+                assert!(super::fs_quirks::evict(&copy.join("contents")), "evict");
+                return;
+            }
+            fs::rename(copy.join("contents"), &aside).expect("move a copied entry aside");
+            fs::write(copy.join("contents"), b"replacement").expect("replace a copied entry");
+        });
+        let _scope = FsQuirks::install(
+            fixture.path(),
+            Quirks {
+                before: vec![(Op::SetTimes, "destination", 0, racer)],
+                fail: vec![(Op::SetTimes, "destination", 0, Errno::IO)],
+                ..preset()
+            },
+        );
 
-    assert!(restore_path(&source, &destination, fixture.path()).is_err());
+        assert!(
+            restore_path(&source, &destination, fixture.path()).is_err(),
+            "{row}"
+        );
 
-    assert_eq!(fs::read(destination.join("foreign"))?, b"unrelated");
-    assert_eq!(fs::read(destination.join("contents"))?, b"replacement");
-    assert!(!destination.join("sub").exists());
-    assert_eq!(fs::read(source.join("contents"))?, b"original");
-    assert_eq!(fs::read(source.join("sub/nested"))?, b"nested");
+        assert_eq!(
+            fs::read(destination.join("foreign"))?,
+            b"unrelated",
+            "{row}"
+        );
+        assert_eq!(
+            fs::read(destination.join("contents")).ok(),
+            (!evicted).then(|| b"replacement".to_vec()),
+            "{row}"
+        );
+        assert!(!destination.join("sub").exists(), "{row}");
+        assert_eq!(fs::read(source.join("contents"))?, b"original", "{row}");
+        assert_eq!(fs::read(source.join("sub/nested"))?, b"nested", "{row}");
+    }
     Ok(())
 }
 

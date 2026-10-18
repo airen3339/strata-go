@@ -11,7 +11,7 @@ use super::super::{
     mount_profile::{self, known_mount, name_limit, name_rules},
     names::{fix::split_extension, numbered_name},
     native_fs::{
-        LocalFileIdentity, Pinned, local_directory_children, open_local_child_directory,
+        LocalFileIdentity, Pinned, Recorded, local_directory_children, open_local_child_directory,
         open_local_parent_directory,
     },
     owed::{Deletion, Owed},
@@ -248,7 +248,17 @@ impl Publication {
         let result =
             self.encode_and_publish(&stage, file, mode, cancelled, strategy, write_archive);
         if result.is_err() {
-            remove_if_unchanged(fs(), stage.entry(), stage.identity, AtFlags::empty());
+            let attributes = stage
+                .ownership
+                .get()
+                .and_then(copy_engine::Ownership::attributes);
+            remove_if_unchanged(
+                fs(),
+                stage.entry(),
+                stage.identity,
+                attributes,
+                AtFlags::empty(),
+            );
         }
         result
     }
@@ -349,13 +359,17 @@ impl Publication {
         current: &EntryStat,
     ) -> Result<Published, ArchiveError> {
         let target = Entry::new(&*stage.parent, OsStr::new(&self.name));
-        match exchange_through(fs(), stage.entry(), target, stage.identity) {
+        let attributes = stage
+            .ownership
+            .get()
+            .and_then(copy_engine::Ownership::attributes);
+        match exchange_through(fs(), stage.entry(), target, stage.identity, attributes) {
             Ok(Exchanged::Swapped(originals)) => {
                 Ok(self.published(Displaced::Aside(DisplacedOriginal {
                     parent: OffMain::new(stage.parent.clone()),
                     originals,
                     name: OsString::from(&self.name),
-                    identity: current.identity,
+                    identity: Recorded::of(current),
                 })))
             }
             Ok(Exchanged::Refused) => match set_aside_if_safe(fs(), stage.parent.as_fd(), false) {

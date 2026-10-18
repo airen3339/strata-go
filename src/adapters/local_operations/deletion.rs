@@ -31,8 +31,8 @@ use super::{
     leftovers::{self, Deadline, Refused},
     mount_profile::identity_at,
     native_fs::{
-        self, LocalFileIdentity, birth_reset_folder, local_directory_children,
-        open_local_parent_directory, os_error_detail, retry_local_open,
+        self, Recorded, local_directory_children, open_local_parent_directory, os_error_detail,
+        retry_local_open,
     },
     next_children,
 };
@@ -142,16 +142,15 @@ pub(super) fn ensure_expected_local_identity<Fd: AsFd>(
     parent: &Fd,
     name: &OsStr,
     current: &EntryStat,
-    expected: Option<LocalFileIdentity>,
+    expected: Option<Recorded>,
 ) -> Result<(), String> {
-    let unchanged = |expected: LocalFileIdentity| {
-        if expected == current.identity {
-            return true;
-        }
-        let traits = identity_at(fs(), parent.as_fd());
-        native_fs::unchanged(traits, expected, None, current)
-            || (hidden_names::classify(name).is_some()
-                && birth_reset_folder(traits, expected, current))
+    let unchanged = |expected: Recorded| {
+        native_fs::removable(
+            expected,
+            current,
+            || identity_at(fs(), parent.as_fd()),
+            hidden_names::classify(name).is_some(),
+        )
     };
     if expected.is_some_and(|expected| !unchanged(expected)) {
         return Err(rust_i18n::t!(
@@ -200,7 +199,7 @@ pub(super) fn ensure_local_delete_target_unchanged<ParentFd: AsFd, TargetFd: AsF
 pub(super) fn open_local_delete_target<Fd: AsFd>(
     parent: &Fd,
     name: &OsStr,
-    expected: Option<LocalFileIdentity>,
+    expected: Option<Recorded>,
     leftovers_stay: bool,
 ) -> Result<LocalDeleteStep, String> {
     let is_leftover = || leftovers_stay && leftovers::is_leftover(fs(), parent.as_fd(), name);
@@ -285,7 +284,7 @@ pub(super) async fn run_local_delete_step<T: Send + 'static>(
 pub(super) struct PinnedEntry {
     pub(super) parent: Arc<OwnedFd>,
     pub(super) name: OsString,
-    pub(super) identity: Option<LocalFileIdentity>,
+    pub(super) identity: Option<Recorded>,
 }
 
 pub(super) struct LocalDeleteGuard {
@@ -300,7 +299,7 @@ pub(super) enum LocalDeleteJob {
     Entry {
         parent: Arc<OwnedFd>,
         name: OsString,
-        expected: Option<LocalFileIdentity>,
+        expected: Option<Recorded>,
         guard: Option<Arc<LocalDeleteGuard>>,
         completion: Option<Arc<Group<LocalDeleteJob>>>,
         deadline: Deadline,
@@ -608,7 +607,7 @@ pub(super) fn parallel_delete_local_with(
 pub(super) fn permanently_delete_local(
     parent: OwnedFd,
     name: OsString,
-    expected: Option<LocalFileIdentity>,
+    expected: Option<Recorded>,
     cancellable: gio::Cancellable,
 ) -> Pin<Box<dyn Future<Output = Result<(), glib::Error>>>> {
     parallel_delete_local(
@@ -623,7 +622,7 @@ pub(super) fn permanently_delete_local(
 
 pub(super) fn permanently_delete_local_path_if_unchanged(
     path: PathBuf,
-    expected: Option<LocalFileIdentity>,
+    expected: Option<Recorded>,
     cancellable: gio::Cancellable,
 ) -> Pin<Box<dyn Future<Output = Result<(), glib::Error>>>> {
     permanently_delete_local_path_if_unchanged_with_worker_count(
@@ -637,7 +636,7 @@ pub(super) fn permanently_delete_local_path_if_unchanged(
 
 pub(super) fn permanently_delete_local_path_if_unchanged_with_worker_count(
     path: PathBuf,
-    expected: Option<LocalFileIdentity>,
+    expected: Option<Recorded>,
     cancellable: gio::Cancellable,
     worker_count: Option<usize>,
     deadline: Deadline,
@@ -667,9 +666,7 @@ pub(super) fn permanently_delete_local_path_if_unchanged_with_worker_count(
     })
 }
 
-pub(super) async fn local_file_identity(
-    file: &gio::File,
-) -> Result<Option<LocalFileIdentity>, glib::Error> {
+pub(super) async fn local_file_identity(file: &gio::File) -> Result<Option<Recorded>, glib::Error> {
     if !file.is_native() {
         return Ok(None);
     }
@@ -694,7 +691,7 @@ pub(super) async fn local_file_identity(
                 )
                 .into_owned()
             })?;
-        Ok(stat.identity)
+        Ok(Recorded::of(&stat))
     })
     .await
     .map(Some)
@@ -732,7 +729,7 @@ pub(super) fn permanently_delete_maybe_local_with_worker_count(
 pub(super) fn permanently_delete_maybe_local_if_unchanged(
     file: gio::File,
     directory: bool,
-    expected: Option<LocalFileIdentity>,
+    expected: Option<Recorded>,
     cancellable: gio::Cancellable,
 ) -> Pin<Box<dyn Future<Output = Result<(), glib::Error>>>> {
     if file.is_native()

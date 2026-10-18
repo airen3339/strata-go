@@ -25,7 +25,7 @@ use super::{
     leftovers::{self, Deadline, Refused},
     mount_profile,
     names::fix::units,
-    native_fs::{self, LocalFileIdentity},
+    native_fs::{self, LocalFileIdentity, Recorded},
 };
 use crate::{
     adapters::volume::{
@@ -476,7 +476,16 @@ fn link_holds_source(
     let links_unusable = mount
         .probe(true, false)
         .is_ok_and(|probed| probed.hard_links == Some(false));
-    if links_unusable && alike && remove_if_unchanged(fs, to, linked.identity, AtFlags::empty()) {
+    if links_unusable
+        && alike
+        && remove_if_unchanged(
+            fs,
+            to,
+            linked.identity,
+            linked.kept_attributes(),
+            AtFlags::empty(),
+        )
+    {
         Ok(false)
     } else {
         Err(PlaceError::Unconfirmed)
@@ -532,23 +541,29 @@ fn recreate_symlink(
         Err(Errno::INVAL) => return Err(PlaceError::InvalidName),
         Err(error) => return Err(PlaceError::Io(error)),
     }
-    let created = fs
-        .stat(to, false)
-        .map_err(|_| PlaceError::Unconfirmed)?
-        .identity;
+    let created = fs.stat(to, false).map_err(|_| PlaceError::Unconfirmed)?;
+    let remove_created = || {
+        remove_if_unchanged(
+            fs,
+            to,
+            created.identity,
+            created.kept_attributes(),
+            AtFlags::empty(),
+        )
+    };
     match fs.stat(from, true) {
         Ok(current) if current.identity == source.identity => {
             match fs.unlink(from, AtFlags::empty()) {
                 Ok(()) | Err(Errno::NOENT) => Ok(Placed::RecreatedSymlink),
                 Err(error) => {
-                    remove_if_unchanged(fs, to, created, AtFlags::empty());
+                    remove_created();
                     Err(PlaceError::Io(error))
                 }
             }
         }
         Err(Errno::NOENT) => Ok(Placed::RecreatedSymlink),
         _ => {
-            remove_if_unchanged(fs, to, created, AtFlags::empty());
+            remove_created();
             Err(PlaceError::Changed)
         }
     }
@@ -560,19 +575,22 @@ pub(super) fn remove_if_unchanged(
     fs: &dyn FsOps,
     entry: Entry<'_>,
     identity: LocalFileIdentity,
+    attributes: Option<Attributes>,
     flags: AtFlags,
 ) -> bool {
-    let unchanged = |current: &EntryStat| {
-        if current.identity == identity {
-            return true;
-        }
-        let traits = mount_profile::identity_at(fs, entry.dir);
-        native_fs::unchanged(traits, identity, None, current)
-            || (flags.contains(AtFlags::REMOVEDIR)
-                && native_fs::birth_reset_folder(traits, identity, current))
+    let recorded = Recorded {
+        identity,
+        attributes,
     };
-    fs.stat(entry, true)
-        .is_ok_and(|current| unchanged(&current))
+    let removable = |current: EntryStat| {
+        native_fs::removable(
+            recorded,
+            &current,
+            || mount_profile::identity_at(fs, entry.dir),
+            flags.contains(AtFlags::REMOVEDIR),
+        )
+    };
+    fs.stat(entry, true).is_ok_and(removable)
         && matches!(fs.unlink(entry, flags), Ok(()) | Err(Errno::NOENT))
 }
 
@@ -885,7 +903,7 @@ impl Originals {
                 handle: OffMain::new(Arc::new(handle)),
             }),
             Err(error) => {
-                remove_if_unchanged(fs, at(dir, &name), identity, AtFlags::REMOVEDIR);
+                remove_if_unchanged(fs, at(dir, &name), identity, None, AtFlags::REMOVEDIR);
                 Err(error)
             }
         }
@@ -1189,11 +1207,12 @@ pub(super) fn exchange_through(
     stage: Entry<'_>,
     target: Entry<'_>,
     copy: LocalFileIdentity,
+    attributes: Option<Attributes>,
 ) -> Result<Exchanged, PlaceError> {
     let denied = |error| matches!(error, PlaceError::Io(Errno::ACCESS | Errno::PERM));
     let originals = Originals::create(fs, target.dir)?;
     let parked = originals.entry(target.name);
-    let copy = match move_aside(fs, stage, parked, copy, None) {
+    let copy = match move_aside(fs, stage, parked, copy, attributes) {
         Ok((copy, _)) => copy,
         Err(error) => {
             if error != PlaceError::Unconfirmed {

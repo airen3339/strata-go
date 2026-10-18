@@ -9,7 +9,9 @@ mod names;
 mod native_fs;
 use case_variants::CaseVariants;
 use names::{Key, PlanEntry, Planned, Taken, fix::fix_name, numbered_names, plan_names};
+#[cfg(test)]
 use native_fs::LocalFileIdentity;
+use native_fs::Recorded;
 pub(super) use native_fs::open_local_child_directory;
 #[cfg(test)]
 use native_fs::retry_local_open;
@@ -1759,7 +1761,7 @@ async fn run_local_fs_step<T: Send + 'static>(
 
 struct CreatedCopyRoot {
     was_created: Cell<bool>,
-    identity: Cell<Option<LocalFileIdentity>>,
+    identity: Cell<Option<Recorded>>,
 }
 
 impl CreatedCopyRoot {

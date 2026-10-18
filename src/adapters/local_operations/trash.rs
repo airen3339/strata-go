@@ -138,8 +138,9 @@ fn verify_trash(
         Err(WaitCancelled) => return Err(cancelled_local_operation()),
     };
     let still_there = |current: &EntryStat| {
-        pin.holds(fs(), current)
-            .unwrap_or_else(|| native_fs::unchanged(*traits, stat.identity, None, current))
+        pin.holds(fs(), current).unwrap_or_else(|| {
+            native_fs::unchanged(*traits, stat.identity, stat.kept_attributes(), current)
+        })
     };
     if !trashed
         || fs()

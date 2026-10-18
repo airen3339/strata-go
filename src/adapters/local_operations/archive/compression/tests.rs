@@ -1149,7 +1149,7 @@ fn staged_archives_are_not_published_after_cancellation_or_close_failure()
         .lock()
         .map_err(|error| error.to_string())?;
     for replacing in [false, true] {
-        for boundary in ["encoding", "close", "close error"] {
+        for boundary in ["encoding", "close", "close, then evicted", "close error"] {
             let root = tempfile::tempdir()?;
             let archive = root.path().join("archive.zip");
             if replacing {
@@ -1157,16 +1157,29 @@ fn staged_archives_are_not_published_after_cancellation_or_close_failure()
             }
             let cancelled = Arc::new(AtomicBool::new(false));
             let on_close = cancelled.clone();
+            let evicted = boundary == "close, then evicted";
             let mut quirks = Quirks {
                 trash: Trash::Unsupported,
-                ..Quirks::default()
+                ..if evicted {
+                    Quirks::vfat()
+                } else {
+                    Quirks::default()
+                }
             };
-            if boundary == "close" {
+            if boundary == "close" || evicted {
+                let folder = root.path().to_path_buf();
                 quirks.after.push((
                     Op::Close,
                     ".strata-copy-*",
                     0,
                     Box::new(move || {
+                        if evicted {
+                            let stage = stages(&folder, COMPRESSION_STAGE)
+                                .ok()
+                                .and_then(|mut found| found.pop())
+                                .expect("the stage");
+                            assert!(evict(&folder.join(stage)), "evict the stage");
+                        }
                         on_close.store(true, Ordering::Release);
                     }),
                 ));
@@ -1212,7 +1225,10 @@ fn staged_archives_are_not_published_after_cancellation_or_close_failure()
             } else {
                 assert!(!archive.exists());
             }
-            assert!(stages(root.path(), COMPRESSION_STAGE)?.is_empty());
+            assert!(
+                stages(root.path(), COMPRESSION_STAGE)?.is_empty(),
+                "{boundary}, replacing {replacing}"
+            );
         }
     }
     Ok(())

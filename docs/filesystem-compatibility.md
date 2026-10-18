@@ -269,18 +269,19 @@ The rule weighs what both readings carry, in this order:
 2. A birth time both report, other than zero, must match. A folder's counts only where the mount
    keeps folder births.
 3. Where the mount keeps inode numbers, the number decides.
-4. Where it renumbers entries, a matching birth time proves a folder, and a file whose site
-   recorded no size and times. A file whose site recorded them must also keep its size and
-   modification time, as vfat and exFAT give files made within one 10 ms tick one birth time; on
-   SMB, where that time may be made up, its change time too where the site needs it (below).
+4. Where it renumbers entries, a matching birth time proves a folder. A file must also keep the
+   size and modification time its site recorded, as vfat and exFAT give files made within one
+   10 ms tick one birth time; on SMB, where that time may be made up, its change time too where the
+   site needs it (below).
 5. Without a birth time, a file is proven by its size and modification time.
-6. Where numbers are renewed and no birth time proves an item, a folder, or a file whose site
-   recorded no size and times, is unproven. A site that removes, replaces or puts back an item then
-   needs the exact inode number it read, with any birth time and file handle, so there only an
-   entry that was held (below) or stayed cached passes. A site that writes into a folder the copy
-   made, or checks a folder's entries one by one and then removes it only if it is empty
-   (`rmdir`), accepts an unproven folder unless the rule finds it different. Following a renamed
-   folder needs proof.
+6. Where numbers are renewed, a folder no birth time proves, and a file whose site recorded no size
+   and times, are unproven. A site that removes, replaces or puts back an item then needs the exact
+   inode number it read, with any birth time and file handle, so there only an entry that was held
+   (below) or stayed cached passes. What an operation made or set aside is removed, and a moved
+   copy vouches for its source, by size and times only beside a birth time; without one the exact
+   inode is needed there too. A site that writes into a folder the copy made, or checks a folder's
+   entries one by one and then removes it only if it is empty (`rmdir`), accepts an unproven folder
+   unless the rule finds it different. Following a renamed folder needs proof.
 
 | Mount | Inode numbers | Birth times | What proves an item |
 | --- | --- | --- | --- |
@@ -326,9 +327,9 @@ The rule weighs what both readings carry, in this order:
   it. So from then on a file must also keep the size and modification time its site recorded, and
   a Replace or archive-Replace target its change time as well; a move's source keeps its own check
   of the change time. An original put back is matched by size and modification time, as setting it
-  aside changes its change time, and so are Trash items, as moving to Trash changes it. Strata's
-  own hidden names that it removes, a set-aside original among them, are matched by the birth time
-  alone, as nothing else uses them.
+  aside changes its change time, and so are Trash items, as moving to Trash changes it. What an
+  operation made or set aside is removed by the birth time with the size and modification time it
+  recorded.
   A birth of exactly 0 s 0 ns, as SMB and NFSv4 report for a server without births, counts as none.
 - **Records kept after an operation.** `ItemIdentity` carries the traits of the mount it was read
   on, and a comparison uses the weaker of two. It identifies Trash items for restore and Undo, the
@@ -357,13 +358,15 @@ Limits of the rule:
   folder that the server or another client puts at a held Replace target's name keeps the name's
   number and passes too.
 - **Births in one tick.** On vfat and exFAT, a file made at a name within the same 10 ms tick as the
-  one it replaced passes the rule only with the size and modification time its site recorded, or
-  where the site recorded none. Following a renamed folder on vfat can follow a sibling folder
-  made in the same tick after the open folder was deleted; this only moves the view.
-- **SMB copies after a switch-off.** The check that a moved copy is still the one Strata made does
-  not compare the change time once `serverino` is gone, since whether a fresh SMB copy's change
-  time stays put was not measured. A same-size replacement of such a copy that keeps its
-  modification time, made by another client before the move deletes its sources, passes.
+  one it replaced passes the rule only with the size and modification time its site recorded; where
+  the site recorded none, only the exact inode passes. Following a renamed folder on vfat can follow
+  a sibling folder made in the same tick after the open folder was deleted; this only moves the
+  view.
+- **SMB copies after a switch-off.** Once `serverino` is gone, neither the check that a moved copy
+  is still the one Strata made nor the removal of what an operation made or set aside compares the
+  change time: whether a fresh SMB copy's change time stays put was not measured, and setting an
+  original aside changes it. A same-size replacement that keeps the modification time, made by
+  another client in the meantime, passes.
 - **NFS Trash check.** Nothing holds the item across GLib's Trash call on NFS, so an item swapped
   in at the name during the call is not noticed there.
 - **File handles** were measured on knfsd exports with `no_subtree_check` only. Where an export
@@ -414,9 +417,9 @@ inode numbers and is never held this way; a held file unlinked there would leave
 An original renumbered while it waits is still replaced; another item is refused as "The target
 changed while the operation was in progress". The original then goes on with the identity it has
 now. An original set aside is put back by the same rule, without the change time, which setting it
-aside changes. It is removed by its device, type, inode and birth time, the birth time standing in
-for the inode where the mount numbers entries afresh, as it sits in a hidden folder only Strata
-uses. Archives replace their target the same way.
+aside changes. It is removed by its device, type, inode and birth time, where the mount numbers
+entries afresh the birth time with the size and modification time Replace read standing in for the
+inode, and without a birth time only its exact inode. Archives replace their target the same way.
 
 A folder moves to another parent only if its `..` entry can be rewritten, so a folder the user
 owns with a mode that denies its owner write (0555) is made owner-writable for the instant of each
@@ -497,8 +500,9 @@ item moved to one is deleted by Strata, as described under
 - **Where nothing can be placed,** because the mount's learned capabilities rule out every step for
   a folder or publishing a stage returns "unsupported", entries are created exclusively at their
   final names. A copy that fails there removes only the entries it created, each identified by its
-  inode, and the item's folder only once it is empty. A stage built before this was known is copied
-  again from the stage, on the same device.
+  inode, or where the mount numbers entries afresh by its birth time with the size and modification
+  time the copy left a file with, and the item's folder only once it is empty. A stage built before
+  this was known is copied again from the stage, on the same device.
 - **Keep Both and Duplicate** choose their number when the copy is published, so a name taken in
   the meantime moves the copy on to the next number, cut where needed to fit the mount's [length
   limit](#length). Moves within one filesystem try each numbered name with the placement routine.

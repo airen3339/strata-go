@@ -25,7 +25,7 @@ use super::{
     fs_ops::{Entry, FsOps, drop_off_main_thread, fs},
     io_error,
     leftovers::{self, Deadline, Refused},
-    native_fs::{LocalFileIdentity, open_local_parent_directory},
+    native_fs::{LocalFileIdentity, Recorded, open_local_parent_directory},
     placement::{self, Feasibility, PlaceError},
     placement_reason,
     progress::TransferProgressTracker,
@@ -157,6 +157,7 @@ fn create_folder(target: &OwnedFd) -> Result<Folder, PlaceError> {
                 fs(),
                 Entry::new(target, &name),
                 identity,
+                None,
                 AtFlags::REMOVEDIR,
             );
             Err(error)
@@ -387,7 +388,10 @@ impl MergeAside {
         let root = PinnedEntry {
             parent: target,
             name: folder.name.clone(),
-            identity: Some(folder.identity),
+            identity: Some(Recorded {
+                identity: folder.identity,
+                attributes: None,
+            }),
         };
         let deleted = parallel_delete_local_with_worker_count(
             vec![root],

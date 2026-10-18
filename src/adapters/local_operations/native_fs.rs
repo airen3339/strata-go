@@ -59,6 +59,47 @@ impl LocalFileIdentity {
     }
 }
 
+#[derive(Clone, Copy, Debug)]
+pub(super) struct Recorded {
+    pub(super) identity: LocalFileIdentity,
+    pub(super) attributes: Option<Attributes>,
+}
+
+impl Recorded {
+    pub(super) fn of(stat: &EntryStat) -> Self {
+        Self {
+            identity: stat.identity,
+            attributes: stat.kept_attributes(),
+        }
+    }
+}
+
+/// Without a birth time, only the exact inode proves an entry an operation made or removes.
+pub(super) fn beside_birth(
+    recorded: LocalFileIdentity,
+    attributes: Option<Attributes>,
+) -> Option<Attributes> {
+    attributes.filter(|_| recorded.birth.is_some_and(|birth| birth != (0, 0)))
+}
+
+/// Once `serverino` is gone, cifs keeps a replaced entry's cached number and birth.
+pub(super) fn removable(
+    recorded: Recorded,
+    current: &EntryStat,
+    traits: impl FnOnce() -> IdentityTraits,
+    folder_reset: bool,
+) -> bool {
+    let attributes = beside_birth(recorded.identity, recorded.attributes);
+    let exact = current.identity == recorded.identity;
+    if exact && attributes.is_none() {
+        return true;
+    }
+    let traits = traits();
+    (exact && !traits.made_up_births)
+        || unchanged(traits, recorded.identity, attributes, current)
+        || (folder_reset && birth_reset_folder(traits, recorded.identity, current))
+}
+
 pub(super) fn compare(
     traits: IdentityTraits,
     recorded: LocalFileIdentity,

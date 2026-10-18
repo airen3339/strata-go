@@ -260,6 +260,18 @@ fn an_item_is_known_again_only_by_what_its_mount_proves() {
             false,
         ),
         (
+            "exFAT file born in the same tick, recorded without size and time",
+            EXFAT,
+            Evidence {
+                attributes: None,
+                ..FILE
+            },
+            resized,
+            EXFAT,
+            false,
+            false,
+        ),
+        (
             "unknown mount, renumbered",
             UNKNOWN,
             FOLDER,

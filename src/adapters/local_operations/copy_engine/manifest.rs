@@ -426,6 +426,14 @@ impl State {
         self.size == stat.size && self.mtime == stat.mtime
     }
 
+    pub(super) fn attributes(&self) -> Attributes {
+        Attributes {
+            size: self.size,
+            mtime: self.mtime,
+            ctime: None,
+        }
+    }
+
     /// Where only the type tells the copy, a file of another size put in its
     /// place keeps the state the copy was written with.
     pub(super) fn settle(&mut self, stat: &EntryStat) {
@@ -476,6 +484,10 @@ impl Ownership {
     ) -> Self {
         self.states.extend(states);
         self
+    }
+
+    pub(in crate::adapters::local_operations) fn attributes(&self) -> Option<Attributes> {
+        self.states.get(Path::new("")).map(State::attributes)
     }
 
     pub(super) fn of(stat: &EntryStat) -> Self {
@@ -581,7 +593,8 @@ impl Ownership {
         let same = if has_state(identity.kind) && state.is_none() {
             exact
         } else {
-            match native_fs::compare(traits, identity, None, stat) {
+            let attributes = native_fs::beside_birth(identity, state.map(State::attributes));
+            match native_fs::compare(traits, identity, attributes, stat) {
                 Proof::Same => true,
                 Proof::Different => false,
                 Proof::Unproven => exact || native_fs::birth_reset_folder(traits, identity, stat),

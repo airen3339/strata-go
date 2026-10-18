@@ -979,7 +979,7 @@ pub(super) fn copy_fifo(
     let finished = finish_pipe(copy, &stat, (target, identity), parent, mount);
     // An unprovable public creation cannot authorize deleting a concurrent arrival.
     if finished.is_err() && names.is_some() {
-        placement::remove_if_unchanged(fs, target, identity, AtFlags::empty());
+        placement::remove_if_unchanged(fs, target, identity, None, AtFlags::empty());
     }
     finished?;
     copy.add_file(0);
@@ -1165,7 +1165,13 @@ impl File {
             Ok(Some(read))
         })(fd);
         if !matches!(written, Ok(Some(_))) {
-            placement::remove_if_unchanged(fs, target, created.identity, AtFlags::empty());
+            placement::remove_if_unchanged(
+                fs,
+                target,
+                created.identity,
+                copy.written_attributes(created.identity),
+                AtFlags::empty(),
+            );
         }
         let Some(read) = written? else {
             if let Some(created) = &tree.created {

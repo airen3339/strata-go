@@ -41,7 +41,9 @@ use super::{
     leftovers::Deadline,
     merge_aside,
     mount_profile::{self, NamePolicy, known_mount},
-    native_fs::{LocalFileIdentity, Pinned, open_local_parent_directory, os_error_detail},
+    native_fs::{
+        LocalFileIdentity, Pinned, Recorded, open_local_parent_directory, os_error_detail,
+    },
     native_path, os_io_error, placement, placement_error_kind, placement_failure, placement_reason,
     progress::TransferProgressTracker,
     release::ActiveOperation,
@@ -108,6 +110,16 @@ impl StagedSibling {
             restrictive: Vec::new(),
         })
     }
+
+    pub(super) fn recorded(&self) -> Recorded {
+        Recorded {
+            identity: self.identity,
+            attributes: self
+                .ownership
+                .as_ref()
+                .and_then(copy_engine::Ownership::attributes),
+        }
+    }
 }
 
 pub(super) async fn discard_incomplete_staged(staged: StagedSibling) -> Result<(), glib::Error> {
@@ -120,11 +132,12 @@ pub(super) async fn discard_incomplete_staged(staged: StagedSibling) -> Result<(
         })
         .await?
     };
+    let identity = Some(staged.recorded());
     parallel_delete_local(
         vec![PinnedEntry {
             parent: staged.parent,
             name: staged.name,
-            identity: Some(staged.identity),
+            identity,
         }],
         gio::Cancellable::new(),
     )
@@ -449,7 +462,7 @@ pub(super) struct DisplacedOriginal {
     pub(super) parent: OffMain<Arc<OwnedFd>>,
     pub(super) originals: placement::Originals,
     pub(super) name: OsString,
-    pub(super) identity: LocalFileIdentity,
+    pub(super) identity: Recorded,
 }
 
 impl DisplacedOriginal {
@@ -458,7 +471,10 @@ impl DisplacedOriginal {
             parent: OffMain::new(parent),
             originals: aside.originals,
             name: aside.name,
-            identity: aside.identity,
+            identity: Recorded {
+                identity: aside.identity,
+                attributes: aside.attributes,
+            },
         }
     }
 
@@ -672,15 +688,23 @@ pub(super) async fn replace_through_stage(
                 .await
             }
             Removal::Without(Displacement::Exchange) => {
-                let (stage_name, copy) = (staged.name.clone(), staged.identity);
+                let (stage_name, copy) = (staged.name.clone(), staged.recorded());
                 let exchanged = run_blocking(move || {
                     let target = Entry::new(&*parent, &step_plan.target_name);
                     let current =
                         ensure_unchanged(target, &step_plan.target, &step_plan.target_pin)?;
                     let name = step_plan.target_display();
                     let stage = Entry::new(&*parent, &stage_name);
-                    match placement::exchange_through(fs(), stage, target, copy) {
-                        Ok(Exchanged::Swapped(originals)) => Ok(Ok((originals, current.identity))),
+                    match placement::exchange_through(
+                        fs(),
+                        stage,
+                        target,
+                        copy.identity,
+                        copy.attributes,
+                    ) {
+                        Ok(Exchanged::Swapped(originals)) => {
+                            Ok(Ok((originals, Recorded::of(&current))))
+                        }
                         Ok(Exchanged::Refused) => displacement_or_refusal(
                             placement::set_aside_if_safe(
                                 fs(),

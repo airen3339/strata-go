@@ -266,6 +266,7 @@ fn make(
             fs,
             Entry::new(&dir, file_name),
             claimed,
+            None,
             AtFlags::empty(),
         )
     {
@@ -319,6 +320,7 @@ fn leave(copy: &Copy, (root, base): (BorrowedFd<'_>, &Path), name: &Name) -> Res
         copy.fs,
         Entry::new(&dir, file_name),
         claimed,
+        None,
         AtFlags::empty(),
     ) {
         Ok(())
@@ -352,7 +354,13 @@ fn linked(
         .stat(from, true)
         .is_ok_and(|current| current.identity == made.identity)
     {
-        placement::remove_if_unchanged(fs, to, made.identity, AtFlags::empty());
+        placement::remove_if_unchanged(
+            fs,
+            to,
+            made.identity,
+            made.kept_attributes(),
+            AtFlags::empty(),
+        );
     }
     Err(Failure::Changed)
 }

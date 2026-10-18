@@ -959,17 +959,19 @@ fn a_removal_by_a_recorded_identity_follows_the_mounts_rule() -> Result<(), Box<
         Evicted,
         Replaced,
         ReplacedAlike,
+        ReplacedOnceNumbersWent,
     }
     let _serial = serial()?;
     let samba = || Quirks {
         births: Births::MadeUp,
         ..Quirks::cifs()
     };
-    let rows: [(Preset, Since, bool); 4] = [
+    let rows: [(Preset, Since, bool); 5] = [
         (Quirks::vfat, Since::Evicted, true),
         (Quirks::vfat, Since::Replaced, false),
         (Quirks::ext4, Since::Evicted, false),
         (samba, Since::ReplacedAlike, false),
+        (samba, Since::ReplacedOnceNumbersWent, false),
     ];
     for (preset, since, removed) in rows {
         for permanently in [true, false] {
@@ -1001,6 +1003,10 @@ fn a_removal_by_a_recorded_identity_follows_the_mounts_rule() -> Result<(), Box<
                     super::fs_quirks::recreated(&path);
                 }
                 Since::ReplacedAlike => fs::rename(&theirs, &path)?,
+                Since::ReplacedOnceNumbersWent => {
+                    assert!(super::fs_quirks::autodisable_serverino(&path), "{row}");
+                    fs::rename(&theirs, &path)?;
+                }
             }
 
             let gone = if permanently {
@@ -1022,7 +1028,8 @@ fn a_removal_by_a_recorded_identity_follows_the_mounts_rule() -> Result<(), Box<
                             super::super::placement::remove_if_unchanged(
                                 super::super::fs_ops::fs(),
                                 super::super::fs_ops::Entry::new(&parent, item),
-                                expected,
+                                expected.identity,
+                                expected.attributes,
                                 rustix::fs::AtFlags::empty(),
                             )
                         })

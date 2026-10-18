@@ -64,8 +64,8 @@ use crate::{
     },
     model::{Location, hidden_names::HiddenName},
     services::{
-        IdentityTraits, KeptCause, NameMode, PlacedSnapshot, Proof, RenameCause, RenamedItem,
-        SkippedItem, SpecialKind, TransferReport,
+        Attributes, IdentityTraits, KeptCause, NameMode, PlacedSnapshot, Proof, RenameCause,
+        RenamedItem, SkippedItem, SpecialKind, TransferReport,
     },
 };
 pub(super) use barrier::Barrier;
@@ -1271,7 +1271,8 @@ impl Created {
             };
             let entry = Entry::new(fd, name);
             if identity.kind != FileType::Directory {
-                placement::remove_if_unchanged(fs, entry, *identity, AtFlags::empty());
+                let attributes = copy.written_attributes(*identity);
+                placement::remove_if_unchanged(fs, entry, *identity, attributes, AtFlags::empty());
                 continue;
             }
             let unchanged = || {
@@ -2087,6 +2088,12 @@ impl Copy {
         );
     }
 
+    fn written_attributes(&self, identity: LocalFileIdentity) -> Option<Attributes> {
+        let written = lock(&self.written);
+        let (known, state) = written.get(&(identity.device, identity.inode))?;
+        (*known == identity).then(|| state.attributes())
+    }
+
     fn settle_state(&self, identity: LocalFileIdentity, stat: &EntryStat) {
         if let Some((known, state)) =
             lock(&self.written).get_mut(&(identity.device, identity.inode))
@@ -2182,10 +2189,11 @@ impl Copy {
 
     fn discard(&self, staged: StagedSibling) -> Result<(), glib::Error> {
         unlock_stage(&staged);
+        let identity = Some(staged.recorded());
         let roots = vec![PinnedEntry {
             parent: staged.parent,
             name: staged.name,
-            identity: Some(staged.identity),
+            identity,
         }];
         let workers = local_delete_worker_count(&roots);
         parallel_delete_local_blocking_with_workers(
@@ -2546,7 +2554,13 @@ impl<'a> FileCopy<'a> {
             }
         };
         if let Err(error) = fs.close(tmpfile) {
-            placement::remove_if_unchanged(fs, self.at(&name), created.identity, AtFlags::empty());
+            placement::remove_if_unchanged(
+                fs,
+                self.at(&name),
+                created.identity,
+                self.copy.written_attributes(created.identity),
+                AtFlags::empty(),
+            );
             return Err(error.into());
         }
         self.copy.add_file(0);
