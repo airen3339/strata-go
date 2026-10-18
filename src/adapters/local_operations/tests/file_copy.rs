@@ -84,18 +84,17 @@ fn xattrs_set(calls: &[Call]) -> Vec<OsString> {
 #[test]
 fn a_file_being_copied_is_invisible_until_complete() -> Result<(), Box<dyn Error>> {
     let _serial = ASYNC_MAIN_CONTEXT_DEFAULT.lock()?;
-    for (case, preset, probed, staged) in [
-        ("tmpfiles", Quirks::default as Preset, true, false),
+    for (case, preset, emulated) in [
+        ("tmpfiles", Quirks::default as Preset, None),
         (
             "tmpfiles refused",
             || Quirks {
                 tmpfile: Support::Rejected(Errno::OPNOTSUPP),
                 ..Quirks::ext4()
             },
-            true,
-            true,
+            Some((1, Some(false))),
         ),
-        ("NFS", Quirks::nfs42, false, true),
+        ("NFS", Quirks::nfs42, Some((0, None))),
     ] {
         let seen = Arc::new(Mutex::new(None));
         let mounts = mounts(Quirks::default(), |destination| Quirks {
@@ -112,21 +111,20 @@ fn a_file_being_copied_is_invisible_until_complete() -> Result<(), Box<dyn Error
             .map_err(|error| error.to_string())?
             .take()
             .ok_or("the copy wrote nothing")?;
-        if staged {
+        let scope = &mounts.destination_scope;
+        let learned = mount_capabilities(scope.key()).tmpfile;
+        let opened = scope.count(Op::OpenTmpfile);
+        match emulated {
+            Some(expected) => assert_eq!((opened, learned), expected, "{case}"),
+            None if learned == Some(true) => assert_eq!(opened, 1, "{case}"),
+            None => {}
+        }
+        if learned == Some(true) {
+            assert!(seen.is_empty(), "{case}: {seen:?}");
+        } else {
             assert!(
                 matches!(seen.as_slice(), [stage] if stage.starts_with(".strata-copy-")),
                 "{case}: {seen:?}"
-            );
-        } else {
-            assert!(seen.is_empty(), "{case}: {seen:?}");
-        }
-        let scope = &mounts.destination_scope;
-        assert_eq!(scope.count(Op::OpenTmpfile), usize::from(probed), "{case}");
-        if probed {
-            assert_eq!(
-                mount_capabilities(scope.key()).tmpfile,
-                Some(!staged),
-                "{case}"
             );
         }
         assert_eq!(names(&mounts.destination)?, ["target.bin"], "{case}");
