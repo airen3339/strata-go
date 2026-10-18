@@ -339,6 +339,28 @@ fn base_takes_rename_flags(folder: &Path) -> io::Result<bool> {
     Ok(renamed && !overwrote)
 }
 
+fn hard_linked(original: &Path, link: &Path) -> io::Result<bool> {
+    match fs::hard_link(original, link) {
+        Ok(()) => Ok(true),
+        Err(error) if error.raw_os_error() == Some(rustix::io::Errno::PERM.raw_os_error()) => {
+            Ok(false)
+        }
+        Err(error) => Err(error),
+    }
+}
+
+fn base_links_keep_their_number(folder: &Path) -> io::Result<bool> {
+    use std::os::unix::fs::MetadataExt;
+    let (one, other) = (folder.join("link-probe"), folder.join("link-probe-2"));
+    fs::write(&one, b"one")?;
+    let kept = hard_linked(&one, &other)?
+        && fs::symlink_metadata(&one)?.ino() == fs::symlink_metadata(&other)?.ino();
+    for probe in [&one, &other] {
+        let _ = fs::remove_file(probe);
+    }
+    Ok(kept)
+}
+
 fn a_later_change_time(path: &Path, than: &Path, seconds: u64) -> io::Result<bool> {
     use std::os::unix::fs::MetadataExt;
     let changed = |metadata: &fs::Metadata| (metadata.ctime(), metadata.ctime_nsec());

@@ -4521,9 +4521,25 @@ fn a_merge_without_trash_reports_its_folder_kept_by_an_original_still_open()
 -> Result<(), Box<dyn Error>> {
     let _serial = serial()?;
     let editor = Some("Text Editor");
+    let without_links = || Quirks {
+        links: Support::Rejected(Errno::PERM),
+        ..Quirks::nfs3()
+    };
+    let renumbered_links = || Quirks {
+        link_inodes: true,
+        ..Quirks::nfs3()
+    };
     for (row, move_sources, original, preset, holder) in [
         ("copy fails", false, "x", Quirks::nfs3 as Preset, editor),
         ("copy fails", false, "sub/x", Quirks::nfs3, editor),
+        ("copy fails, no links", false, "x", without_links, editor),
+        (
+            "copy fails, links numbered apart",
+            false,
+            "x",
+            renumbered_links,
+            editor,
+        ),
         ("left out", false, "x", Quirks::nfs3, editor),
         ("left out", true, "sub/x", Quirks::nfs3, editor),
         ("replaced", true, "x", Quirks::nfs3, editor),
@@ -4534,6 +4550,10 @@ fn a_merge_without_trash_reports_its_folder_kept_by_an_original_still_open()
     ] {
         let holder = holder.map(|program| crate::services::Holder::Program(program.to_owned()));
         let root = tempfile::tempdir()?;
+        let linked_back = matches!(preset().links, Support::Supported)
+            && !preset().link_inodes
+            && base_links_keep_their_number(root.path())?;
+        let put_back_by_rename = !row.starts_with("replaced") && !linked_back;
         let sources = root.path().join("sources");
         let destination = root.path().join("destination");
         let (source, target) = (sources.join("run"), destination.join("run"));
@@ -4553,7 +4573,7 @@ fn a_merge_without_trash_reports_its_folder_kept_by_an_original_still_open()
             fs::write(source.join(original), b"incoming")?;
             None
         };
-        if row == "copy fails" {
+        if row.starts_with("copy fails") {
             source_quirks.fail = vec![(Op::OpenSource, "x", 0, Errno::IO)];
         }
         let _sources = FsQuirks::install(&sources, source_quirks);
@@ -4596,7 +4616,8 @@ fn a_merge_without_trash_reports_its_folder_kept_by_an_original_still_open()
             preset().mount_type
         );
         let events = events.take();
-        let folder = aside_folder(&target)?.ok_or_else(|| format!("{row}: no merge folder"))?;
+        let folder = aside_folder(&target)?;
+        assert_eq!(folder.is_none(), put_back_by_rename, "{row}: {events:?}");
         let kept = events
             .iter()
             .filter_map(|event| match event {
@@ -4609,10 +4630,14 @@ fn a_merge_without_trash_reports_its_folder_kept_by_an_original_still_open()
             None if !listed => KeptCause::Undeletable(Errno::ACCESS.raw_os_error()),
             holder => KeptCause::StillOpen(holder),
         };
-        let mut expected = vec![KeptItem {
-            location: Location::local(target.join(&folder)),
-            cause,
-        }];
+        let mut expected: Vec<_> = folder
+            .as_ref()
+            .map(|folder| KeptItem {
+                location: Location::local(target.join(folder)),
+                cause,
+            })
+            .into_iter()
+            .collect();
         if row.starts_with("left out") && move_sources {
             expected.push(KeptItem {
                 location: Location::local(source.join(original)),
@@ -4626,16 +4651,21 @@ fn a_merge_without_trash_reports_its_folder_kept_by_an_original_still_open()
             b"original"
         };
         assert_eq!(fs::read(target.join(original))?, now_there, "{row}");
-        let aside = target.join(&folder).join(original);
-        let leftovers = names(aside.parent().ok_or("no parent")?)?;
-        assert!(
-            leftovers.len() == usize::from(listed)
-                && leftovers.iter().all(|name| name.starts_with(".nfs")),
-            "{row}: {leftovers:?}"
-        );
+        if let Some(folder) = &folder {
+            let aside = target.join(folder).join(original);
+            let leftovers = names(aside.parent().ok_or("no parent")?)?;
+            assert!(
+                leftovers.len() == usize::from(listed)
+                    && leftovers.iter().all(|name| name.starts_with(".nfs")),
+                "{row}: {leftovers:?}"
+            );
+        }
         match terminal_transfer(&events) {
             Some(OperationEvent::TransferFailed { message, .. }) if row.starts_with("copy") => {
-                assert!(!message.contains(&folder), "{row}: {message}");
+                assert!(
+                    folder.iter().all(|folder| !message.contains(folder)),
+                    "{row}: {message}"
+                );
                 assert_eq!(fs::read(source.join(original))?, b"incoming", "{row}");
             }
             Some(OperationEvent::Pasted { .. }) if !row.starts_with("copy") => {
