@@ -1733,6 +1733,7 @@ fn one_wait_for_open_files_covers_every_folder_of_a_delete_or_trash() -> Result<
 #[derive(Clone, Copy, Debug)]
 enum Hidden {
     Leftover { closed_after: Option<Op> },
+    LeftoverBesideAnEarlierOne,
     NamedLikeOne,
 }
 
@@ -1740,12 +1741,14 @@ enum Hidden {
 fn a_recursive_delete_never_unlinks_another_program_s_leftover() -> Result<(), Box<dyn Error>> {
     let _serial = serial()?;
     let leftover = |closed_after| Hidden::Leftover { closed_after };
-    let rows: [(&str, Preset, Hidden); 9] = [
+    let earlier = ".__smbfile_silly1";
+    let rows: [(&str, Preset, Hidden); 10] = [
         ("nfs3", Quirks::nfs3, leftover(None)),
         ("nfs3", Quirks::nfs3, leftover(Some(Op::Unlink))),
         ("nfs3", Quirks::nfs3, leftover(Some(Op::List))),
         ("cifs", Quirks::cifs, leftover(None)),
         ("cifs", Quirks::cifs, leftover(Some(Op::Unlink))),
+        ("cifs", Quirks::cifs, Hidden::LeftoverBesideAnEarlierOne),
         ("sshfs", Quirks::sshfs, leftover(None)),
         ("sshfs", Quirks::sshfs, leftover(Some(Op::Unlink))),
         ("ext4", Quirks::ext4, Hidden::NamedLikeOne),
@@ -1760,7 +1763,7 @@ fn a_recursive_delete_never_unlinks_another_program_s_leftover() -> Result<(), B
         let holds = Holds::default();
         let closed_after = match hidden {
             Hidden::Leftover { closed_after } => closed_after,
-            Hidden::NamedLikeOne => None,
+            Hidden::LeftoverBesideAnEarlierOne | Hidden::NamedLikeOne => None,
         };
         let scope = FsQuirks::install(
             root.path(),
@@ -1773,8 +1776,11 @@ fn a_recursive_delete_never_unlinks_another_program_s_leftover() -> Result<(), B
             },
         );
         match hidden {
-            Hidden::Leftover { .. } => {
+            Hidden::Leftover { .. } | Hidden::LeftoverBesideAnEarlierOne => {
                 folder_with_an_open_file(&folder, &holds)?;
+                if let Hidden::LeftoverBesideAnEarlierOne = hidden {
+                    fs::write(folder.join(earlier), b"earlier")?;
+                }
                 let dir = open_local_parent_directory(&folder)?;
                 super::super::fs_ops::fs().unlink(
                     super::super::fs_ops::Entry::new(&dir, OsStr::new("open.txt")),
@@ -1786,7 +1792,13 @@ fn a_recursive_delete_never_unlinks_another_program_s_leftover() -> Result<(), B
                 fs::write(folder.join(".nfs000000000000005e000000de"), b"ordinary")?;
             }
         }
-        let [hidden_name] = names(&folder)?.try_into().map_err(|_| "one hidden name")?;
+        let hidden_names = names(&folder)?;
+        if let Hidden::LeftoverBesideAnEarlierOne = hidden {
+            assert_eq!(hidden_names.len(), 2, "{row}: {hidden_names:?}");
+            assert_eq!(fs::read(folder.join(earlier))?, b"earlier", "{row}");
+        } else {
+            assert_eq!(hidden_names.len(), 1, "{row}: {hidden_names:?}");
+        }
         fs::write(folder.join("ordinary.txt"), b"ordinary")?;
         scope.clear_calls();
 
@@ -1807,7 +1819,9 @@ fn a_recursive_delete_never_unlinks_another_program_s_leftover() -> Result<(), B
             continue;
         }
         assert!(
-            !unlinked.contains(&hidden_name.clone().into()),
+            hidden_names
+                .iter()
+                .all(|name| !unlinked.contains(&name.into())),
             "{row}: {unlinked:?}"
         );
         if closed_after.is_some() {
@@ -1824,7 +1838,7 @@ fn a_recursive_delete_never_unlinks_another_program_s_leftover() -> Result<(), B
                 ),
                 "{row}: {events:?}"
             );
-            assert_eq!(names(&folder)?, [hidden_name], "{row}");
+            assert_eq!(names(&folder)?, hidden_names, "{row}");
         }
     }
     Ok(())

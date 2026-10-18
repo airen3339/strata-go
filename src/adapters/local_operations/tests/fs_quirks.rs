@@ -2010,10 +2010,20 @@ impl Scope {
             }
             (None, _) => {}
         }
-        state.silly_renames += 1;
-        let name = silly.aside.name(key.1, state.silly_renames);
+        let name = loop {
+            state.silly_renames += 1;
+            let name = silly.aside.name(key.1, state.silly_renames);
+            let Some(silly_name) = &name else {
+                break name;
+            };
+            match rustix::fs::statat(at.dir, silly_name, AtFlags::SYMLINK_NOFOLLOW) {
+                Ok(_) => {}
+                Err(Errno::NOENT) => break name,
+                Err(error) => return Some(Err(error)),
+            }
+        };
         let unlinked = match &name {
-            Some(name) => System.rename(at, Entry { dir: at.dir, name }, RenameFlags::NOREPLACE),
+            Some(name) => System.rename(at, Entry { dir: at.dir, name }, RenameFlags::empty()),
             None => System.unlink(at, AtFlags::empty()),
         };
         if unlinked.is_ok() {
