@@ -338,7 +338,6 @@ impl TabWindow {
         self.discard(id);
     }
 
-    /// Callers make sure another tab remains and no modal blocks selecting it.
     fn discard(&self, id: u64) {
         let tabs = self.tabs.borrow();
         let Some(index) = tabs.iter().position(|tab| tab.id == id) else {

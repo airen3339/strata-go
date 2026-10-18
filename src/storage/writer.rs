@@ -56,8 +56,6 @@ pub(crate) struct Writer {
     queue: Mutex<Queue>,
     wake: Condvar,
     idle: Condvar,
-    /// Each file as this process last wrote or read it; anything else on disk
-    /// was written by another process.
     known: Mutex<HashMap<PathBuf, FileStamp>>,
 }
 

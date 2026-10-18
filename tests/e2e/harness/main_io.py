@@ -1,5 +1,4 @@
 # SPDX-License-Identifier: MIT
-"""Opt-in strace capture of the UI thread's file calls for scripts/trace-main-io.py."""
 
 from __future__ import annotations
 

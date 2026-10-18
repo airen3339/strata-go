@@ -33,8 +33,8 @@ impl<T> Default for TrashedValues<T> {
 }
 
 impl<T> TrashedValues<T> {
-    /// Two live items never share a number, so an older entry with this number
-    /// belongs to an item that has left Trash and whose number was reused.
+    /// Two live items never share an identity, so an older entry with this
+    /// identity belongs to an item that has left Trash and whose inode was reused.
     pub(super) fn forget_identity(&mut self, identity: ItemIdentity) {
         let keys = &mut self.keys;
         self.items.retain(|item| {
@@ -65,7 +65,8 @@ impl<T> TrashedValues<T> {
         }
     }
 
-    /// What was kept for the very item restored at `root`; another item there gets nothing.
+    /// What was kept for the very item now back at `root`; another item
+    /// restored there gets nothing.
     pub(super) fn take_restored(&mut self, root: &Path, identity: ItemIdentity) -> Option<T> {
         let index = self
             .items

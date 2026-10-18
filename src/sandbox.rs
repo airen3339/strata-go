@@ -644,7 +644,6 @@ pub(crate) fn sandbox_start_failed(error: &io::Error) -> String {
 
 const NAMESPACE_WAIT: Duration = Duration::from_secs(1);
 
-/// bwrap can be reaped while its namespace init, which keeps the user's file bound, still runs.
 pub(crate) struct Renderer {
     child: Child,
     init: Option<rustix::fd::OwnedFd>,

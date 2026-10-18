@@ -63,7 +63,6 @@ pub(crate) enum ForeignLeftover {
 #[derive(Clone, Copy)]
 enum Suffix {
     Uuid,
-    // `tempfile::Builder`'s default, which released builds used.
     Tempfile,
     LowerHex(usize),
     Counter,

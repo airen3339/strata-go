@@ -267,7 +267,6 @@ fn main() -> gtk::glib::ExitCode {
     );
     application.connect_handle_local_options(|_, _| ControlFlow::Continue(()));
     application.connect_startup(move |_| {
-        // Documented exception: the first use of GLib's main-thread-only volume monitor can block.
         VOLUME_MONITOR.with(|monitor| {
             monitor.get_or_init(gio::VolumeMonitor::get);
         });

@@ -58,9 +58,6 @@ impl MainContextLock {
     }
 }
 
-/// A failed test's tasks, and the GIO calls they awaited, would abort the run
-/// once another test's thread polled or dropped them, so they end on the thread
-/// that started them.
 impl Drop for MainContextGuard<'_> {
     fn drop(&mut self) {
         if !std::thread::panicking() {
@@ -79,8 +76,6 @@ impl Drop for MainContextGuard<'_> {
 const SETTLED_AFTER: Duration = Duration::from_millis(100);
 const SETTLE_LIMIT: Duration = Duration::from_secs(2);
 
-/// Dropping a GIO future leaves its call running, and its callback is bound to
-/// this thread.
 fn settle(context: &glib::MainContext) {
     let limit = Instant::now() + SETTLE_LIMIT;
     let mut quiet_since = Instant::now();

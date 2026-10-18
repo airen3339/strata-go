@@ -197,7 +197,6 @@ fn restart_starts_its_waiter_off_the_ui_thread_and_stops_it_when_a_window_stays_
                     let (entered, record) = (entered.clone(), started.clone());
                     restart_with(Some(&application), move || {
                         entered.fetch_add(1, Ordering::SeqCst);
-                        // Lets a second start, if one was queued, begin before this one answers.
                         std::thread::sleep(Duration::from_millis(200));
                         let waiter = crate::trusted_command::command("sleep")
                             .expect("sleep")

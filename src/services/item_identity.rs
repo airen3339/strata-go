@@ -10,7 +10,6 @@ pub struct IdentityTraits {
     pub numbers: InodeNumbers,
     /// Whether a folder keeps its birth time when an entry is renamed into or within it.
     pub folder_births: bool,
-    /// Samba makes up file birth times, which a replacement keeping the mtime repeats.
     pub made_up_births: bool,
 }
 
@@ -27,9 +26,7 @@ impl Default for IdentityTraits {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum InodeNumbers {
     Kept,
-    /// Numbered afresh after eviction, or kept by a name for whatever a rename puts there.
     Renewed,
-    /// Compared as kept, but no removal rests on an equal number alone.
     Unknown,
 }
 
@@ -64,9 +61,7 @@ pub struct Evidence {
     pub inode: u64,
     pub kind: FileType,
     pub birth: Option<(i64, u32)>,
-    /// A digest of the file handle, whose generation changes when a number is reused.
     pub handle: Option<u64>,
-    /// A file's or link's; a folder's own size and times change with its entries.
     pub attributes: Option<Attributes>,
 }
 
@@ -80,7 +75,6 @@ impl Evidence {
             return Proof::Different;
         }
         let folder = self.kind == FileType::Directory;
-        // SMB and NFSv4 servers without one, and some FUSE daemons, report a birth time of zero.
         let reported = |birth: Option<(i64, u32)>| birth.filter(|&birth| birth != (0, 0));
         let births = reported(self.birth)
             .zip(reported(current.birth))
@@ -118,7 +112,6 @@ impl ItemIdentity {
         self.proof(other) == Proof::Same
     }
 
-    /// Where the rule proves nothing either way, the exact number and any birth time decide.
     pub fn unchanged(&self, other: &Self) -> bool {
         match self.proof(other) {
             Proof::Same => true,

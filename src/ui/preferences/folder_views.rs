@@ -123,8 +123,7 @@ pub(in crate::ui) struct FolderViews {
     entries: BTreeMap<FolderKey, Entry>,
     clock: u64,
     /// Unsaved changes, kept so a save can merge them over what another Strata
-    /// process (such as the portal chooser) wrote in the meantime. Each holds
-    /// the edit that made it, so a save marks only what it wrote as saved.
+    /// process (such as the portal chooser) wrote in the meantime.
     changed: HashMap<FolderKey, u64>,
     touched: HashMap<FolderKey, u64>,
     cleared: Option<u64>,

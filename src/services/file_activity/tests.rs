@@ -8,7 +8,7 @@ use std::{
         mpsc,
     },
     thread,
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 use super::*;
@@ -19,8 +19,8 @@ use crate::{
 
 const LONG: Duration = Duration::from_secs(10);
 
-fn running() -> bool {
-    false
+fn released(fence: &Fence) -> bool {
+    futures_lite::future::block_on(futures_lite::future::poll_once(fence.drained())).is_some()
 }
 
 #[test]
@@ -28,62 +28,48 @@ fn a_release_stops_and_waits_for_the_reads_under_its_roots_only() {
     let root = tempfile::tempdir().expect("root folder");
     let item = root.path().join("item");
     let sibling = root.path().join("item 2");
-    for waits in ["blocking", "awaited"] {
-        let (stopped, stop_seen) = mpsc::channel();
-        let below = hold([item.join("inside")], move || {
-            let _ = stopped.send(());
+    let (stopped, stop_seen) = mpsc::channel();
+    let below = hold([item.join("inside")], move || {
+        let _ = stopped.send(());
+    })
+    .expect("a read below the root");
+    let sibling_stops = Arc::new(AtomicUsize::new(0));
+    let counted = sibling_stops.clone();
+    let beside = hold([&sibling], move || {
+        counted.fetch_add(1, Ordering::SeqCst);
+    })
+    .expect("a read beside the root");
+    let ended = Arc::new(AtomicBool::new(false));
+    let reader = {
+        let ended = ended.clone();
+        thread::spawn(move || {
+            stop_seen.recv_timeout(LONG).expect("the read is stopped");
+            assert_eq!(
+                below.settle(Err::<(), _>("Browser request cancelled".to_owned())),
+                Err(HELD_FOR_OPERATION.to_owned()),
+                "a stopped read reports the operation, not a failure"
+            );
+            thread::sleep(Duration::from_millis(30));
+            ended.store(true, Ordering::SeqCst);
+            drop(below);
         })
-        .expect("a read below the root");
-        let sibling_stops = Arc::new(AtomicUsize::new(0));
-        let counted = sibling_stops.clone();
-        let beside = hold([&sibling], move || {
-            counted.fetch_add(1, Ordering::SeqCst);
-        })
-        .expect("a read beside the root");
-        let ended = Arc::new(AtomicBool::new(false));
-        let reader = {
-            let ended = ended.clone();
-            thread::spawn(move || {
-                stop_seen.recv_timeout(LONG).expect("the read is stopped");
-                assert_eq!(
-                    below.settle(Err::<(), _>("Browser request cancelled".to_owned())),
-                    Err(HELD_FOR_OPERATION.to_owned()),
-                    "a stopped read reports the operation, not a failure"
-                );
-                thread::sleep(Duration::from_millis(30));
-                ended.store(true, Ordering::SeqCst);
-                drop(below);
-            })
-        };
-        let activity = begin(OperationScope::default());
+    };
+    let activity = begin(OperationScope::default());
 
-        let fence = match waits {
-            "blocking" => activity.release_blocking([item.clone()], LONG, &running),
-            _ => {
-                let fence = activity.fence([item.clone()]);
-                fence.stop_reads();
-                futures_lite::future::block_on(fence.drained());
-                fence
-            }
-        };
+    let fence = activity.fence([item.clone()]);
+    fence.stop_reads();
+    futures_lite::future::block_on(fence.drained());
 
-        assert!(ended.load(Ordering::SeqCst), "{waits}");
-        reader.join().expect("reader thread");
-        assert_eq!(fence.wait(Duration::ZERO, &running), Drained::Released);
-        assert_eq!(sibling_stops.load(Ordering::SeqCst), 0, "{waits}");
-        let other = activity.fence([sibling.clone()]);
-        assert_eq!(
-            other.wait(Duration::ZERO, &running),
-            Drained::TimedOut,
-            "{waits}: the read beside the root stays open"
-        );
-        assert_eq!(
-            beside.settle(Err::<(), _>("Unreadable".to_owned())),
-            Err("Unreadable".to_owned()),
-            "{waits}"
-        );
-        drop(beside);
-    }
+    assert!(ended.load(Ordering::SeqCst));
+    reader.join().expect("reader thread");
+    assert_eq!(sibling_stops.load(Ordering::SeqCst), 0);
+    let other = activity.fence([sibling.clone()]);
+    assert!(!released(&other), "the read beside the root stays open");
+    assert_eq!(
+        beside.settle(Err::<(), _>("Unreadable".to_owned())),
+        Err("Unreadable".to_owned()),
+    );
+    drop(beside);
 }
 
 #[test]
@@ -121,41 +107,6 @@ fn a_read_is_refused_while_any_fence_covers_it() {
 }
 
 #[test]
-fn the_budget_or_a_cancel_lets_the_operation_go_on_while_a_read_stays_open() {
-    let root = tempfile::tempdir().expect("root folder");
-    let item = root.path().join("stuck");
-    let _stuck = hold([&item], || {}).expect("a read that never stops");
-    let activity = begin(OperationScope::default());
-    let fence = activity.fence([item.clone()]);
-    fence.stop_reads();
-    let budget = Duration::from_millis(60);
-    let cancel_now = || true;
-    for (row, cancelled, drained, longer_than_budget) in [
-        (
-            "budget spent",
-            &running as &dyn Fn() -> bool,
-            Drained::TimedOut,
-            true,
-        ),
-        (
-            "cancelled",
-            &cancel_now as &dyn Fn() -> bool,
-            Drained::Cancelled,
-            false,
-        ),
-    ] {
-        let started = Instant::now();
-
-        let outcome = fence.wait(budget, cancelled);
-
-        let took = started.elapsed();
-        assert_eq!(outcome, drained, "{row}");
-        assert_eq!(took >= budget, longer_than_budget, "{row}: {took:?}");
-        assert!(took < LONG, "{row}: {took:?}");
-    }
-}
-
-#[test]
 fn a_read_through_a_symbolic_link_matches_where_it_really_is() {
     let root = tempfile::tempdir().expect("root folder");
     let real = root.path().canonicalize().expect("root path").join("real");
@@ -169,7 +120,7 @@ fn a_read_through_a_symbolic_link_matches_where_it_really_is() {
     let mut file = open(&song).expect("a file read through the link");
     let mut listing = list(&link).expect("a folder listed through the link");
     let fence = activity.fence([real.clone()]);
-    assert_eq!(fence.wait(Duration::ZERO, &running), Drained::TimedOut);
+    assert!(!released(&fence));
     fence.stop_reads();
     let read = file.read(&mut [0; 8]).expect_err("a stopped file read");
     let listed = listing
@@ -181,13 +132,9 @@ fn a_read_through_a_symbolic_link_matches_where_it_really_is() {
         assert!(is_refusal(&error), "{reader}: {error}");
     }
     drop(file);
-    assert_eq!(
-        fence.wait(Duration::ZERO, &running),
-        Drained::TimedOut,
-        "the listing has not ended"
-    );
+    assert!(!released(&fence), "the listing has not ended");
     drop(listing);
-    assert_eq!(fence.wait(Duration::ZERO, &running), Drained::Released);
+    assert!(released(&fence));
 
     for (reader, refused) in [
         ("file", open(&song).err()),

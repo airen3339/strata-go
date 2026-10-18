@@ -766,7 +766,6 @@ fn theme_and_omarchy_folders_are_watched_and_released_on_the_monitors_worker() {
             });
             crate::ui::preferences::fixtures::seed_omarchy_for_test();
             manager.refresh_omarchy_state();
-            // The seam sees the removed folder's release only if it runs after the folder is back.
             wait_for(
                 "only the folder that came back is watched again",
                 &|[themes_watched, themes_released, watching, released]| {

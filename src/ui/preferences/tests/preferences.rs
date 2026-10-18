@@ -1766,7 +1766,6 @@ fn item_customizations_follow_relocations_and_removals() {
                 let root = tempfile::tempdir().expect("case root");
                 let path = |relative: &str| root.path().join(relative);
                 let location = |relative: &str| Location::local(path(relative));
-                // What the operations report; the birth time stands in for one a mount stores.
                 let identity = |relative: &str, mount: TrashMount, renumbered: bool| {
                     use std::os::unix::fs::MetadataExt;
                     let metadata = fs::symlink_metadata(path(relative)).expect("identity");

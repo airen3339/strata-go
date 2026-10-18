@@ -368,8 +368,6 @@ pub enum BrowserEvent {
     LeftoverReviewRequested {
         depth: usize,
     },
-    /// What interrupted operations left in the column changed; `announce` marks the
-    /// first time this session that a folder holding set-aside originals shows them.
     LeftoversChanged {
         depth: usize,
         announce: bool,
@@ -4119,7 +4117,6 @@ impl Browser {
         }
     }
 
-    /// Requested once the folder answered, so it is never made on a mount that stopped.
     pub(super) fn watch_answered_folder(
         self: &Rc<Self>,
         request_id: RequestId,
@@ -4174,8 +4171,6 @@ impl Browser {
         }
     }
 
-    /// Changes made between the load's stamp and the monitor going live reached no one, so
-    /// the monitor counts only once they are listed.
     fn check_monitor_gap(
         self: &Rc<Self>,
         depth: usize,

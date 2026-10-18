@@ -182,7 +182,6 @@ impl CompactProgress {
         self.completion.set_cancel(action);
     }
 
-    /// A card with no progress whose action button dismisses it, closing like a completed one.
     pub(super) fn notice(overlay: &gtk::Overlay, icon: &str, notice: Notice<'_>) -> Self {
         let card = Self::new(overlay, icon);
         card.info.set_text(notice.text);

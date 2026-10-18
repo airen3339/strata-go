@@ -66,7 +66,6 @@ fn bundle(folder: &str, name: &str, data: &[u8]) -> Vec<u8> {
     out.extend_from_slice(&(data.len() as u32).to_le_bytes());
     out.extend_from_slice(&0_u32.to_le_bytes());
     out.extend_from_slice(data);
-    // GResource reports one byte less than an uncompressed file's array.
     out.push(0);
     out.push(0);
     out.extend_from_slice(b"(uuay)");

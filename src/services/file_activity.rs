@@ -11,10 +11,9 @@ use std::{
     path::{Path, PathBuf},
     rc::Rc,
     sync::{
-        Arc, Condvar, Mutex, MutexGuard, PoisonError,
+        Arc, Mutex, MutexGuard, PoisonError,
         atomic::{AtomicBool, Ordering},
     },
-    time::{Duration, Instant},
 };
 
 use futures_channel::oneshot;
@@ -22,12 +21,6 @@ use futures_channel::oneshot;
 use crate::model::Location;
 
 pub(crate) const HELD_FOR_OPERATION: &str = "This item is being changed by a file operation.";
-
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "no operation changes files from a worker yet")
-)]
-const CANCEL_POLL: Duration = Duration::from_millis(20);
 
 #[derive(Debug)]
 pub(crate) struct Refused;
@@ -115,7 +108,6 @@ struct Registry {
     folders: Counted,
     trees: Counted,
     fenced: Counted,
-    waiting: usize,
 }
 
 impl Registry {
@@ -129,7 +121,6 @@ impl Registry {
             folders: Counted::new(),
             trees: Counted::new(),
             fenced: Counted::new(),
-            waiting: 0,
         }
     }
 
@@ -172,7 +163,6 @@ impl Registry {
 }
 
 static REGISTRY: Mutex<Registry> = Mutex::new(Registry::new());
-static READ_ENDED: Condvar = Condvar::new();
 
 fn registry() -> MutexGuard<'static, Registry> {
     REGISTRY.lock().unwrap_or_else(PoisonError::into_inner)
@@ -226,14 +216,11 @@ impl Hold {
 
 impl Drop for Hold {
     fn drop(&mut self) {
-        let (drained, waiting) = {
+        let drained = {
             let mut registry = registry();
             registry.readers.remove(&self.id);
-            (registry.take_drained(), registry.waiting > 0)
+            registry.take_drained()
         };
-        if waiting {
-            READ_ENDED.notify_all();
-        }
         for sender in drained {
             let _ = sender.send(());
         }
@@ -245,7 +232,6 @@ fn hold_real(path: &Path) -> io::Result<Hold> {
     Ok(hold([path, &real], || {})?)
 }
 
-// Field order matters: the file closes before its hold ends.
 pub(crate) struct HeldFile {
     file: File,
     hold: Hold,
@@ -312,7 +298,6 @@ struct Registered {
     trees: Vec<PathBuf>,
 }
 
-/// A URI's segments compare as a relative path's do, so GVfs folders share the path tables.
 fn folder_key(folder: &Location) -> Option<PathBuf> {
     folder
         .native_path()
@@ -355,7 +340,6 @@ impl Activity {
         }
     }
 
-    /// The operation may write anywhere below `trees`, as a merge does.
     pub(crate) fn include_trees(&self, trees: impl IntoIterator<Item = Location>) {
         let trees: Vec<PathBuf> = trees
             .into_iter()
@@ -385,22 +369,6 @@ impl Activity {
             },
         );
         Fence(id)
-    }
-
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "no operation changes files from a worker yet")
-    )]
-    pub(crate) fn release_blocking<P: Into<PathBuf>>(
-        &self,
-        paths: impl IntoIterator<Item = P>,
-        budget: Duration,
-        cancelled: &dyn Fn() -> bool,
-    ) -> Fence {
-        let fence = self.fence(paths);
-        fence.stop_reads();
-        fence.wait(budget, cancelled);
-        fence
     }
 }
 
@@ -437,17 +405,6 @@ impl Drop for Activity {
 }
 
 pub(crate) struct Fence(u64);
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "no operation changes files from a worker yet")
-)]
-pub(crate) enum Drained {
-    Released,
-    TimedOut,
-    Cancelled,
-}
 
 impl Fence {
     pub(crate) fn stop_reads(&self) {
@@ -488,33 +445,6 @@ impl Fence {
             let _ = receiver.await;
         }
     }
-
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "no operation changes files from a worker yet")
-    )]
-    pub(crate) fn wait(&self, budget: Duration, cancelled: &dyn Fn() -> bool) -> Drained {
-        crate::util::ui_thread::assert_off();
-        let deadline = Instant::now() + budget;
-        loop {
-            if cancelled() {
-                return Drained::Cancelled;
-            }
-            let mut registry = registry();
-            if !registry.reads_under(self.0) {
-                return Drained::Released;
-            }
-            let left = deadline.saturating_duration_since(Instant::now());
-            if left.is_zero() {
-                return Drained::TimedOut;
-            }
-            registry.waiting += 1;
-            let (mut registry, _) = READ_ENDED
-                .wait_timeout(registry, left.min(CANCEL_POLL))
-                .unwrap_or_else(PoisonError::into_inner);
-            registry.waiting -= 1;
-        }
-    }
 }
 
 impl Drop for Fence {
@@ -533,7 +463,6 @@ pub(crate) fn is_changing(path: &Path) -> bool {
     registry.roots.covers(path) || registry.fenced.covers(path)
 }
 
-/// Any fence counts: a refusal may come from a fence on another name for the same file.
 pub(crate) fn is_releasing() -> bool {
     !registry().barriers.is_empty()
 }
@@ -558,7 +487,6 @@ thread_local! {
     static NEXT_OBSERVER: Cell<u64> = const { Cell::new(0) };
 }
 
-/// Notices reach observers on the thread that releases: the main thread.
 pub(crate) struct Subscription(u64, PhantomData<Rc<()>>);
 
 pub(crate) fn observe(observer: impl Fn(&Notice<'_>) + 'static) -> Subscription {
@@ -585,8 +513,6 @@ pub(crate) fn notify(notice: &Notice<'_>) {
     }
 }
 
-/// Only `folder` itself, unless it is below a tree: an operation writing into its subfolders
-/// lists those.
 pub(crate) fn is_active_in(folder: &Path) -> bool {
     let registry = registry();
     registry.folders.contains(folder) || registry.trees.covers(folder)
@@ -596,7 +522,6 @@ pub(crate) fn is_active_at(folder: &Location) -> bool {
     folder_key(folder).is_some_and(|folder| is_active_in(&folder))
 }
 
-/// An operation that also covers `folder` is the caller's own.
 pub(crate) fn in_use_within(folder: &Path) -> bool {
     let below = |path: &Path| path != folder && path.starts_with(folder);
     let registry = registry();

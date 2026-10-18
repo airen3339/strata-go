@@ -58,7 +58,6 @@ fn presence(mapped: bool, active: bool, state: gdk::ToplevelState) -> Presence {
     }
 }
 
-// Tests must not reach the host's system bus.
 #[cfg(test)]
 fn follow_power_saver(_: &gtk::Window, _: Rc<Cell<bool>>, _: Update) {}
 

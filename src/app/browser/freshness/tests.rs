@@ -1685,7 +1685,6 @@ fn a_folder_that_failed_while_its_mount_was_stalled_reloads_once_the_mount_answe
         std::fs::create_dir_all(folder.join("stalled")).expect("stalled folder");
         std::fs::create_dir(folder.join("broken")).expect("broken folder");
         std::fs::write(folder.join("stalled/listed.txt"), "").expect("listed file");
-        // Its listing and then its monitor's gap check stamp it first.
         let stamps_before_breaking = match waiting {
             Waiting::RequestBeforeTheFailure => 2,
             _ => 0,
@@ -1807,8 +1806,6 @@ fn a_folder_that_failed_while_its_mount_was_stalled_reloads_once_the_mount_answe
         let quiet = pump_until(&|| !context.pending());
         gate.release();
         if matches!(waiting, Waiting::RequestOutlivingTheListing) {
-            // The lane refuses the queued refresh on the worker; the other request answers before
-            // the browser hears of it.
             let deadline = Instant::now() + Duration::from_secs(10);
             while !context.pending() && Instant::now() < deadline {
                 std::thread::sleep(Duration::from_millis(1));

@@ -406,7 +406,6 @@ pub struct DirectoryStamp {
     pub identity: Option<ItemIdentity>,
     pub mount: Option<MountToken>,
     pub outside_writers: bool,
-    /// How long after a change another change may leave the stamp as it was.
     pub coarse_window: Option<Duration>,
     pub daemon_cache: Option<Duration>,
     pub read_at: SystemTime,
@@ -436,7 +435,6 @@ impl DirectoryStamp {
         })
     }
 
-    /// On coarse times, a change soon after the last one may have left them as they were.
     pub fn may_hide_changes(&self) -> bool {
         let Some(window) = self.coarse_window else {
             return false;
@@ -484,7 +482,6 @@ pub enum StampAnswer {
 
 #[derive(Clone, Debug)]
 pub enum DirectoryEvent {
-    /// Comes before the first batch.
     Stamp {
         request_id: RequestId,
         stamp: Box<DirectoryStamp>,
@@ -493,7 +490,6 @@ pub enum DirectoryEvent {
         request_id: RequestId,
         entries: Vec<FileEntry>,
     },
-    /// Order-independent, just before `Finished` of a load that was not truncated.
     ListingDigest {
         request_id: RequestId,
         names_digest: u64,
@@ -517,7 +513,6 @@ pub enum DirectoryEvent {
     Failed {
         request_id: RequestId,
         message: String,
-        /// The mount's lane turned the load away before it reached the mount.
         refused: bool,
     },
     /// Size/mtime arrivals for already-listed entries, positioned by the receiver
@@ -656,7 +651,6 @@ pub trait FileSource {
         None
     }
 
-    /// Starts a monitor without blocking; `report` says once whether it went live.
     fn start_watch(
         &self,
         location: Location,
@@ -681,17 +675,14 @@ pub trait FileSource {
         LoadHandle::new(|| {})
     }
 
-    /// Known without any I/O.
     fn responsiveness(&self, _location: &Location) -> Responsiveness {
         Responsiveness::Answering
     }
 
-    /// Runs `notify` when a request may have stopped answering, until the handle drops.
     fn follow_responsiveness(&self, _notify: Rc<dyn Fn()>) -> LoadHandle {
         LoadHandle::new(|| {})
     }
 
-    /// Background checks of folders on one mount, each answered once.
     fn check_stamps(
         &self,
         locations: Vec<Location>,
@@ -703,8 +694,8 @@ pub trait FileSource {
         LoadHandle::new(|| {})
     }
 
-    /// Finds the folder in `parent` that is provably `identity`, such as one renamed in place.
-    /// Emits `None` when nothing is, or `parent` cannot be listed.
+    /// Finds the folder in `parent` that matches `identity`, such as one renamed in place.
+    /// Emits `None` when nothing matches or `parent` cannot be listed.
     fn find_by_identity(
         &self,
         _parent: Location,

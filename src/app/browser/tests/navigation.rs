@@ -57,7 +57,6 @@ fn navigation_boundary_blocks_trusted_routes_without_loading_outside_locations()
 
 type Validation = (Location, Rc<dyn Fn(Result<(), LocationValidationError>)>);
 
-/// Answers validation only later, as a worker would, and never on the caller's thread.
 #[derive(Default)]
 struct WorkerValidation {
     pending: RefCell<Vec<Validation>>,

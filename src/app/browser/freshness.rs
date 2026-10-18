@@ -189,7 +189,6 @@ impl Browser {
         Instant::now()
     }
 
-    // Unlike `Instant`, this clock keeps counting while the computer sleeps.
     fn boot_clock(&self) -> Duration {
         #[cfg(test)]
         if let Some((_, booted)) = self.freshness.clock.get() {
@@ -814,7 +813,6 @@ impl Browser {
         if let Some(timer) = self.freshness.timer.take() {
             timer.remove();
         }
-        // Tests tick by hand: a timer would fire on another test's thread.
         let Some(due) = due.filter(|_| !cfg!(test)) else {
             return;
         };

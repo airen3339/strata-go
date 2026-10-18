@@ -130,7 +130,6 @@ pub struct UndoCopyRequest {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ReplacedOriginal {
-    /// Without an identity where Trash took another item than the one checked.
     Trashed(Option<ItemIdentity>),
     /// Removed without Trash, so undo must not offer to delete the only copy.
     Deleted,

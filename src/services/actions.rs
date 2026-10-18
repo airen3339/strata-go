@@ -291,7 +291,7 @@ impl StoredActions {
 }
 
 pub trait ActionStore: Send + Sync {
-    /// A broken definition must not hide unrelated actions; `locate` resolves programs.
+    /// A broken definition must not hide unrelated actions.
     fn load(&self) -> StoredActions;
 
     fn locate(&self, stored: StoredActions) -> StoredActions;
@@ -517,7 +517,6 @@ impl ActionRegistry {
     }
 }
 
-/// Other mounts may stop answering, and the settings writer must never wait on them.
 fn outside<T: Send + 'static>(
     job: impl FnOnce() -> T + Send + 'static,
 ) -> impl Future<Output = Option<T>> {

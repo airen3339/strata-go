@@ -1,5 +1,3 @@
-# Documented exceptions for scripts/trace-main-io.py; see docs/e2e-testing.md.
-
 [[exception]]
 reason = "Strata reads its settings and state while it builds the first window (preferences: startup reads)"
 category = "settings"

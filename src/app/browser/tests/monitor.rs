@@ -903,7 +903,6 @@ fn the_open_directory_follows_an_outside_rename_and_leaves_an_outside_removal() 
 
 type LateWatch = (Location, WatchCallback, Rc<dyn Fn(Watching)>);
 
-/// Folders answer at once, with `baseline` as their stamp, and monitors go live only when told.
 struct LateMonitorSource {
     baseline: DirectoryStamp,
     gap_answer: RefCell<StampAnswer>,
