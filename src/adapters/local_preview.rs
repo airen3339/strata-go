@@ -894,11 +894,12 @@ async fn read_text(
             }
         }
     }
-    let stream = Closing::new(
-        file.read_future(glib::Priority::DEFAULT)
-            .await?
-            .upcast::<gio::InputStream>(),
-    );
+    let stream = gio::GioFuture::new(file, |file, cancellable, result| {
+        file.read_async(glib::Priority::DEFAULT, Some(cancellable), move |output| {
+            result.resolve(output.map(|stream| Closing::new(stream.upcast::<gio::InputStream>())));
+        });
+    })
+    .await?;
     let bytes = stream
         .read_bytes_future(byte_limit.saturating_add(1), glib::Priority::DEFAULT)
         .await?;

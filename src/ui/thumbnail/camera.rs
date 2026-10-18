@@ -49,11 +49,9 @@ pub(super) async fn render(path: &Path, cancellation: &Cancellation) -> Result<V
             .attribute_object("preview::icon")
             .and_then(|object| object.downcast::<gio::LoadableIcon>().ok())
             .ok_or("The camera did not provide a thumbnail")?;
-        let stream = Closing::new(
-            load_icon_stream(&icon)
-                .await
-                .map_err(|error| error.to_string())?,
-        );
+        let stream = load_icon_stream(&icon)
+            .await
+            .map_err(|error| error.to_string())?;
         let bytes = read_icon(&*stream, MAX_ICON_BYTES).await?;
         stream
             .close_future(glib::Priority::DEFAULT)
@@ -101,9 +99,11 @@ pub(super) async fn render(path: &Path, cancellation: &Cancellation) -> Result<V
     unsafe_code,
     reason = "GIO's nullable content-type output is incorrectly bound as non-null in gio 0.22"
 )]
-async fn load_icon_stream(icon: &gio::LoadableIcon) -> Result<gio::InputStream, glib::Error> {
+async fn load_icon_stream(
+    icon: &gio::LoadableIcon,
+) -> Result<Closing<gio::InputStream>, glib::Error> {
     use glib::translate::*;
-    type Completion = gio::GioFutureResult<Result<gio::InputStream, glib::Error>>;
+    type Completion = gio::GioFutureResult<Result<Closing<gio::InputStream>, glib::Error>>;
 
     unsafe extern "C" fn completed(
         source: *mut glib::gobject_ffi::GObject,
@@ -136,7 +136,7 @@ async fn load_icon_stream(icon: &gio::LoadableIcon) -> Result<gio::InputStream, 
                 )
             })
         };
-        completion.resolve(result);
+        completion.resolve(result.map(Closing::new));
     }
 
     gio::GioFuture::new(icon, |icon, cancellable, completion: Completion| {
@@ -172,3 +172,6 @@ async fn read_icon(stream: &impl IsA<gio::InputStream>, limit: usize) -> Result<
         output.extend_from_slice(&bytes);
     }
 }
+
+#[cfg(test)]
+mod tests;

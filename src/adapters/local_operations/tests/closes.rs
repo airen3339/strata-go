@@ -3,7 +3,7 @@
 use super::*;
 use crate::adapters::{
     directory_summary::summarize_directory,
-    gio_close::tests::{Probe, probed_folder, probed_new_file, pump_until},
+    gio_close::tests::{Probe, probed_file, probed_folder, pump_until},
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -43,7 +43,7 @@ fn walk(
             let _ = summarize_directory(&folder).await;
         }),
         Site::NewFile => {
-            let file = probed_new_file(probe);
+            let file = probed_file(probe);
             Box::pin(async move {
                 let _ = super::super::create_entry::create_empty_file(&file, &cancellable).await;
             })

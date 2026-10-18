@@ -2,8 +2,12 @@
 
 use std::{
     future::Future,
-    pin::Pin,
-    sync::{Arc, Condvar, Mutex},
+    pin::{Pin, pin},
+    sync::{
+        Arc, Condvar, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
+    task::{Context, Wake, Waker},
     thread::ThreadId,
     time::{Duration, Instant},
 };
@@ -129,7 +133,7 @@ mod probed {
     impl ObjectSubclass for ReadingImp {
         const NAME: &'static str = "StrataTestProbedReading";
         type Type = Reading;
-        type ParentType = gio::InputStream;
+        type ParentType = gio::FileInputStream;
     }
 
     impl ObjectImpl for ReadingImp {}
@@ -289,21 +293,29 @@ mod probed {
     // subclass overrides only GOutputStream's virtual methods, as gio-rs does for that parent.
     unsafe impl IsSubclassable<WritingImp> for gio::FileOutputStream {}
 
+    #[expect(
+        unsafe_code,
+        reason = "gio-rs offers no subclassing of GFileInputStream, which GFile's read returns"
+    )]
+    // SAFETY: GFileInputStream's instance and class structs extend GInputStream's, and the
+    // subclass overrides only GInputStream's virtual methods, as gio-rs does for that parent.
+    unsafe impl IsSubclassable<ReadingImp> for gio::FileInputStream {}
+
     #[derive(Default)]
-    pub struct NewFileImp {
+    pub struct ItemImp {
         pub(super) probe: OnceLock<Arc<Probe>>,
     }
 
     #[glib::object_subclass]
-    impl ObjectSubclass for NewFileImp {
-        const NAME: &'static str = "StrataTestProbedNewFile";
-        type Type = NewFile;
+    impl ObjectSubclass for ItemImp {
+        const NAME: &'static str = "StrataTestProbedItem";
+        type Type = Item;
         type Interfaces = (gio::File,);
     }
 
-    impl ObjectImpl for NewFileImp {}
+    impl ObjectImpl for ItemImp {}
 
-    impl FileImpl for NewFileImp {
+    impl FileImpl for ItemImp {
         fn is_native(&self) -> bool {
             true
         }
@@ -319,6 +331,17 @@ mod probed {
             let _ = writing.imp().probe.set(probe.clone());
             Ok(writing.upcast())
         }
+
+        fn read_fn(
+            &self,
+            _: Option<&gio::Cancellable>,
+        ) -> Result<gio::FileInputStream, glib::Error> {
+            let probe = self.probe.get().expect("probe");
+            probe.answer();
+            let reading: Reading = glib::Object::new();
+            let _ = reading.imp().probe.set(probe.clone());
+            Ok(reading.upcast())
+        }
     }
 
     glib::wrapper! {
@@ -331,7 +354,7 @@ mod probed {
     }
 
     glib::wrapper! {
-        pub struct NewFile(ObjectSubclass<NewFileImp>) @implements gio::File;
+        pub struct Item(ObjectSubclass<ItemImp>) @implements gio::File;
     }
 
     glib::wrapper! {
@@ -339,10 +362,11 @@ mod probed {
     }
 
     glib::wrapper! {
-        pub struct Reading(ObjectSubclass<ReadingImp>) @extends gio::InputStream;
+        pub struct Reading(ObjectSubclass<ReadingImp>)
+            @extends gio::FileInputStream, gio::InputStream, @implements gio::Seekable;
     }
 }
-use probed::{Folder, Listing, NewFile, Reading};
+use probed::{Folder, Item, Listing, Reading};
 
 /// A local folder whose open, like GLib's, runs to the end once started and ignores a cancel.
 pub(crate) fn probed_folder(probe: &Arc<Probe>) -> gio::File {
@@ -352,12 +376,50 @@ pub(crate) fn probed_folder(probe: &Arc<Probe>) -> gio::File {
     folder.upcast()
 }
 
-/// A local file whose create, like GLib's, runs to the end once started and ignores a cancel.
-pub(crate) fn probed_new_file(probe: &Arc<Probe>) -> gio::File {
+/// A local file whose create and read, like GLib's, run to the end once started and ignore a
+/// cancel.
+pub(crate) fn probed_file(probe: &Arc<Probe>) -> gio::File {
     use gtk::glib::subclass::prelude::ObjectSubclassIsExt;
-    let file: NewFile = glib::Object::new();
+    let file: Item = glib::Object::new();
     let _ = file.imp().probe.set(probe.clone());
     file.upcast()
+}
+
+struct Answered(AtomicBool);
+
+impl Wake for Answered {
+    fn wake(self: Arc<Self>) {
+        self.0.store(true, Ordering::SeqCst);
+    }
+}
+
+/// Lets a stream opened from a probed file answer, then drops the open before it is polled
+/// again, as an abort between the answer and the next poll does.
+pub(crate) fn closed_on_the_ui_thread_once_answered_and_let_go<F: Future>(
+    open: impl FnOnce(gio::File) -> F,
+) -> bool {
+    let _serial = crate::test_support::ASYNC_MAIN_CONTEXT_DEFAULT
+        .lock()
+        .expect("main context lock");
+    let context = glib::MainContext::default();
+    let _owner = context.acquire().expect("the test owns the main context");
+    let probe = Arc::new(Probe::default());
+    {
+        let answered = Arc::new(Answered(AtomicBool::new(false)));
+        let waker = Waker::from(answered.clone());
+        let mut open = pin!(open(probed_file(&probe)));
+        assert!(
+            open.as_mut()
+                .poll(&mut Context::from_waker(&waker))
+                .is_pending(),
+            "the open is under way"
+        );
+        pump_until(&context, "the open answered", || {
+            answered.0.load(Ordering::SeqCst)
+        });
+    }
+    pump_until(&context, "the stream is finalized", || probe.finalized());
+    probe.closed_on() == Some(std::thread::current().id())
 }
 
 #[derive(Clone, Copy, Debug)]
