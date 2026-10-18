@@ -38,6 +38,7 @@ pub(crate) fn listed_kind(file_type: FileType, path: &Path) -> EntryKind {
 }
 
 pub(crate) fn symlink_kind(path: &Path) -> EntryKind {
+    crate::util::ui_thread::assert_off();
     link_target_kind(
         fs::metadata(path)
             .ok()

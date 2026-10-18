@@ -41,6 +41,14 @@ impl<T: Closable> Drop for Closing<T> {
     }
 }
 
+pub(crate) struct CancelOnDrop(pub(crate) gio::Cancellable);
+
+impl Drop for CancelOnDrop {
+    fn drop(&mut self) {
+        self.0.cancel();
+    }
+}
+
 pub(crate) async fn enumerate_children(
     folder: &gio::File,
     attributes: &'static str,

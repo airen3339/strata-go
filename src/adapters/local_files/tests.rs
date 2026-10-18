@@ -638,6 +638,37 @@ fn a_file_linked_into_place_is_queried_once() -> Result<(), Box<dyn Error>> {
 }
 
 #[test]
+fn a_dangling_link_arriving_in_a_watched_folder_is_reported_as_a_link() -> Result<(), Box<dyn Error>>
+{
+    let _serial = ASYNC_MAIN_CONTEXT_DEFAULT
+        .lock()
+        .map_err(|error| error.to_string())?;
+    let directory = unique_fixture_root("monitor-dangling-link");
+    fs::create_dir_all(&directory)?;
+    let changes: Rc<RefCell<Vec<DirectoryChange>>> = Rc::default();
+    let collected = changes.clone();
+    let handle = live_watch(
+        Location::local(&directory),
+        Rc::new(move |change| collected.borrow_mut().push(change)),
+    );
+    let link = Location::local(directory.join("broken-link.txt"));
+
+    std::os::unix::fs::symlink(
+        directory.join("missing.txt"),
+        directory.join("broken-link.txt"),
+    )?;
+    drain_until(|| {
+        changes.borrow().iter().any(|change| {
+            matches!(change, DirectoryChange::Upsert(entry)
+                if entry.location == link && entry.kind == EntryKind::SymbolicLink)
+        })
+    });
+    drop(handle);
+    fs::remove_dir_all(&directory)?;
+    Ok(())
+}
+
+#[test]
 fn sustained_native_monitor_bursts_flush_without_rescanning() {
     let _serial = ASYNC_MAIN_CONTEXT_DEFAULT
         .lock()

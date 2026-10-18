@@ -25,6 +25,7 @@ use rustix::fs::FileType;
 use super::local_operations::FolderStamp;
 use crate::{
     adapters::{
+        gio_close::CancelOnDrop,
         gio_file_for_location, location_for_file,
         mount_lanes::{self, Class, Progress, Unanswered},
         mount_watch,
@@ -497,14 +498,35 @@ fn info_mode(info: &gio::FileInfo) -> MetadataValue<u32> {
 }
 
 pub(crate) async fn query_file_entry(location: Location) -> Result<FileEntry, glib::Error> {
-    let info = gio_file_for_location(&location)
-        .query_info_future(
-            FULL_ATTRIBUTES,
-            gio::FileQueryInfoFlags::NOFOLLOW_SYMLINKS,
-            glib::Priority::DEFAULT,
-        )
-        .await?;
-    Ok(entry_from_info(location, info))
+    query_entry(
+        location,
+        FULL_ATTRIBUTES,
+        gio::FileQueryInfoFlags::NOFOLLOW_SYMLINKS,
+    )
+    .await
+}
+
+async fn query_entry(
+    location: Location,
+    attributes: &'static str,
+    flags: gio::FileQueryInfoFlags,
+) -> Result<FileEntry, glib::Error> {
+    let file = gio_file_for_location(&location);
+    if location.native_path().is_none() {
+        let info = file
+            .query_info_future(attributes, flags, glib::Priority::DEFAULT)
+            .await?;
+        return Ok(entry_from_info(location, info));
+    }
+    let abandoned = CancelOnDrop(gio::Cancellable::new());
+    let cancellable = abandoned.0.clone();
+    gio::spawn_blocking(move || {
+        let info = file.query_info(attributes, flags, Some(&cancellable))?;
+        cancellable.set_error_if_cancelled()?;
+        Ok(entry_from_info(location, info))
+    })
+    .await
+    .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
 }
 
 fn listed_entry(
@@ -617,10 +639,8 @@ fn recent_target_location(info: &gio::FileInfo) -> Option<Location> {
 fn recent_entry_from_target(
     recent_info: &gio::FileInfo,
     recent_uri: String,
-    target_location: Location,
-    target_info: gio::FileInfo,
+    mut entry: FileEntry,
 ) -> Option<FileEntry> {
-    let mut entry = entry_from_info(target_location, target_info);
     entry.recent_unix_seconds = recent_unix_seconds(recent_info);
     entry.recent_uri = Some(recent_uri);
     let final_location_is_recent = entry
@@ -664,7 +684,6 @@ async fn resolve_recent_entry(
     let Some(target_location) = recent_target_location(&recent_info) else {
         return RecentEntryResolution::Stale;
     };
-    let target_file = gio_file_for_location(&target_location);
     let remaining = deadline.saturating_duration_since(Instant::now());
     if remaining.is_zero() {
         return RecentEntryResolution::TimedOut;
@@ -676,19 +695,13 @@ async fn resolve_recent_entry(
     };
     match glib::future_with_timeout(
         remaining,
-        target_file.query_info_future(
-            attributes,
-            gio::FileQueryInfoFlags::NONE,
-            glib::Priority::DEFAULT,
-        ),
+        query_entry(target_location, attributes, gio::FileQueryInfoFlags::NONE),
     )
     .await
     {
-        Ok(Ok(target_info)) => {
-            recent_entry_from_target(&recent_info, recent_uri, target_location, target_info)
-                .map(Box::new)
-                .map_or(RecentEntryResolution::Stale, RecentEntryResolution::Entry)
-        }
+        Ok(Ok(entry)) => recent_entry_from_target(&recent_info, recent_uri, entry)
+            .map(Box::new)
+            .map_or(RecentEntryResolution::Stale, RecentEntryResolution::Entry),
         Ok(Err(_)) => RecentEntryResolution::Stale,
         Err(_) => RecentEntryResolution::TimedOut,
     }
@@ -2903,20 +2916,17 @@ fn query_monitored_entry(
     cancelled: Rc<Cell<bool>>,
 ) {
     glib::MainContext::default().spawn_local(async move {
-        let file = gio_file_for_location(&location);
-        let result = file
-            .query_info_future(
-                FULL_ATTRIBUTES,
-                gio::FileQueryInfoFlags::NONE,
-                glib::Priority::DEFAULT,
-            )
-            .await;
+        let result = query_entry(
+            location.clone(),
+            FULL_ATTRIBUTES,
+            gio::FileQueryInfoFlags::NONE,
+        )
+        .await;
         if cancelled.get() {
             return;
         }
         match result {
-            Ok(info) => {
-                let entry = entry_from_info(location, info);
+            Ok(entry) => {
                 if let Some(from) = moved_from {
                     notify(DirectoryChange::Move { from, entry });
                 } else {

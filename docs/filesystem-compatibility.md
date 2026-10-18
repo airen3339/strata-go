@@ -1785,13 +1785,12 @@ The exceptions are:
   (`GDesktopAppInfo`), and the toolkit's own resources (icons, fonts, styles, MIME data) from
   system paths.
 - Quitting, which waits up to 10 s for queued settings saves.
-- Calls not yet moved to a worker. When a folder's monitor reports a symbolic link whose target
-  cannot be followed, building its row stats that target. The folder descriptors that a restore from
-  Trash, an Undo of a merge or a Replace paste used are closed as it ends. Opening a media preview's
-  audio output loads its sound plugins, also looking for them relative to the folder Strata was
-  started from, which stays its working folder. Running a custom action creates its private folder
-  under `$XDG_RUNTIME_DIR/strata/actions`. A theme change rescans the text-view styles Strata
-  generates in its cache folder.
+- Calls not yet moved to a worker. The folder descriptors that a restore from Trash, an Undo of a
+  merge or a Replace paste used are closed as it ends. Opening a media preview's audio output loads
+  its sound plugins, also looking for them relative to the folder Strata was started from, which
+  stays its working folder. Running a custom action creates its private folder under
+  `$XDG_RUNTIME_DIR/strata/actions`. A theme change rescans the text-view styles Strata generates
+  in its cache folder.
 
 The [main-thread I/O audit](e2e-testing.md#main-thread-io-audit) reports any other file call the
 interface thread makes, and its stall watchdog names the call the interface thread is blocked in.
