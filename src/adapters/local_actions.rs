@@ -477,6 +477,7 @@ fn program_as_written(
 
 /// Unlike sandbox helpers, trusted actions need the user's PATH, including shims.
 pub(crate) fn resolve_executable(program: &str) -> Option<PathBuf> {
+    ui_thread::assert_off();
     if program.contains('/') {
         if !Path::new(program).is_absolute() {
             return None;
