@@ -1506,8 +1506,8 @@ still recognises those names and classes them as possible originals.
   review.
 - **A dock card**, the first time in a session that a folder holding possible originals is shown:
   "“%{folder}” holds originals that an interrupted operation set aside." with Review. Like other
-  cards it can be pinned and closes on its own after 15 s otherwise. Review opens the review, and
-  opens the folder first if it was closed meanwhile.
+  cards it can be pinned and closes on its own after 15 s otherwise. Review opens the review, or,
+  if the folder was closed meanwhile, opens the folder, whose header button then opens it.
 - **The context menu's Restore**, on a single such row, which is visible when hidden files are
   shown.
 
