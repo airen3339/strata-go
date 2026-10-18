@@ -617,6 +617,36 @@ impl ChooserState {
         true
     }
 
+    fn after_download_step<T: Send + 'static>(
+        self: &Rc<Self>,
+        work: impl FnOnce() -> T + Send + 'static,
+        then: impl FnOnce(&Rc<Self>, T) + 'static,
+    ) {
+        self.cancel_download();
+        let step = Arc::new(AtomicBool::new(false));
+        self.download_cancel.replace(Some(step.clone()));
+        self.accept_button.set_sensitive(false);
+        let weak = Rc::downgrade(self);
+        glib::MainContext::default().spawn_local(async move {
+            let answer = gio::spawn_blocking(work)
+                .await
+                .unwrap_or_else(|panic| std::panic::resume_unwind(panic));
+            let Some(state) = weak.upgrade() else {
+                return;
+            };
+            let current = state
+                .download_cancel
+                .borrow()
+                .as_ref()
+                .is_some_and(|flag| Arc::ptr_eq(flag, &step));
+            if current {
+                state.download_cancel.take();
+                state.accept_button.set_sensitive(true);
+                then(&state, answer);
+            }
+        });
+    }
+
     fn open_remote(self: &Rc<Self>, url: &str) {
         if !matches!(
             self.request.kind,
@@ -642,14 +672,16 @@ impl ChooserState {
             .downloaded_file
             .borrow()
             .as_ref()
-            .filter(|(previous, path)| previous == url && path.is_file())
+            .filter(|(previous, _)| previous == url)
             .map(|(_, path)| path.clone());
-        if let Some(path) = cached {
-            self.complete_download(path);
-            return;
+        match cached {
+            Some(path) => self.reuse_download(url.to_owned(), path),
+            None => self.download(url.to_owned()),
         }
+    }
+
+    fn download(self: &Rc<Self>, url: String) {
         self.downloaded_file.take();
-        let url = url.to_owned();
         let cancelled = Arc::new(AtomicBool::new(false));
         *self.download_cancel.borrow_mut() = Some(cancelled.clone());
         let state = Rc::downgrade(self);

@@ -1759,6 +1759,8 @@ worker:
   link is undone, and a destination that cannot be checked is written only by an exclusive create,
   which never replaces.
 - Search results are checked on the search worker, and only hits proven gone are dropped.
+- The file chooser reads a downloaded link's image type, checks that an earlier download of the
+  same link is still there and gives it its image extension on a worker; Open waits for that step.
 - Programs and terminals are resolved and started on a worker, since starting a child waits until
   it has entered its working folder.
 - Strata's own settings and state files are saved by one background writer and read again there
