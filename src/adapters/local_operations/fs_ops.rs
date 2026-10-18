@@ -27,7 +27,7 @@ use rustix::{
 
 use super::native_fs::{LocalFileIdentity, file_handle, retry_local_open};
 use crate::{
-    adapters::volume::{MountKey, mount_watch},
+    adapters::volume::MountKey,
     services::{Attributes, IdentityTraits},
 };
 
@@ -395,7 +395,8 @@ fn statx_at(dir: BorrowedFd<'_>, name: &OsStr, flags: AtFlags) -> Result<EntrySt
             let mount_id = StatxFlags::from_bits_retain(stat.stx_mask)
                 .contains(StatxFlags::MNT_ID)
                 .then_some(stat.stx_mnt_id);
-            if mount_watch::latest().wants_file_handle(mount_id, entry.identity.birth) {
+            let (mounts, birth) = fs().file_handle_inputs(Entry { dir, name }, &entry);
+            if mounts.wants_file_handle(mount_id, birth) {
                 entry.identity.handle = file_handle(dir, name);
             }
             Ok(entry)

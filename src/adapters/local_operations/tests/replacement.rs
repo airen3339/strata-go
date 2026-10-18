@@ -536,6 +536,7 @@ fn a_target_is_replaced_only_while_its_mount_still_knows_it() -> Result<(), Box<
         ReplacedAlikeAndEvictedOnceNumbersWent,
     }
     let _serial = serial()?;
+    temporary_folder_gives_file_handles()?;
     let samba = || Quirks {
         births: Births::MadeUp,
         ..Quirks::cifs()

@@ -2,7 +2,7 @@
 
 use super::{
     deletion::local_device_is_rotational,
-    fs_ops::{System, Watched, assert_off_main_thread},
+    fs_ops::{Entry, EntryStat, System, Watched, assert_off_main_thread},
     holders,
     native_fs::opened_path,
 };
@@ -36,6 +36,12 @@ pub(super) trait FsEnvironment: Send + Sync {
     fn unwatch(&self, file: &gio::File, monitor: gio::FileMonitor);
     /// The kernel's table, not the watcher's: cifs changes options without a mount-table event.
     fn current_mount_type(&self, fd: BorrowedFd<'_>) -> Option<MountType>;
+    /// The mount table and birth time that decide whether `statx_at` reads the entry's handle.
+    fn file_handle_inputs(
+        &self,
+        at: Entry<'_>,
+        stat: &EntryStat,
+    ) -> (MountTable, Option<(i64, u32)>);
     /// udev's `ID_FS_TYPE`, when the device has a database record.
     fn device_format(&self, fd: BorrowedFd<'_>) -> Result<Option<String>, Errno>;
     fn rotational(&self, fd: BorrowedFd<'_>) -> Option<bool>;
@@ -132,6 +138,14 @@ impl FsEnvironment for System {
             None => table.mount_at(&opened_path(fd).ok()?),
         };
         mount.map(|(mount_type, _)| mount_type.clone())
+    }
+
+    fn file_handle_inputs(
+        &self,
+        _at: Entry<'_>,
+        stat: &EntryStat,
+    ) -> (MountTable, Option<(i64, u32)>) {
+        (mount_watch::latest(), stat.identity.birth)
     }
 
     fn device_format(&self, fd: BorrowedFd<'_>) -> Result<Option<String>, Errno> {

@@ -24,7 +24,7 @@ use std::{
 
 use gtk::{gio, glib, prelude::FileExt};
 use rustix::{
-    fs::{Access, AtFlags, FileType, FsWord, Mode, OFlags, RenameFlags, ResolveFlags},
+    fs::{Access, AtFlags, FileType, FsWord, Mode, OFlags, RenameFlags, ResolveFlags, StatxFlags},
     io::Errno,
 };
 
@@ -36,7 +36,9 @@ use super::super::fs_ops::{
 use super::super::holders;
 use super::super::native_fs::LocalFileIdentity;
 use crate::{
-    adapters::volume::{MountKey, MountSite, MountType, forget_test_mount_capabilities},
+    adapters::volume::{
+        MountKey, MountSite, MountTable, MountType, forget_test_mount_capabilities,
+    },
     services::Holder,
 };
 
@@ -917,6 +919,8 @@ impl Fetch {
 struct Scope {
     id: u64,
     root: PathBuf,
+    /// The kernel's id of the real mount under the root, which entries' stats report.
+    mount_id: Option<u64>,
     own_device: bool,
     state: Mutex<State>,
     /// Makes looking a name up and creating it one step, as a filesystem that
@@ -996,9 +1000,17 @@ pub(crate) struct FsQuirks {
 
 impl FsQuirks {
     pub(crate) fn install(root: &Path, quirks: Quirks) -> Self {
+        let mount_id =
+            rustix::fs::statx(rustix::fs::CWD, root, AtFlags::empty(), StatxFlags::MNT_ID)
+                .ok()
+                .filter(|stat| {
+                    StatxFlags::from_bits_retain(stat.stx_mask).contains(StatxFlags::MNT_ID)
+                })
+                .map(|stat| stat.stx_mnt_id);
         let scope = Arc::new(Scope {
             id: NEXT_SCOPE.fetch_add(1, Ordering::Relaxed),
             root: root.canonicalize().unwrap_or_else(|_| root.to_path_buf()),
+            mount_id,
             own_device: quirks.own_device,
             naming: Mutex::new(()),
             state: Mutex::new(State {
@@ -1343,7 +1355,6 @@ impl Scope {
 
     fn reported(&self, path: Option<PathBuf>, mut stat: EntryStat) -> EntryStat {
         let key = (stat.identity.device, stat.identity.inode);
-        let mount_type = self.mount_type();
         if let Some(device) = path.as_deref().and_then(own_device) {
             stat.identity.device = device;
         }
@@ -1411,10 +1422,6 @@ impl Scope {
             stat.identity.inode = inode;
             stat.identity.birth = birth;
         }
-        // A handle names the real inode, whatever number is reported for it.
-        stat.identity.handle = mount_type
-            .wants_file_handle(stat.identity.birth)
-            .then(|| key.0.rotate_left(32) ^ key.1);
         stat
     }
 
@@ -1514,6 +1521,18 @@ impl Scope {
             fs_type: fs_type.to_owned(),
             super_options,
         }
+    }
+
+    fn mounts(&self) -> MountTable {
+        let MountType {
+            fs_type,
+            super_options,
+        } = self.mount_type();
+        MountTable::parse(
+            self.mount_id
+                .map(|id| format!("{id} 0 0:0 / / rw - {fs_type} test {super_options}\n"))
+                .unwrap_or_default(),
+        )
     }
 
     fn server_numbers(&self) -> bool {
@@ -2391,6 +2410,19 @@ impl FsEnvironment for Scoped {
                 .ok(),
             None => System.current_mount_type(fd),
         }
+    }
+
+    fn file_handle_inputs(
+        &self,
+        at: Entry<'_>,
+        stat: &EntryStat,
+    ) -> (MountTable, Option<(i64, u32)>) {
+        let Some(scope) = scope_for(at.dir) else {
+            return System.file_handle_inputs(at, stat);
+        };
+        let path = path_of(at.dir).map(|dir| dir.join(at.name));
+        let reported = scope.reported(path, scope.cached(*stat, false));
+        (scope.mounts(), reported.identity.birth)
     }
 
     fn device_format(&self, fd: BorrowedFd<'_>) -> Result<Option<String>, Errno> {

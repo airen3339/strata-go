@@ -1971,9 +1971,11 @@ let _quirks = FsQuirks::install(root.path(), Quirks::without_rename_flags());
 Quirks emulate rejected rename flags (NFS, ntfs-3g), missing hard links (vfat, vboxsf), sshfs
 collisions reported as `EPERM`, gvfsd-fuse refusing to rename over an empty folder, case-insensitive
 lookups, invalid names, unsupported or lying Trash, reused inode numbers, hard links with their own
-inode numbers, missing birth times, file handles that name the real inode on ext and NFS mounts
-without birth times, lost replies (on sshfs, a lost rename reply leaves the target name reporting
-its old inode number) and racing processes, before or after a call.
+inode numbers, missing birth times, lost replies (on sshfs, a lost rename reply leaves the target
+name reporting its old inode number) and racing processes, before or after a call. On emulated ext
+and NFS mounts without birth times Strata reads file handles: the seam reports the mount type under
+the kernel's id of the real mount and the missing birth time, and the handle comes from the real
+filesystem.
 
 For copies they also emulate a mount's family and superblock options as mountinfo reports them, the
 device format udev records, refused `O_TMPFILE` and its links, refused clones, a `copy_file_range`
@@ -2081,7 +2083,9 @@ seconds. A fixture's name can be one the mount refuses (`a:b` on vfat), and a pr
 name stored that the real mount refuses, folds or lists as another (Samba's 8.3 aliases, long SMB
 folder names). On NFS a file renamed over while open reads as `.nfsXXXX`, and on casefolded
 folders `/proc` shows files the test process created as `name (deleted)`, so quirk patterns by
-name miss them. The container has no udev database, so
+name miss them. Tests that emulate NFSv3, or ext without birth times, read the base's real file
+handles: exfat and cifs refuse them, so those tests stop with "the temporary folder gives file
+handles", and FUSE changes them after an eviction. The container has no udev database, so
 exfat-fuse and ntfs-3g are not recognised there: they keep their per-file syncs, and get the name
 rules of a `fuseblk` device udev cannot tell, which learn from refusals (ntfs-3g refuses device
 names). Read failures against a run of the same filter on `origin/main`.

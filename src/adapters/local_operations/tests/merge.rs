@@ -1865,6 +1865,7 @@ enum InTrash {
 fn a_trashed_original_is_passed_over_only_where_its_mount_proves_another()
 -> Result<(), Box<dyn Error>> {
     let _serial = serial()?;
+    temporary_folder_gives_file_handles()?;
     let reusing_ext4: Preset = || Quirks {
         reused_inodes: Some("report*"),
         ..Quirks::ext4()
