@@ -1094,13 +1094,18 @@ async fn finish_thumbnail_job(
 }
 
 fn admit_after_release((key, kind): (ThumbnailKey, ThumbnailKind), targets: Vec<PendingTarget>) {
+    let parks = targets.into_iter().map(|target| SettledPark {
+        key: key.clone(),
+        kind,
+        target,
+    });
+    if !crate::services::file_activity::is_releasing() {
+        fire_parks(parks.collect());
+        return;
+    }
     RELEASED_THUMBNAILS.with_borrow_mut(|released| {
         released.retain(|park| request_is_live(&park.target));
-        released.extend(targets.into_iter().map(|target| SettledPark {
-            key: key.clone(),
-            kind,
-            target,
-        }));
+        released.extend(parks);
     });
     RELEASES.with_borrow_mut(|releases| {
         releases.get_or_insert_with(|| {

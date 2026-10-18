@@ -1471,6 +1471,11 @@ impl PreviewState {
                 let detail = crate::i18n::tr(&message);
                 if message == crate::services::INCORRECT_ARCHIVE_PASSWORD {
                     self.render_archive_password_prompt(entry, Some(&detail));
+                } else if message == file_activity::HELD_FOR_OPERATION
+                    && !file_activity::is_releasing()
+                {
+                    self.current_request.set(None);
+                    self.show_after_focus_change(entry, self.current_depth.get());
                 } else {
                     if message == file_activity::HELD_FOR_OPERATION {
                         self.released_from.set(Some(self.current_depth.get()));

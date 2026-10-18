@@ -78,6 +78,13 @@ fn a_release_stops_the_preview_of_what_it_changes_until_the_operation_ends() {
                     "a.wav",
                 ),
                 (
+                    "the item, refused through a linked folder while the operation runs",
+                    a.clone(),
+                    true,
+                    true,
+                    "a.wav",
+                ),
+                (
                     "its folder",
                     directory.path().to_path_buf(),
                     true,
@@ -105,6 +112,13 @@ fn a_release_stops_the_preview_of_what_it_changes_until_the_operation_ends() {
                     true,
                     "b.wav",
                 ),
+                (
+                    "its folder, while a preview inside it is refused after the operation ends",
+                    directory.path().to_path_buf(),
+                    true,
+                    true,
+                    "a.wav",
+                ),
             ] {
                 drawer.show(browser.entry_at(0, 0).expect("first track"), Some(0));
                 super::video::ready(&provider, provider.0.borrow().len() - 1, "audio/x-wav");
@@ -114,13 +128,32 @@ fn a_release_stops_the_preview_of_what_it_changes_until_the_operation_ends() {
 
                 assert_eq!(shown().is_none(), stops, "{row}");
                 assert_eq!(drawer.state.media.borrow().is_none(), stops, "{row}");
-                match row {
+                let refused_after_end = match row {
+                    "the item, refused through a linked folder while the operation runs" => {
+                        let requested = provider.0.borrow().len();
+                        drawer.show(
+                            FileEntry {
+                                location: Location::local(link.join("a.wav")),
+                                ..browser.entry_at(0, 0).expect("first track")
+                            },
+                            Some(0),
+                        );
+                        refuse_new(requested);
+                        settle();
+                        assert_eq!(
+                            provider.0.borrow().len(),
+                            requested + 1,
+                            "{row}: waits for the operation"
+                        );
+                        None
+                    }
                     "the item, while another operation ends first" => {
                         let requested = provider.0.borrow().len();
                         drop(released(directory.path().join("elsewhere.wav")));
                         settle();
                         refuse_new(requested);
                         assert_eq!(shown(), None, "{row}: waits for the item's own operation");
+                        None
                     }
                     "the item, while another preview opens" => {
                         drawer.show(browser.entry_at(0, 1).expect("second track"), Some(0));
@@ -129,6 +162,7 @@ fn a_release_stops_the_preview_of_what_it_changes_until_the_operation_ends() {
                             provider.0.borrow().len() - 1,
                             "audio/x-wav",
                         );
+                        None
                     }
                     "its folder, while a preview inside it is refused" => {
                         let requested = provider.0.borrow().len();
@@ -136,11 +170,21 @@ fn a_release_stops_the_preview_of_what_it_changes_until_the_operation_ends() {
                         wait_for_request(row, requested);
                         refuse_new(requested);
                         assert_eq!(shown().as_deref(), Some("b.wav"), "{row}");
+                        None
                     }
-                    _ => {}
-                }
+                    "its folder, while a preview inside it is refused after the operation ends" => {
+                        let requested = provider.0.borrow().len();
+                        browser.select(0, 0);
+                        wait_for_request(row, requested);
+                        Some(requested)
+                    }
+                    _ => None,
+                };
                 let requested = provider.0.borrow().len();
                 drop(operation);
+                if let Some(refused) = refused_after_end {
+                    refuse_new(refused);
+                }
                 if refills {
                     wait_for_request(row, requested);
                 } else {

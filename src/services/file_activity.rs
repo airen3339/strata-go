@@ -533,6 +533,11 @@ pub(crate) fn is_changing(path: &Path) -> bool {
     registry.roots.covers(path) || registry.fenced.covers(path)
 }
 
+/// Any fence counts: a refusal may come from a fence on another name for the same file.
+pub(crate) fn is_releasing() -> bool {
+    !registry().barriers.is_empty()
+}
+
 pub(crate) enum Notice<'a> {
     Releasing(&'a [PathBuf]),
     Lifted(&'a [PathBuf]),
