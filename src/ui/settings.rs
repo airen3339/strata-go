@@ -2,6 +2,7 @@
 
 use std::{
     cell::{Cell, RefCell},
+    path::{Path, PathBuf},
     process::Command,
     rc::{Rc, Weak},
     sync::{OnceLock, mpsc::TryRecvError},
@@ -90,30 +91,48 @@ const RESTART_GRACE_SECONDS: u64 = 20;
 const ROLLBACK_RETENTION: Duration = Duration::from_secs(60);
 
 pub(crate) fn schedule_rollback_cleanup() {
-    let Ok(current_exe) = services::installed_executable() else {
-        return;
-    };
-    let Some(rollback) = current_exe.parent().map(services::rollback_path) else {
-        return;
-    };
+    schedule_rollback_cleanup_with(
+        || {
+            let current_exe = services::installed_executable().ok()?;
+            Some(services::rollback_path(current_exe.parent()?))
+        },
+        ROLLBACK_RETENTION,
+        remove_unless_replaced,
+    );
+}
+
+fn schedule_rollback_cleanup_with(
+    locate: impl FnOnce() -> Option<PathBuf> + Send + 'static,
+    retention: Duration,
+    remove: impl FnOnce(&Path, &std::fs::Metadata) + Send + 'static,
+) {
+    glib::MainContext::default().spawn_local(async move {
+        let preserved = gio::spawn_blocking(move || {
+            crate::util::ui_thread::assert_off();
+            let rollback = locate()?;
+            let preserved = std::fs::symlink_metadata(&rollback).ok()?;
+            preserved.is_file().then_some((rollback, preserved))
+        });
+        let Ok(Some((rollback, preserved))) = preserved.await else {
+            return;
+        };
+        glib::timeout_future(retention).await;
+        let _removed = gio::spawn_blocking(move || remove(&rollback, &preserved)).await;
+    });
+}
+
+fn remove_unless_replaced(rollback: &Path, preserved: &std::fs::Metadata) {
     use std::os::unix::fs::MetadataExt;
-    let Ok(preserved) = std::fs::symlink_metadata(&rollback) else {
-        return;
-    };
-    if !preserved.is_file() {
+    crate::util::ui_thread::assert_off();
+    // A later install owns its own rollback copy, even in this process.
+    if !std::fs::symlink_metadata(rollback)
+        .is_ok_and(|current| current.dev() == preserved.dev() && current.ino() == preserved.ino())
+    {
         return;
     }
-    glib::timeout_add_local_once(ROLLBACK_RETENTION, move || {
-        // A later install owns its own rollback copy, even in this process.
-        if !std::fs::symlink_metadata(&rollback).is_ok_and(|current| {
-            current.dev() == preserved.dev() && current.ino() == preserved.ino()
-        }) {
-            return;
-        }
-        if let Err(error) = std::fs::remove_file(&rollback) {
-            tracing::warn!(%error, "could not remove the preserved previous version");
-        }
-    });
+    if let Err(error) = std::fs::remove_file(rollback) {
+        tracing::warn!(%error, "could not remove the preserved previous version");
+    }
 }
 
 thread_local! {
