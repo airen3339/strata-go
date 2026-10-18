@@ -1759,6 +1759,10 @@ worker:
   link is undone, and a destination that cannot be checked is written only by an exclusive create,
   which never replaces.
 - Search results are checked on the search worker, and only hits proven gone are dropped.
+- A media preview's audio output is built, opened, played, paused and closed on one audio worker,
+  GStreamer's start-up included, since starting GStreamer can scan its plugins and rewrite its
+  registry in the cache folder, building the output loads sound plugins, opening it opens the
+  device and closing it can wait on the sound server.
 - The file chooser reads a downloaded link's image type, checks that an earlier download of the
   same link is still there and gives it its image extension on a worker; Open waits for that step.
 - Programs and terminals are resolved and started on a worker, since starting a child waits until
@@ -1789,9 +1793,6 @@ The exceptions are:
   system paths. Text previews take their languages from GtkSourceView's bundled and system
   folders and never read the user's own `gtksourceview-5` folder.
 - Quitting, which waits up to 10 s for queued settings saves.
-- Calls not yet moved to a worker. Opening a media preview's audio output loads its sound plugins,
-  also looking for them relative to the folder Strata was started from, which stays its working
-  folder.
 
 The [main-thread I/O audit](e2e-testing.md#main-thread-io-audit) reports any other file call the
 interface thread makes, and its stall watchdog names the call the interface thread is blocked in.

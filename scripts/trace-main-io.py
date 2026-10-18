@@ -87,10 +87,10 @@ TOOLKIT_PLACES = (
     ("config", "dconf"), ("config", "user-dirs.dirs"), ("config", "mimeapps.list*"),
     ("config", "*-mimeapps.list"), ("config", "pulse"), ("config", "alsa"),
     ("cache", "fontconfig"), ("cache", "mesa_shader_cache"), ("cache", "mesa_shader_cache_db"),
-    ("cache", "gstreamer-1.0"), ("cache", "radv_builtin_shaders"),
+    ("cache", "radv_builtin_shaders"),
     ("data", "icons"), ("data", "fonts"), ("data", "themes"), ("data", "mime"),
     ("data", "applications"), ("data", "recently-used.xbel*"),
-    ("data", "glib-2.0"), ("data", "gstreamer-1.0"), ("data", "pixmaps"),
+    ("data", "glib-2.0"), ("data", "pixmaps"),
     ("home", ".fonts"), ("home", ".fonts.conf"), ("home", ".fontconfig"), ("home", ".icons"),
     ("home", ".local/share/icons"), ("home", ".local/share/fonts"), ("home", ".themes"),
     ("home", ".Xdefaults*"), ("home", ".Xresources"), ("home", ".Xauthority"),
@@ -217,7 +217,8 @@ class Launch:
                     return category
         if any(self.below(root, place, path)
                for root, place in (
-                   ("fixture", ""), ("home", ""), ("data", "Trash"), ("data", "gtksourceview-5"))):
+                   ("fixture", ""), ("home", ""), ("data", "Trash"), ("data", "gtksourceview-5"),
+                   ("cache", "gstreamer-1.0"), ("data", "gstreamer-1.0"))):
             return USER
         if self.below("environment", "", path):
             return UNCLASSIFIED

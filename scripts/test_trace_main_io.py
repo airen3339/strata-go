@@ -98,6 +98,7 @@ class MainThreadAuditTests(unittest.TestCase):
             f'203.4 statx({cwd}, "{FIXTURE}/h \\303\\251", AT_STATX_SYNC_AS_STAT, STATX_ALL, 0x7ffe) = 0',
             f'203.5 close(18<{FIXTURE}/say \\"hi\\" {{\\76>) = 0',
             f'203.6 openat({cwd}, "{ENVIRONMENT}/data/gtksourceview-5/language-specs", O_RDONLY|O_DIRECTORY) = -1 ENOENT (No such file or directory)',
+            f'203.7 mkdir("{ENVIRONMENT}/cache/gstreamer-1.0", 0777) = 0',
         ])
         _, violations = self.violations(run)
         self.assertEqual(violations, sorted([
@@ -121,6 +122,7 @@ class MainThreadAuditTests(unittest.TestCase):
             ("user", "running", "statx", "read", ("{fixture}/h \u00e9",)),
             ("user", "running", "close", "read", ('{fixture}/say "hi" {>',)),
             ("user", "running", "openat", "read", ("{data}/gtksourceview-5/language-specs",)),
+            ("user", "running", "mkdir", "write", ("{cache}/gstreamer-1.0",)),
         ]))
 
     def test_stack_frames_and_watchdog_stalls_are_reported_with_the_call(self):

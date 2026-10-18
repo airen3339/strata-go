@@ -591,14 +591,14 @@ Traces, each launch's log and the report go to `target/main-io/<run>/`. Each fil
 call is classified by its path, after resolving descriptors and `*at` folders:
 
 - **user**: the scenario's fixture tree, `HOME`, the Trash, the user's
-  `gtksourceview-5` folder, `/tmp`, `/run/media`, `/media`, `/mnt` and GVfs
-  mounts. Always a violation.
+  `gtksourceview-5` and `gstreamer-1.0` folders, `/tmp`, `/run/media`, `/media`,
+  `/mnt` and GVfs mounts. Always a violation.
 - **settings**: Strata's own settings, state, caches and runtime files (`strata`
   under the XDG folders, the shared thumbnail cache, GTK bookmarks, portal files,
   Omarchy's theme state and Strata's install folder). A violation unless a
   documented exception below covers it.
 - **toolkit**: system paths and the toolkit's own files (fonts, icons, Mesa,
-  GStreamer and audio configuration, GTK settings, MIME associations, recently
+  audio configuration, GTK settings, MIME associations, recently
   used files, the rest of `XDG_RUNTIME_DIR`, the launch's `XDG_DATA_DIRS`, pipes,
   sockets and event descriptors). Ignored.
 - **unclassified**: anything else, reported so new paths get a deliberate
