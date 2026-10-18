@@ -830,6 +830,7 @@ fn saved_session_restores_tabs_in_order_with_active_tab() {
                 ],
                 3,
             );
+            crate::storage::writer::settle();
             let (window, tabs) = open();
             assert!(tabs.try_restore());
             let expected = vec![
@@ -879,6 +880,7 @@ fn restored_tabs_open_once_a_worker_checks_their_folders() {
                 ],
                 2,
             );
+            crate::storage::writer::settle();
             let (window, tabs) = open();
 
             assert!(tabs.try_restore());
@@ -897,6 +899,7 @@ fn restored_tabs_open_once_a_worker_checks_their_folders() {
                     ]
             });
             assert_eq!(tabs.active.get(), tabs.tabs.borrow()[1].id);
+            crate::storage::writer::settle();
             assert_eq!(
                 saved_session().map(|session| session.tabs),
                 Some(vec![
@@ -1066,6 +1069,7 @@ fn disabled_restore_ignores_the_saved_session() {
             let (window, tabs) = open();
             tabs.preferences.set_restore_tabs(false);
             crate::ui::tabs_session::save(&[Location::local(root.path().join("kept"))], 0);
+            crate::storage::writer::settle();
             assert!(!tabs.try_restore());
             assert_eq!(tabs.tabs.borrow().len(), 1);
             assert_eq!(tab_locations(&tabs), vec![None]);
@@ -1086,8 +1090,10 @@ fn explicit_target_windows_do_not_clobber_the_saved_session() {
                 std::fs::create_dir_all(directory).expect("session directory");
             }
             crate::ui::tabs_session::save(&[Location::local(&kept)], 0);
+            crate::storage::writer::settle();
             let (window, tabs) = open_persisting(&application(), false);
             load(&tabs.active_browser(), Location::local(&other));
+            crate::storage::writer::settle();
             assert_eq!(
                 saved_session().map(|session| session.tabs),
                 Some(vec![Location::local(&kept)])
