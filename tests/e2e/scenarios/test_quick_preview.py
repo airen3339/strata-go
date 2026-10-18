@@ -68,9 +68,10 @@ def test_model_preview_renders_stl_prefers_thumbnails_and_reports_limits(strata)
         strata.pointer.click(next_view)
         strata.wait(
             lambda: strata.preview().find(role="image", name="Camera position").description == name
-            and strata.preview().find(role="button", name="Next model view").has_state("sensitive"),
+            and not strata.preview().find(role="image", name="Model preview").has_state("busy"),
             f"STL camera view {name} to finish rendering",
         )
+        assert strata.preview().find(role="button", name="Next model view").has_state("focused")
         camera = strata.preview().find(role="image", name="Camera position")
         assert camera is not None and camera.description == name
         assert strata.preview_shows("ASCII STL")
@@ -102,7 +103,7 @@ def test_model_preview_renders_stl_prefers_thumbnails_and_reports_limits(strata)
     strata.pointer.click(strata.preview().find(role="button", name="Previous model view"))
     strata.wait(
         lambda: strata.preview().find(role="image", name="Camera position").description == "Back left"
-        and strata.preview().find(role="button", name="Previous model view").has_state("sensitive"),
+        and not strata.preview().find(role="image", name="Model preview").has_state("busy"),
         "3MF camera to wrap to the previous view",
     )
     assert strata.preview_shows("3MF")

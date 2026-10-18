@@ -3228,11 +3228,6 @@ paned > separator {
   min-height: 16px;
 }
 
-.preview-model-controls .preview-media-button:disabled {
-  color: @strata_dim_text;
-  opacity: 0.4;
-}
-
 .preview-media-seek,
 .preview-media-volume {
   border: none;

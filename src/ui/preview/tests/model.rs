@@ -171,7 +171,6 @@ fn camera_reload_failures_keep_the_last_view_and_allow_retry() {
             assert_eq!(drawer.state.model_view.get(), ModelView::FrontLeft);
             assert!(drawer.state.model.borrow().is_some(), "last rendered view");
             assert!(!drawer.state.model_spinner.is_visible());
-            assert!(next.is_sensitive());
             next.emit_clicked();
             assert_eq!(provider.0.borrow().len(), 3);
             assert_eq!(
@@ -204,7 +203,6 @@ fn camera_reload_failures_keep_the_last_view_and_allow_retry() {
                 assert!(!drawer.state.model_spinner.is_visible());
             }
             assert_eq!(drawer.state.model_view.get(), ModelView::FrontLeft);
-            assert!(next.is_sensitive());
             next.emit_clicked();
             assert_eq!(provider.0.borrow().len(), 4);
             assert_eq!(
@@ -214,6 +212,48 @@ fn camera_reload_failures_keep_the_last_view_and_allow_retry() {
             ready(&provider, 3, Some(ModelView::FrontRight));
             assert_eq!(drawer.state.model_view.get(), ModelView::FrontRight);
             drawer.close();
+        },
+    );
+}
+
+#[test]
+fn camera_buttons_keep_the_keys_in_the_drawer_while_a_view_renders() {
+    crate::test_support::gtk_test(
+        "ui::preview::tests::model::camera_buttons_keep_the_keys_in_the_drawer_while_a_view_renders",
+        || {
+            let provider = Rc::new(Provider::default());
+            let drawer = PreviewDrawer::new(provider.clone(), false);
+            let window = gtk::Window::builder().child(&drawer.widget()).build();
+            window.present();
+            drawer.show(entry("mesh.stl"), None);
+            ready(&provider, 0, Some(ModelView::FrontLeft));
+            let next = drawer
+                .state
+                .model
+                .borrow()
+                .as_ref()
+                .expect("mesh controls")
+                .next
+                .clone();
+            assert!(next.grab_focus());
+            while glib::MainContext::default().iteration(false) {}
+            let owns_keys = || drawer.state.pane.has_css_class("preview-keyboard-owner");
+            assert!(owns_keys());
+
+            next.emit_clicked();
+            while glib::MainContext::default().iteration(false) {}
+            assert!(drawer.state.model_spinner.is_visible());
+            assert!(
+                next.has_focus(),
+                "rendering must not drop the clicked control's focus"
+            );
+            assert!(owns_keys());
+
+            ready(&provider, 1, Some(ModelView::FrontRight));
+            while glib::MainContext::default().iteration(false) {}
+            assert!(next.has_focus());
+            assert!(owns_keys());
+            window.destroy();
         },
     );
 }

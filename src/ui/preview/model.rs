@@ -13,7 +13,9 @@ use super::{ListingPosition, PreviewState, media_layout, video::PlayerLayout};
 
 pub(super) struct ModelPreview {
     pub(super) picture: gtk::Picture,
+    #[cfg(test)]
     pub(super) previous: gtk::Button,
+    #[cfg(test)]
     pub(super) next: gtk::Button,
     pub(super) camera: gtk::DrawingArea,
     spinner: gtk::Spinner,
@@ -258,13 +260,14 @@ impl ModelPreview {
         badges.set_halign(gtk::Align::Start);
         root.append(&badges);
         let controls = gtk::Box::new(gtk::Orientation::Vertical, 12);
-        controls.add_css_class("preview-model-controls");
         controls.append(&row);
         controls.append(&error);
         root.append(&controls);
         let model = Self {
             picture,
+            #[cfg(test)]
             previous,
+            #[cfg(test)]
             next,
             camera,
             spinner,
@@ -319,8 +322,6 @@ impl ModelPreview {
         self.loading.set(true);
         self.set_camera_position(view);
         self.error.set_visible(false);
-        self.previous.set_sensitive(false);
-        self.next.set_sensitive(false);
         self.picture.set_opacity(0.3);
         self.picture.set_cursor_from_name(Some("wait"));
         self.picture
@@ -338,8 +339,6 @@ impl ModelPreview {
 
     fn finish_loading(&self) {
         self.loading.set(false);
-        self.previous.set_sensitive(true);
-        self.next.set_sensitive(true);
         self.spinner.stop();
         self.spinner.set_visible(false);
         self.picture.set_opacity(1.0);
