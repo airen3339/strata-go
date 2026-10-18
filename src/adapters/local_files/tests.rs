@@ -1259,14 +1259,13 @@ fn native_loads_list_through_the_filesystem_seam() -> Result<(), Box<dyn Error>>
     use crate::adapters::{FsOp, FsQuirks, Quirks};
     use rustix::io::Errno;
 
-    for (quirks, listed, stamps, chunks, failure) in [
+    for (quirks, listed, chunks, failure) in [
         (
             Quirks {
                 listing_chunk: Some(1),
                 ..Quirks::default()
             },
             3,
-            1,
             4,
             None,
         ),
@@ -1277,7 +1276,6 @@ fn native_loads_list_through_the_filesystem_seam() -> Result<(), Box<dyn Error>>
                 ..Quirks::default()
             },
             0,
-            1,
             2,
             Some("A device input/output error occurred"),
         ),
@@ -1287,7 +1285,6 @@ fn native_loads_list_through_the_filesystem_seam() -> Result<(), Box<dyn Error>>
                 ..Quirks::default()
             },
             0,
-            1,
             0,
             Some("Permission denied"),
         ),
@@ -1324,7 +1321,7 @@ fn native_loads_list_through_the_filesystem_seam() -> Result<(), Box<dyn Error>>
                 scope.count(FsOp::ListChunks),
                 failed,
             ),
-            (listed, stamps, chunks, failure)
+            (listed, 1, chunks, failure)
         );
     }
     Ok(())
