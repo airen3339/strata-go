@@ -422,8 +422,10 @@ into another folder would.
 
 The originals folder costs, per Replace without Trash and next to setting the original aside under a
 flat hidden name as earlier builds did, 2 more requests on NFSv3, none on NFSv4.2 and one fewer on
-sshfs for a file, 1 to 3 more for a folder, and 14 more SMB commands for a file and 17 for a folder,
-under 1 ms on loopback. A crash or unplug at any point leaves the original at its name or in its
+sshfs for a file, 1 to 3 more for a folder, and 14 more SMB commands for a file and 17 for a folder.
+On loopback that took under 0.5 ms longer on NFS and about 1 ms longer on SMB. On sshfs, whose
+requests in the lab often waited on 40 ms delayed acknowledgements, a folder took about 20 ms longer
+and a file 20 to 60 ms less. A crash or unplug at any point leaves the original at its name or in its
 folder, never only under a stage; see [Leftovers after a crash or
 unplug](#leftovers-after-a-crash-or-unplug).
 
