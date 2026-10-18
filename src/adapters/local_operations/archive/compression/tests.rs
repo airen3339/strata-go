@@ -402,9 +402,21 @@ fn keep_both_tries_every_numbered_name_up_to_its_bound() -> Result<(), Box<dyn E
     let archive = root.path().join("archive.zip");
     fs::write(&archive, b"existing")?;
     let last = NUMBERED_NAME_ATTEMPTS - 1;
-    for number in 1..last {
-        fs::write(root.path().join(format!("archive ({number}).zip")), b"")?;
-    }
+    let _taken = FsQuirks::install(
+        root.path(),
+        Quirks {
+            invalid_name: Some(|name| {
+                let number: u64 = name
+                    .to_str()?
+                    .strip_prefix("archive (")?
+                    .strip_suffix(").zip")?
+                    .parse()
+                    .ok()?;
+                (number < NUMBERED_NAME_ATTEMPTS - 1).then_some(Errno::EXIST)
+            }),
+            ..Quirks::default()
+        },
+    );
 
     let (published, _, _) = glib::MainContext::default().block_on(write_staged_archive(
         root.path(),
