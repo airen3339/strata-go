@@ -453,17 +453,29 @@ fn paste_move(
     source: &Path,
     conflict: TransferConflict,
 ) -> (LoadHandle, Rc<RefCell<Vec<OperationEvent>>>) {
+    paste_moves(id, destination, &[source], conflict)
+}
+
+fn paste_moves(
+    id: u64,
+    destination: &Path,
+    sources: &[&Path],
+    conflict: TransferConflict,
+) -> (LoadHandle, Rc<RefCell<Vec<OperationEvent>>>) {
     let events = Rc::new(RefCell::new(Vec::new()));
     let emitted = events.clone();
     let operation = LocalOperationProvider.paste(
         PasteRequest {
             id: OperationRequestId(id),
             destination: Location::local(destination),
-            items: vec![PasteItem {
-                source: Location::local(source),
-                conflict,
-                target_name: None,
-            }],
+            items: sources
+                .iter()
+                .map(|source| PasteItem {
+                    source: Location::local(source),
+                    conflict,
+                    target_name: None,
+                })
+                .collect(),
             move_sources: true,
         },
         Rc::new(move |event| emitted.borrow_mut().push(event)),
@@ -1213,49 +1225,94 @@ fn a_name_of_a_linked_file_changed_after_its_other_name_went_stays() -> Result<(
         atomic::{AtomicUsize, Ordering},
     };
     let _serial = serial()?;
-    let root = tempfile::tempdir()?;
-    let folder = root.path().join("source/folder");
-    fs::create_dir_all(&folder)?;
-    fs::write(folder.join("a"), b"linked")?;
-    fs::hard_link(folder.join("a"), folder.join("b"))?;
-    let hour_before = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)?
-        .as_secs()
-        - 3600;
-    set_times(&folder.join("a"), hour_before, 0)?;
-    let checked = Arc::new(AtomicUsize::new(0));
-    let rewrite_second = |name: &'static str| -> super::fs_quirks::Racer {
-        let (checked, path, probe) = (
-            checked.clone(),
-            folder.join(name),
-            root.path().join("probe"),
-        );
-        Box::new(move || {
-            if checked.fetch_add(1, Ordering::SeqCst) == 1 {
-                let before = fs::metadata(&path).expect("stat the file");
-                wait_for_a_later_change_time(&probe, &before);
-                fs::write(&path, b"LINKED").expect("rewrite the file");
-                set_times(&path, hour_before, 0).expect("put the times back");
-            }
-        })
-    };
-    let quirks = Quirks {
-        before: vec![
-            (Op::Stat, "a", 0, rewrite_second("a")),
-            (Op::Stat, "b", 0, rewrite_second("b")),
-        ],
+    let cifs = || Quirks {
+        mount_type: Quirks::cifs().mount_type,
         ..Quirks::default()
     };
+    for (row, source, numbers_go, evicted) in [
+        ("ext4", Quirks::default as Preset, false, false),
+        ("cifs, server inode numbers turned off", cifs, true, false),
+        (
+            "cifs, server inode numbers turned off, names numbered afresh after the copy",
+            cifs,
+            true,
+            true,
+        ),
+    ] {
+        let root = tempfile::tempdir()?;
+        let source_dir = root.path().join("source");
+        let folder = source_dir.join("folder");
+        fs::create_dir_all(&folder)?;
+        fs::write(folder.join("a"), b"linked")?;
+        fs::hard_link(folder.join("a"), folder.join("b"))?;
+        let hour_before = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)?
+            .as_secs()
+            - 3600;
+        set_times(&folder.join("a"), hour_before, 0)?;
+        let (deleting, checked) = (
+            Arc::new(AtomicBool::new(false)),
+            Arc::new(AtomicUsize::new(0)),
+        );
+        let rewrite_second = |name: &'static str| -> super::fs_quirks::Racer {
+            let (deleting, checked, path, probe) = (
+                deleting.clone(),
+                checked.clone(),
+                folder.join(name),
+                root.path().join("probe"),
+            );
+            Box::new(move || {
+                if deleting.load(Ordering::Acquire) && checked.fetch_add(1, Ordering::SeqCst) == 1 {
+                    let before = fs::metadata(&path).expect("stat the file");
+                    wait_for_a_later_change_time(&probe, &before);
+                    fs::write(&path, b"LINKED").expect("rewrite the file");
+                    set_times(&path, hour_before, 0).expect("put the times back");
+                }
+            })
+        };
+        let went = Arc::new(AtomicBool::new(!numbers_go));
+        let (opening, renumbering, linked) = (
+            deleting.clone(),
+            went.clone(),
+            [folder.join("a"), folder.join("b")],
+        );
+        let deletion_opens: super::fs_quirks::Racer = Box::new(move || {
+            if evicted {
+                renumbering.fetch_and(
+                    linked.iter().all(|path| super::fs_quirks::evict(path)),
+                    Ordering::AcqRel,
+                );
+            }
+            opening.store(true, Ordering::Release);
+        });
+        let mut before = vec![(Op::OpenDir, "folder", 1, deletion_opens)];
+        if numbers_go {
+            let (at, going) = (source_dir.clone(), went.clone());
+            let numbers_went: super::fs_quirks::Racer = Box::new(move || {
+                going.store(
+                    super::fs_quirks::autodisable_serverino(&at),
+                    Ordering::Release,
+                );
+            });
+            before.push((Op::Stat, "folder", 0, numbers_went));
+        }
+        for name in ["a", "b", "a", "b"] {
+            before.push((Op::Stat, name, 0, rewrite_second(name)));
+        }
+        let quirks = Quirks { before, ..source() };
 
-    let (moved, report, _) = move_across_volumes(&folder, quirks)?;
+        let (moved, report, _) = move_across_volumes(&folder, quirks)?;
 
-    assert_eq!(fs::read(moved.join("a"))?, b"linked");
-    assert_eq!(fs::read(moved.join("b"))?, b"linked");
-    let left = names(&folder)?;
-    assert_eq!(left.len(), 1, "{left:?}");
-    let second = folder.join(&left[0]);
-    assert_eq!(fs::read(&second)?, b"LINKED");
-    assert_eq!(report.kept, [kept(second, KeptCause::Changed)]);
+        assert!(went.load(Ordering::Acquire), "{row}");
+        assert_eq!(fs::read(moved.join("a"))?, b"linked", "{row}");
+        assert_eq!(fs::read(moved.join("b"))?, b"linked", "{row}");
+        assert!(folder.exists(), "{row}");
+        let left = names(&folder)?;
+        assert_eq!(left.len(), 1, "{row}: {left:?}");
+        let second = folder.join(&left[0]);
+        assert_eq!(fs::read(&second)?, b"LINKED", "{row}");
+        assert_eq!(report.kept, [kept(second, KeptCause::Changed)], "{row}");
+    }
     Ok(())
 }
 
@@ -1635,6 +1692,17 @@ fn entries_swapped_or_removed_after_their_copy_are_never_deleted() -> Result<(),
 
 #[test]
 fn moves_compare_inode_numbers_only_where_the_source_keeps_them() -> Result<(), Box<dyn Error>> {
+    #[derive(Clone, Copy, PartialEq)]
+    enum Linked {
+        No,
+        Outside,
+        SelectedFirst,
+    }
+    #[derive(Clone, Copy)]
+    enum Meanwhile {
+        Renumbered,
+        ReplacedAlike { linked: Linked },
+    }
     let _serial = serial()?;
     let mounted = |fs_type, options| {
         move || Quirks {
@@ -1650,72 +1718,184 @@ fn moves_compare_inode_numbers_only_where_the_source_keeps_them() -> Result<(), 
         }
     };
     type MakeQuirks = Box<dyn Fn() -> Quirks>;
-    let cases: [(&str, MakeQuirks, bool, bool); 7] = [
-        ("sshfs", Box::new(Quirks::sshfs), false, false),
+    let cases: [(&str, MakeQuirks, bool, Meanwhile, Option<&str>); 12] = [
+        (
+            "sshfs",
+            Box::new(Quirks::sshfs),
+            false,
+            Meanwhile::Renumbered,
+            None,
+        ),
         (
             "cifs noserverino",
             Box::new(share(Quirks::cifs_noserverino, false)),
             false,
-            false,
+            Meanwhile::Renumbered,
+            None,
         ),
-        ("cifs", Box::new(share(Quirks::cifs, false)), false, true),
+        (
+            "cifs",
+            Box::new(share(Quirks::cifs, false)),
+            false,
+            Meanwhile::Renumbered,
+            Some("folder"),
+        ),
         (
             "cifs without creation times",
             Box::new(share(Quirks::cifs, true)),
             false,
-            true,
+            Meanwhile::Renumbered,
+            Some("folder"),
         ),
         (
             "cifs, server inode numbers turned off",
             Box::new(share(Quirks::cifs, false)),
             true,
-            false,
+            Meanwhile::Renumbered,
+            None,
         ),
         (
             "cifs without creation times, server inode numbers turned off",
             Box::new(share(Quirks::cifs, true)),
             true,
-            false,
+            Meanwhile::Renumbered,
+            None,
         ),
-        ("vfat", Box::new(mounted("vfat", "rw,flush")), false, false),
+        (
+            "vfat",
+            Box::new(mounted("vfat", "rw,flush")),
+            false,
+            Meanwhile::Renumbered,
+            None,
+        ),
+        (
+            "cifs, a linked file replaced",
+            Box::new(share(Quirks::cifs, false)),
+            false,
+            Meanwhile::ReplacedAlike {
+                linked: Linked::Outside,
+            },
+            Some("folder/a.txt"),
+        ),
+        (
+            "cifs, a file replaced once server inode numbers went",
+            Box::new(share(Quirks::cifs, false)),
+            true,
+            Meanwhile::ReplacedAlike { linked: Linked::No },
+            Some("folder/a.txt"),
+        ),
+        (
+            "cifs, a linked file replaced once server inode numbers went",
+            Box::new(share(Quirks::cifs, false)),
+            true,
+            Meanwhile::ReplacedAlike {
+                linked: Linked::Outside,
+            },
+            Some("folder/a.txt"),
+        ),
+        (
+            "cifs, a file linked to an item moved first replaced",
+            Box::new(share(Quirks::cifs, false)),
+            false,
+            Meanwhile::ReplacedAlike {
+                linked: Linked::SelectedFirst,
+            },
+            Some("folder/a.txt"),
+        ),
+        (
+            "cifs, a file linked to an item moved first replaced once server inode numbers went",
+            Box::new(share(Quirks::cifs, false)),
+            true,
+            Meanwhile::ReplacedAlike {
+                linked: Linked::SelectedFirst,
+            },
+            Some("folder/a.txt"),
+        ),
     ];
-    for (case, quirks, turned_off, kept_at_source) in cases {
+    for (case, quirks, turned_off, meanwhile, kept_at_source) in cases {
         let root = tempfile::tempdir()?;
         let source_dir = root.path().join("source");
         let folder = source_dir.join("folder");
         fs::create_dir_all(folder.join("sub"))?;
         fs::write(folder.join("a.txt"), b"a")?;
         fs::write(folder.join("sub/b.txt"), b"b")?;
+        let (arrival, backup) = (root.path().join("arrival"), source_dir.join("backup.txt"));
+        if let Meanwhile::ReplacedAlike { linked } = meanwhile {
+            if linked != Linked::No {
+                fs::hard_link(folder.join("a.txt"), &backup)?;
+            }
+            fs::write(&arrival, b"z")?;
+            let hour_before = SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)?
+                .as_secs()
+                - 3600;
+            for file in [&folder.join("a.txt"), &arrival] {
+                set_times(file, hour_before, 123_456_789)?;
+            }
+        }
         let evicted = [
             folder.clone(),
             folder.join("a.txt"),
             folder.join("sub"),
             folder.join("sub/b.txt"),
         ];
-        let switched = Arc::new(AtomicBool::new(!turned_off));
-        let (renumbering, turning_off) = if turned_off {
-            let at = source_dir.clone();
-            let switching = switched.clone();
-            let racer: super::fs_quirks::Racer = Box::new(move || {
-                switching.store(
-                    super::fs_quirks::autodisable_serverino(&at)
-                        && evicted.iter().all(|path| super::fs_quirks::evict(path)),
-                    Ordering::Release,
-                );
-            });
-            (Vec::new(), vec![(Op::Rename, "folder", 0, racer)])
-        } else {
-            let racer: super::fs_quirks::Racer = Box::new(move || {
-                for path in &evicted {
-                    super::fs_quirks::renumbered(path);
+        let switched = Arc::new(AtomicBool::new(false));
+        let (renumbering, meanwhile_at_source, meanwhile_at_destination) =
+            match (meanwhile, turned_off) {
+                (Meanwhile::Renumbered, false) => {
+                    let switching = switched.clone();
+                    let racer: super::fs_quirks::Racer = Box::new(move || {
+                        for path in &evicted {
+                            super::fs_quirks::renumbered(path);
+                        }
+                        switching.store(true, Ordering::Release);
+                    });
+                    (
+                        vec![(Op::OpenDir, "folder", 1, racer)],
+                        Vec::new(),
+                        Vec::new(),
+                    )
                 }
-            });
-            (vec![(Op::OpenDir, "folder", 1, racer)], Vec::new())
-        };
+                _ => {
+                    let (at, switching) = (source_dir.clone(), switched.clone());
+                    let (probe, file) = (root.path().join("probe"), folder.join("a.txt"));
+                    let racer: super::fs_quirks::Racer = Box::new(move || {
+                        let numbers_went =
+                            !turned_off || super::fs_quirks::autodisable_serverino(&at);
+                        let happened = numbers_went
+                            && match meanwhile {
+                                Meanwhile::Renumbered => {
+                                    evicted.iter().all(|path| super::fs_quirks::evict(path))
+                                }
+                                Meanwhile::ReplacedAlike { .. } => {
+                                    let before = fs::metadata(&file).expect("stat the file");
+                                    wait_for_a_later_change_time(&probe, &before);
+                                    fs::rename(&arrival, &file).is_ok()
+                                }
+                            };
+                        switching.store(happened, Ordering::Release);
+                    });
+                    match meanwhile {
+                        Meanwhile::ReplacedAlike {
+                            linked: Linked::SelectedFirst,
+                        } => (
+                            Vec::new(),
+                            vec![(Op::Unlink, "backup.txt", 0, racer)],
+                            Vec::new(),
+                        ),
+                        _ => (
+                            Vec::new(),
+                            Vec::new(),
+                            vec![(Op::Rename, "folder", 0, racer)],
+                        ),
+                    }
+                }
+            };
         let _source = FsQuirks::install(
             &source_dir,
             Quirks {
                 before: renumbering,
+                after: meanwhile_at_source,
                 ..quirks()
             },
         );
@@ -1724,13 +1904,24 @@ fn moves_compare_inode_numbers_only_where_the_source_keeps_them() -> Result<(), 
         let _destination = FsQuirks::install(
             &destination,
             Quirks {
-                after: turning_off,
+                after: meanwhile_at_destination,
                 ..Quirks::default()
             },
         );
 
+        let selected_first = matches!(
+            meanwhile,
+            Meanwhile::ReplacedAlike {
+                linked: Linked::SelectedFirst
+            }
+        );
+        let sources = if selected_first {
+            vec![backup.as_path(), &folder]
+        } else {
+            vec![folder.as_path()]
+        };
         let (_operation, events) =
-            paste_move(95, &destination, &folder, TransferConflict::FailIfExists);
+            paste_moves(95, &destination, &sources, TransferConflict::FailIfExists);
         pump_until_transfer(&events);
 
         assert!(
@@ -1742,17 +1933,28 @@ fn moves_compare_inode_numbers_only_where_the_source_keeps_them() -> Result<(), 
             events.borrow()
         );
         assert!(switched.load(Ordering::Acquire), "{case}");
+        if selected_first {
+            assert_eq!(fs::read(destination.join("backup.txt"))?, b"a", "{case}");
+            assert!(!backup.exists(), "{case}");
+        }
+        assert_eq!(fs::read(destination.join("folder/a.txt"))?, b"a", "{case}");
         assert_eq!(
             fs::read(destination.join("folder/sub/b.txt"))?,
             b"b",
             "{case}"
         );
-        assert_eq!(folder.exists(), kept_at_source, "{case}");
-        let expected = if kept_at_source {
-            vec![kept(folder.clone(), KeptCause::Changed)]
-        } else {
-            Vec::new()
-        };
+        if let Meanwhile::ReplacedAlike { .. } = meanwhile {
+            assert_eq!(
+                fs::read(folder.join("a.txt")).ok(),
+                Some(b"z".to_vec()),
+                "{case}"
+            );
+        }
+        assert_eq!(folder.exists(), kept_at_source.is_some(), "{case}");
+        let expected: Vec<_> = kept_at_source
+            .map(|path| kept(source_dir.join(path), KeptCause::Changed))
+            .into_iter()
+            .collect();
         assert_eq!(reported(&events).kept, expected, "{case}");
     }
     Ok(())

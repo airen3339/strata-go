@@ -727,7 +727,8 @@ if it is still what the copy read:
   show that change time. Before Linux 6.13, a change within the clock tick of that removal shows
   the same change time. A name in another item (two selected or restored items that share a
   file) is accepted with any change time once Strata removed one of the file's names, as long as
-  its size and modification time still match.
+  its size and modification time still match, except on cifs without server inode numbers (see
+  **Relaxed identity**).
 - **SMB change times.** The SMB client answers a stat from the attributes it cached for a file
   (`acregmax`, or `actimeo` in the mount's options, one second by default, and longer for a file
   this machine keeps reading), which can hold a change time from before a change reached the
@@ -739,12 +740,18 @@ if it is still what the copy read:
 - **Relaxed identity.** FUSE daemons without `use_ino`, vfat and exFAT, and cifs without server
   inode numbers give an entry a new inode number once the kernel evicts it. There, the type and the
   birth time, where both stats report a non-zero one, stand in for the inode, and the change time is
-  compared only for files with one link; see [Identity](#identity).
+  compared only for files with one link. On SMB, whose client keeps a replaced name's cached number
+  and creation time, every file keeps the change time and link count check above. A name the copy
+  recorded under another number than the file's other names stays as changed, as the link counts
+  no longer add up. Once Strata removed one name of a file, a later name is deleted only if it
+  shows the change time Strata read through another name in the same item right after that
+  removal, whatever numbers the client reports now, so a name in another item stays as changed.
+  See [Identity](#identity).
 - **SMB.** The check before deleting reads the mount's options again, once per moved item, and
   compares inode numbers only while `serverino` still shows; a share mounted `noserverino` shows
   neither it nor `noserverino`. Otherwise the server's creation time stands in for the inode, and a
-  file must also keep its size and modification time and a source its change time, as
-  [Identity](#identity) explains.
+  file must also keep its size and modification time and a source its change time and link count,
+  as [Identity](#identity) explains.
 - **Racily clean files.** Where timestamps are coarse, as on every filesystem before Linux 6.13, a
   same-size rewrite can leave a file's times as they were. Such files are compared by content; see
   [Racily clean files](#racily-clean-files).

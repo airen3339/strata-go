@@ -230,7 +230,7 @@ impl SourceSnapshot {
         let same = native_fs::compare(traits, self.identity, Some(recorded), current)
             == Proof::Same
             && (current.size, current.mtime) == (self.size, self.mtime);
-        if traits.numbers == InodeNumbers::Renewed {
+        if !counts_links(traits) {
             // Nothing tells which names of a file this deletion removed. Where
             // times are as coarse as FAT's, only a birth time tells a file put
             // in its place apart.
@@ -241,9 +241,14 @@ impl SourceSnapshot {
         same && current.nlink + unlinked == self.nlink
             && match unlinked {
                 0 => current.ctime == self.ctime,
+                _ if traits.numbers == InodeNumbers::Renewed => left == Some(current.ctime),
                 _ => left.is_none_or(|left| current.ctime == left),
             }
     }
+}
+
+fn counts_links(traits: IdentityTraits) -> bool {
+    traits.numbers != InodeNumbers::Renewed || traits.made_up_births
 }
 
 pub(super) fn changed(before: &EntryStat, after: &EntryStat) -> bool {
@@ -1025,7 +1030,7 @@ fn walk(
     let mount = Mount::new(fs, parent.as_fd());
     let identity = mount.identity_now(fs, parent.as_fd());
     let mut linked = HashMap::new();
-    if identity.numbers != InodeNumbers::Renewed && !compare_only {
+    if counts_links(identity) && !compare_only {
         linked_names(root, Path::new(""), &mut linked);
     }
     let deletion = Arc::new(Deletion {
@@ -1179,7 +1184,7 @@ impl Deletion {
                 name: name.as_os_str(),
             };
             let stat = self.fs.stat(other, true).ok()?;
-            (stat.identity == identity).then_some(stat.ctime)
+            self.same(&stat, Some(identity)).then_some(stat.ctime)
         })
     }
 
