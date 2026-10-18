@@ -89,7 +89,7 @@ TOOLKIT_PLACES = (
     ("cache", "fontconfig"), ("cache", "mesa_shader_cache"), ("cache", "mesa_shader_cache_db"),
     ("cache", "gstreamer-1.0"), ("cache", "radv_builtin_shaders"),
     ("data", "icons"), ("data", "fonts"), ("data", "themes"), ("data", "mime"),
-    ("data", "applications"), ("data", "recently-used.xbel*"), ("data", "gtksourceview-5"),
+    ("data", "applications"), ("data", "recently-used.xbel*"),
     ("data", "glib-2.0"), ("data", "gstreamer-1.0"), ("data", "pixmaps"),
     ("home", ".fonts"), ("home", ".fonts.conf"), ("home", ".fontconfig"), ("home", ".icons"),
     ("home", ".local/share/icons"), ("home", ".local/share/fonts"), ("home", ".themes"),
@@ -216,7 +216,8 @@ class Launch:
                 if any(self.above(root, place, path) for root, place in places):
                     return category
         if any(self.below(root, place, path)
-               for root, place in (("fixture", ""), ("home", ""), ("data", "Trash"))):
+               for root, place in (
+                   ("fixture", ""), ("home", ""), ("data", "Trash"), ("data", "gtksourceview-5"))):
             return USER
         if self.below("environment", "", path):
             return UNCLASSIFIED

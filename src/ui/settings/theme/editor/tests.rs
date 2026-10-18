@@ -22,12 +22,9 @@ fn syntax_pickers_preview_cancel_and_save_to_custom_theme() {
             manager.set_follow_omarchy(false);
             manager.select_theme("azure-glow");
             let buffers = [
-                sourceview5::Buffer::new(None),
-                sourceview5::Buffer::new(None),
+                crate::ui::theme::new_source_buffer(),
+                crate::ui::theme::new_source_buffer(),
             ];
-            for buffer in &buffers {
-                crate::ui::theme::register_source_buffer(buffer);
-            }
             crate::storage::writer::settle();
             let original = foreground(&buffers[0], "def:string");
             let ThemeEditor {
@@ -102,8 +99,7 @@ fn syntax_pickers_preview_cancel_and_save_to_custom_theme() {
             ] {
                 assert_eq!(color.as_deref(), Some("#123abc"));
             }
-            let rebuilt = sourceview5::Buffer::new(None);
-            crate::ui::theme::register_source_buffer(&rebuilt);
+            let rebuilt = crate::ui::theme::new_source_buffer();
             assert_eq!(
                 foreground(&rebuilt, "def:string").as_deref(),
                 Some("#123abc")

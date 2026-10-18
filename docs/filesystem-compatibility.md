@@ -1784,11 +1784,12 @@ The exceptions are:
   later mount changes did not block it.
 - GIO's checks of an application's program while it lists or launches applications
   (`GDesktopAppInfo`), and the toolkit's own resources (icons, fonts, styles, MIME data) from
-  system paths.
+  system paths. Text previews take their languages from GtkSourceView's bundled and system
+  folders and never read the user's own `gtksourceview-5` folder.
 - Quitting, which waits up to 10 s for queued settings saves.
 - Calls not yet moved to a worker. Opening a media preview's audio output loads its sound plugins,
   also looking for them relative to the folder Strata was started from, which stays its working
-  folder. A theme change rescans the text-view styles Strata generates in its cache folder.
+  folder.
 
 The [main-thread I/O audit](e2e-testing.md#main-thread-io-audit) reports any other file call the
 interface thread makes, and its stall watchdog names the call the interface thread is blocked in.

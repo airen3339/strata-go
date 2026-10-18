@@ -590,8 +590,9 @@ normal timing:
 Traces, each launch's log and the report go to `target/main-io/<run>/`. Each file
 call is classified by its path, after resolving descriptors and `*at` folders:
 
-- **user**: the scenario's fixture tree, `HOME`, the Trash, `/tmp`, `/run/media`,
-  `/media`, `/mnt` and GVfs mounts. Always a violation.
+- **user**: the scenario's fixture tree, `HOME`, the Trash, the user's
+  `gtksourceview-5` folder, `/tmp`, `/run/media`, `/media`, `/mnt` and GVfs
+  mounts. Always a violation.
 - **settings**: Strata's own settings, state, caches and runtime files (`strata`
   under the XDG folders, the shared thumbnail cache, GTK bookmarks, portal files,
   Omarchy's theme state and Strata's install folder). A violation unless a

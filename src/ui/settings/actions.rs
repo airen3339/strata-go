@@ -1505,10 +1505,9 @@ fn picker_icon(name: &str) -> gtk::Image {
 }
 
 fn script_buffer(language: &str, contents: &str) -> sourceview5::Buffer {
-    let buffer = sourceview5::Buffer::new(None);
-    crate::ui::theme::register_source_buffer(&buffer);
+    let buffer = crate::ui::theme::new_source_buffer();
     buffer.set_language(
-        sourceview5::LanguageManager::default()
+        crate::ui::theme::source_languages()
             .language(language)
             .as_ref(),
     );

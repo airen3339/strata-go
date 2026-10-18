@@ -3634,8 +3634,7 @@ fn document_view_action(view: DocumentView) -> (&'static str, &'static str) {
 
 impl SourcePreviewView {
     fn new() -> Self {
-        let buffer = sourceview5::Buffer::new(None);
-        super::theme::register_source_buffer(&buffer);
+        let buffer = super::theme::new_source_buffer();
         let view = sourceview5::View::builder()
             .buffer(&buffer)
             .cursor_visible(true)
@@ -3675,7 +3674,7 @@ impl SourcePreviewView {
                 self.view.unparent();
             }
         }
-        let languages = sourceview5::LanguageManager::default();
+        let languages = super::theme::source_languages();
         let language = languages.guess_language(entry.location.native_path(), Some(content_type));
         if language.is_none() && super::virtual_preview::use_virtual_plain_source(content) {
             let wrapped = super::preferences::PreferenceManager::shared().preview_text_wrap();
@@ -3685,8 +3684,7 @@ impl SourcePreviewView {
             return (container.upcast(), true);
         }
         let display = normalize_preview_text(content).into_owned();
-        let buffer = sourceview5::Buffer::new(None);
-        super::theme::register_source_buffer(&buffer);
+        let buffer = super::theme::new_source_buffer();
         buffer.set_highlight_syntax(false);
         buffer.set_language(language.as_ref());
         self.view.set_buffer(Some(&buffer));

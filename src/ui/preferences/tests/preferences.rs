@@ -1023,8 +1023,7 @@ fn saved_omarchy_mode_loads_and_changes_through_the_same_binding() {
             let buffer = gtk::TextBuffer::new(None);
             buffer.create_tag(Some("document-accent"), &[]);
             crate::ui::theme::register_document_buffer(&buffer);
-            let source = sourceview5::Buffer::new(None);
-            crate::ui::theme::register_source_buffer(&source);
+            let source = crate::ui::theme::new_source_buffer();
             let startup = manager.appearance_tokens();
             for variant in [
                 OmarchyVariant::Darker,

@@ -36,14 +36,17 @@ const STYLE_CSS: &str = include_str!("../style.css");
 thread_local! {
     static SHARED_MANAGER: RefCell<Option<Rc<ThemeManager>>> = const { RefCell::new(None) };
     static SOURCE_STYLE_PATH_INSTALLED: Cell<bool> = const { Cell::new(false) };
+    static SOURCE_LANGUAGE_PATH_INSTALLED: Cell<bool> = const { Cell::new(false) };
     static SOURCE_BUFFERS: RefCell<Vec<glib::WeakRef<sourceview5::Buffer>>> = const { RefCell::new(Vec::new()) };
     static DOCUMENT_BUFFERS: RefCell<Vec<glib::WeakRef<gtk::TextBuffer>>> = const { RefCell::new(Vec::new()) };
     static DOCUMENT_VIEWS: RefCell<Vec<glib::WeakRef<super::document_view::DocumentTextView>>> = const { RefCell::new(Vec::new()) };
     /// Installed on the first source preview buffer, so startup performs no SourceView I/O.
     static PENDING_STYLE_TOKENS: RefCell<Option<(ThemeTokens, Option<SourcePalette>)>> = const { RefCell::new(None) };
     static STYLE_SCHEME_DIRTY: Cell<bool> = const { Cell::new(true) };
-    static STYLE_SCHEME_GENERATION: Cell<u64> = const { Cell::new(0) };
+    static SOURCE_STYLE_RESOURCE: RefCell<Option<gio::Resource>> = const { RefCell::new(None) };
 }
+
+const SOURCE_STYLE_FOLDER: &str = "/io/github/lgse/Strata/generated/source-styles/";
 
 const THEME_CATALOG: &str = include_str!("../../data/themes/catalog.toml");
 
@@ -994,20 +997,49 @@ fn validate_tokens(tokens: &ThemeTokens) -> Result<(), &'static str> {
     Ok(())
 }
 
-fn source_style_scheme() -> Option<sourceview5::StyleScheme> {
-    sourceview5::StyleSchemeManager::default().scheme("strata-current")
+fn source_style_manager() -> sourceview5::StyleSchemeManager {
+    let manager = sourceview5::StyleSchemeManager::default();
+    SOURCE_STYLE_PATH_INSTALLED.with(|installed| {
+        if !installed.replace(true) {
+            manager.set_search_path(&[format!("resource://{SOURCE_STYLE_FOLDER}").as_str()]);
+        }
+    });
+    manager
 }
 
-pub(super) fn register_source_buffer(buffer: &sourceview5::Buffer) {
+pub(super) fn source_languages() -> sourceview5::LanguageManager {
+    let manager = sourceview5::LanguageManager::default();
+    SOURCE_LANGUAGE_PATH_INSTALLED.with(|installed| {
+        if !installed.replace(true) {
+            let user = [glib::user_data_dir(), glib::home_dir()];
+            let system: Vec<_> = manager
+                .search_path()
+                .into_iter()
+                .filter(|folder| {
+                    !user.iter().any(|root| {
+                        root != Path::new("/") && Path::new(folder.as_str()).starts_with(root)
+                    })
+                })
+                .collect();
+            manager.set_search_path(&system.iter().map(glib::GString::as_str).collect::<Vec<_>>());
+        }
+    });
+    manager
+}
+
+pub(super) fn new_source_buffer() -> sourceview5::Buffer {
+    let manager = source_style_manager();
     ensure_source_style_scheme_installed();
-    buffer.set_style_scheme(source_style_scheme().as_ref());
+    let buffer = sourceview5::Buffer::new(None);
+    buffer.set_style_scheme(manager.scheme("strata-current").as_ref());
     SOURCE_BUFFERS.with(|buffers| {
         let mut buffers = buffers.borrow_mut();
         buffers.retain(|buffer| buffer.upgrade().is_some());
         let weak = glib::WeakRef::new();
-        weak.set(Some(buffer));
+        weak.set(Some(&buffer));
         buffers.push(weak);
     });
+    buffer
 }
 
 pub(super) fn register_document_buffer(buffer: &gtk::TextBuffer) {
@@ -1120,7 +1152,7 @@ fn stage_source_style_scheme(tokens: &ThemeTokens, source_palette: Option<&Sourc
     }
 }
 
-/// Saves the staged scheme and rescans the style manager, once per staged token set.
+/// Installs the staged scheme from memory and rescans the style manager, once per staged token set.
 fn ensure_source_style_scheme_installed() {
     if !STYLE_SCHEME_DIRTY.with(Cell::get) {
         return;
@@ -1129,39 +1161,28 @@ fn ensure_source_style_scheme_installed() {
     let Some((tokens, palette)) = pending else {
         return;
     };
-    STYLE_SCHEME_DIRTY.with(|dirty| dirty.set(false));
-    let generation = STYLE_SCHEME_GENERATION.with(|generation| {
-        generation.set(generation.get() + 1);
-        generation.get()
-    });
-    let directory = glib::user_cache_dir().join("strata").join("source-styles");
     let value = source_style_scheme_xml(&tokens, palette.as_ref());
-    let saved = crate::storage::writer::save(
-        directory.join("strata-current.xml"),
-        Some(value.into_bytes()),
-        crate::storage::writer::Policy::State,
-        Some("unable to write preview syntax style"),
-    );
-    glib::MainContext::default().spawn_local(async move {
-        let saved = matches!(saved.await, Ok(Ok(())));
-        if STYLE_SCHEME_GENERATION.with(Cell::get) != generation {
-            return;
+    match crate::util::gresource::with_file(
+        SOURCE_STYLE_FOLDER,
+        "strata-current.xml",
+        value.as_bytes(),
+    ) {
+        Ok(resource) => {
+            STYLE_SCHEME_DIRTY.with(|dirty| dirty.set(false));
+            install_source_style_scheme(resource);
         }
-        if saved {
-            install_source_style_scheme(&directory);
-        } else {
-            STYLE_SCHEME_DIRTY.with(|dirty| dirty.set(true));
-        }
-    });
+        Err(error) => tracing::warn!(%error, "unable to build preview syntax style"),
+    }
 }
 
-fn install_source_style_scheme(directory: &Path) {
-    let manager = sourceview5::StyleSchemeManager::default();
-    SOURCE_STYLE_PATH_INSTALLED.with(|installed| {
-        if !installed.replace(true) {
-            manager.append_search_path(&directory.to_string_lossy());
-        }
-    });
+fn install_source_style_scheme(resource: gio::Resource) {
+    gio::resources_register(&resource);
+    if let Some(previous) =
+        SOURCE_STYLE_RESOURCE.with(|installed| installed.replace(Some(resource)))
+    {
+        gio::resources_unregister(&previous);
+    }
+    let manager = source_style_manager();
     manager.force_rescan();
     let scheme = manager.scheme("strata-current");
     SOURCE_BUFFERS.with(|buffers| {
