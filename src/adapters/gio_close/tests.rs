@@ -248,8 +248,90 @@ mod probed {
         }
     }
 
+    #[derive(Default)]
+    pub struct WritingImp {
+        pub(super) probe: OnceLock<Arc<Probe>>,
+    }
+
+    #[glib::object_subclass]
+    impl ObjectSubclass for WritingImp {
+        const NAME: &'static str = "StrataTestProbedWriting";
+        type Type = Writing;
+        type ParentType = gio::FileOutputStream;
+    }
+
+    impl ObjectImpl for WritingImp {}
+
+    impl Drop for WritingImp {
+        fn drop(&mut self) {
+            if let Some(probe) = self.probe.get() {
+                probe.finalize();
+            }
+        }
+    }
+
+    impl OutputStreamImpl for WritingImp {
+        fn write(&self, buffer: &[u8], _: Option<&gio::Cancellable>) -> Result<usize, glib::Error> {
+            Ok(buffer.len())
+        }
+
+        fn close(&self, _: Option<&gio::Cancellable>) -> Result<(), glib::Error> {
+            self.probe.get().expect("probe").close();
+            Ok(())
+        }
+    }
+
+    #[expect(
+        unsafe_code,
+        reason = "gio-rs offers no subclassing of GFileOutputStream, which GFile's create returns"
+    )]
+    // SAFETY: GFileOutputStream's instance and class structs extend GOutputStream's, and the
+    // subclass overrides only GOutputStream's virtual methods, as gio-rs does for that parent.
+    unsafe impl IsSubclassable<WritingImp> for gio::FileOutputStream {}
+
+    #[derive(Default)]
+    pub struct NewFileImp {
+        pub(super) probe: OnceLock<Arc<Probe>>,
+    }
+
+    #[glib::object_subclass]
+    impl ObjectSubclass for NewFileImp {
+        const NAME: &'static str = "StrataTestProbedNewFile";
+        type Type = NewFile;
+        type Interfaces = (gio::File,);
+    }
+
+    impl ObjectImpl for NewFileImp {}
+
+    impl FileImpl for NewFileImp {
+        fn is_native(&self) -> bool {
+            true
+        }
+
+        fn create(
+            &self,
+            _: gio::FileCreateFlags,
+            _: Option<&gio::Cancellable>,
+        ) -> Result<gio::FileOutputStream, glib::Error> {
+            let probe = self.probe.get().expect("probe");
+            probe.answer();
+            let writing: Writing = glib::Object::new();
+            let _ = writing.imp().probe.set(probe.clone());
+            Ok(writing.upcast())
+        }
+    }
+
     glib::wrapper! {
         pub struct Listing(ObjectSubclass<ListingImp>) @extends gio::FileEnumerator;
+    }
+
+    glib::wrapper! {
+        pub struct Writing(ObjectSubclass<WritingImp>)
+            @extends gio::FileOutputStream, gio::OutputStream, @implements gio::Seekable;
+    }
+
+    glib::wrapper! {
+        pub struct NewFile(ObjectSubclass<NewFileImp>) @implements gio::File;
     }
 
     glib::wrapper! {
@@ -260,7 +342,7 @@ mod probed {
         pub struct Reading(ObjectSubclass<ReadingImp>) @extends gio::InputStream;
     }
 }
-use probed::{Folder, Listing, Reading};
+use probed::{Folder, Listing, NewFile, Reading};
 
 /// A local folder whose open, like GLib's, runs to the end once started and ignores a cancel.
 pub(crate) fn probed_folder(probe: &Arc<Probe>) -> gio::File {
@@ -268,6 +350,14 @@ pub(crate) fn probed_folder(probe: &Arc<Probe>) -> gio::File {
     let folder: Folder = glib::Object::new();
     let _ = folder.imp().probe.set(probe.clone());
     folder.upcast()
+}
+
+/// A local file whose create, like GLib's, runs to the end once started and ignores a cancel.
+pub(crate) fn probed_new_file(probe: &Arc<Probe>) -> gio::File {
+    use gtk::glib::subclass::prelude::ObjectSubclassIsExt;
+    let file: NewFile = glib::Object::new();
+    let _ = file.imp().probe.set(probe.clone());
+    file.upcast()
 }
 
 #[derive(Clone, Copy, Debug)]

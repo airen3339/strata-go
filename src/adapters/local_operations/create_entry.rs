@@ -6,7 +6,7 @@ use super::{
     names::numbered_name,
     operation_handle,
     release::{self, ActiveOperation},
-    typed_names, validated_child, was_cancelled,
+    run_blocking, typed_names, validated_child, was_cancelled,
 };
 use crate::{
     adapters::{gio_file_for_location, location_for_file, volume::NameLimit},
@@ -99,36 +99,11 @@ pub(super) fn start(
                     },
                 )
                 .await
-                .map(|()| None)
             } else {
-                await_cancellable(
-                    &file,
-                    &operation_cancellable,
-                    |file, cancellable, result| {
-                        file.create_async(
-                            gio::FileCreateFlags::NONE,
-                            glib::Priority::DEFAULT,
-                            Some(cancellable),
-                            move |output| result.resolve(output),
-                        );
-                    },
-                )
-                .await
-                .map(Some)
+                create_empty_file(&file, &operation_cancellable).await
             };
             match result {
-                Ok(stream) => {
-                    // Finish closing the empty file before publishing it for rename.
-                    if let Some(stream) = stream
-                        && let Err(error) = stream.close_future(glib::Priority::DEFAULT).await
-                    {
-                        emit(OperationEvent::Failed {
-                            request_id: id,
-                            message: creation_failed(&candidate, &error),
-                            password_failure: None,
-                        });
-                        return;
-                    }
+                Ok(()) => {
                     if unique_name {
                         emit(OperationEvent::EntryCreated {
                             request_id: id,
@@ -175,6 +150,34 @@ pub(super) fn start(
         }
     });
     operation_handle(cancellable)
+}
+
+/// Finishes closing the empty file before it is published for rename.
+pub(super) async fn create_empty_file(
+    file: &gio::File,
+    cancellable: &gio::Cancellable,
+) -> Result<(), glib::Error> {
+    if file.is_native() {
+        // A local create ignores a late cancel; GTask would then close the file on the UI thread.
+        let file = file.clone();
+        let cancellable = cancellable.clone();
+        return run_blocking(move || {
+            cancellable.set_error_if_cancelled()?;
+            file.create(gio::FileCreateFlags::NONE, gio::Cancellable::NONE)?
+                .close(gio::Cancellable::NONE)
+        })
+        .await;
+    }
+    let stream = await_cancellable(file, cancellable, |file, cancellable, result| {
+        file.create_async(
+            gio::FileCreateFlags::NONE,
+            glib::Priority::DEFAULT,
+            Some(cancellable),
+            move |output| result.resolve(output),
+        );
+    })
+    .await?;
+    stream.close_future(glib::Priority::DEFAULT).await
 }
 
 /// SMB with POSIX extensions fails an exclusive file create over a folder
