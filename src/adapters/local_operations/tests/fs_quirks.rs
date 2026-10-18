@@ -1740,6 +1740,13 @@ impl Scope {
         };
         if flags.contains(RenameFlags::EXCHANGE) {
             match exchange {
+                Exchange::Supported
+                    if System
+                        .statfs(to.dir)
+                        .is_some_and(|stat| stat.kind == FUSE_SUPER_MAGIC) =>
+                {
+                    return Err(Errno::INVAL);
+                }
                 Exchange::Supported => {}
                 Exchange::Rejected => return Err(Errno::INVAL),
                 Exchange::IgnoredOverwrites => {
