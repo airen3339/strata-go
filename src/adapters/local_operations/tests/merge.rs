@@ -4,6 +4,7 @@ use std::{os::unix::fs::MetadataExt, sync::atomic::Ordering};
 
 use rustix::io::Errno;
 
+use super::super::{fs_ops::System, placement::probe};
 use super::fs_quirks::{Op, OverEmptyDirectory, Racer, Support, Trash, hold};
 use super::*;
 use crate::{
@@ -4615,8 +4616,10 @@ fn a_failed_aside_puts_every_original_back_before_merging() -> Result<(), Box<dy
         };
         let quirks = FsQuirks::install(root.path(), without_trash(quirks));
         if case == "second aside fails" {
+            let folder = fs::File::open(root.path())?;
+            let no_replace = probe(&System, folder.as_fd(), true, false, false)?.no_replace;
             learn_mount_capability(quirks.key(), |capabilities| {
-                capabilities.no_replace = Some(true);
+                capabilities.no_replace = no_replace;
             });
         }
         let _nested = (case == "nested mount")
