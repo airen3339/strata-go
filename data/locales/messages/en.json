@@ -758,6 +758,7 @@
   "The file type changed during compression": "The file type changed during compression",
   "The file “%{path}” belongs to another user": "The file “%{path}” belongs to another user",
   "The folder association did not change (current value: %{value})": "The folder association did not change (current value: %{value})",
+  "The folder check stopped unexpectedly": "The folder check stopped unexpectedly",
   "The folders were merged, but the replaced originals could not be removed from “%{folder}”: %{error}": "The folders were merged, but the replaced originals could not be removed from “%{folder}”: %{error}",
   "The installed package decides the release channel.": "The installed package decides the release channel.",
   "The interpreter “%{program}” was not found. Install it, or point the action at an interpreter that exists": "The interpreter “%{program}” was not found. Install it, or point the action at an interpreter that exists",

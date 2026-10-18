@@ -758,6 +758,7 @@
   "The file type changed during compression": "Il tipo di file è cambiato durante la compressione",
   "The file “%{path}” belongs to another user": "Il file “%{path}” appartiene a un altro utente",
   "The folder association did not change (current value: %{value})": "L’associazione delle cartelle non è cambiata (valore attuale: %{value})",
+  "The folder check stopped unexpectedly": "La verifica della cartella si è interrotta in modo imprevisto",
   "The folders were merged, but the replaced originals could not be removed from “%{folder}”: %{error}": "Le cartelle sono state unite, ma non è stato possibile rimuovere gli originali sostituiti da “%{folder}”: %{error}",
   "The installed package decides the release channel.": "Il pacchetto installato determina il canale di rilascio.",
   "The interpreter “%{program}” was not found. Install it, or point the action at an interpreter that exists": "L’interprete “%{program}” non è stato trovato. Installalo oppure indica all’azione un interprete esistente",

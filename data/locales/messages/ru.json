@@ -758,6 +758,7 @@
   "The file type changed during compression": "Тип файла изменился во время сжатия",
   "The file “%{path}” belongs to another user": "Файл «%{path}» принадлежит другому пользователю",
   "The folder association did not change (current value: %{value})": "Связь с папками не изменилась (текущее значение: %{value})",
+  "The folder check stopped unexpectedly": "Проверка папки неожиданно прервалась",
   "The folders were merged, but the replaced originals could not be removed from “%{folder}”: %{error}": "Папки объединены, но не удалось удалить заменённые оригиналы из «%{folder}»: %{error}",
   "The installed package decides the release channel.": "Установленный пакет определяет канал выпуска.",
   "The interpreter “%{program}” was not found. Install it, or point the action at an interpreter that exists": "Интерпретатор «%{program}» не найден. Установите его или укажите для действия существующий интерпретатор",

@@ -349,3 +349,41 @@ fn a_folder_checked_again_while_its_check_is_parked_waits_for_one_more_call()
     assert_eq!(scope.count(Op::FolderStamp), 2);
     Ok(())
 }
+
+#[test]
+fn a_folder_check_whose_worker_fails_says_so_in_the_app_language() {
+    crate::test_support::gtk_test(
+        "adapters::local_operations::probes::tests::a_folder_check_whose_worker_fails_says_so_in_the_app_language",
+        || {
+            let rows = [
+                ("en", "The folder check stopped unexpectedly"),
+                (
+                    "fr",
+                    "la vérification du dossier s’est arrêtée de manière inattendue",
+                ),
+            ];
+            let root = tempfile::tempdir().expect("fixture");
+            let failing = || -> Box<dyn FnMut() + Send> { Box::new(|| panic!("the worker fails")) };
+            let _scope = FsQuirks::install(
+                root.path(),
+                Quirks {
+                    before: rows
+                        .iter()
+                        .map(|(locale, _)| (Op::FolderStamp, *locale, 0, failing()))
+                        .collect(),
+                    ..Quirks::default()
+                },
+            );
+            for (locale, reason) in rows {
+                let checked = root.path().join(locale);
+                fs::create_dir(&checked).expect("fixture folder");
+                rust_i18n::set_locale(locale);
+                assert_eq!(
+                    answer(folder(&checked)),
+                    Err(LocationValidationError::Unavailable(reason.to_owned())),
+                    "{locale}"
+                );
+            }
+        },
+    );
+}

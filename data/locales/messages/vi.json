@@ -758,6 +758,7 @@
   "The file type changed during compression": "Loại tệp đã thay đổi trong khi nén",
   "The file “%{path}” belongs to another user": "Tệp “%{path}” thuộc về người dùng khác",
   "The folder association did not change (current value: %{value})": "Liên kết thư mục không thay đổi (giá trị hiện tại: %{value})",
+  "The folder check stopped unexpectedly": "Quá trình kiểm tra thư mục đã dừng đột ngột",
   "The folders were merged, but the replaced originals could not be removed from “%{folder}”: %{error}": "Đã hợp nhất các thư mục, nhưng không thể xóa các bản gốc bị thay thế khỏi “%{folder}”: %{error}",
   "The installed package decides the release channel.": "Gói đã cài đặt quyết định kênh phát hành.",
   "The interpreter “%{program}” was not found. Install it, or point the action at an interpreter that exists": "Không tìm thấy trình thông dịch “%{program}”. Hãy cài đặt, hoặc trỏ hành động tới một trình thông dịch có sẵn",

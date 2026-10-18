@@ -758,6 +758,7 @@
   "The file type changed during compression": "압축 중에 파일 형식이 변경되었습니다",
   "The file “%{path}” belongs to another user": "파일 “%{path}”은(는) 다른 사용자의 소유입니다",
   "The folder association did not change (current value: %{value})": "폴더 연결이 변경되지 않았습니다(현재 값: %{value})",
+  "The folder check stopped unexpectedly": "폴더 확인이 예기치 않게 중지되었습니다",
   "The folders were merged, but the replaced originals could not be removed from “%{folder}”: %{error}": "폴더를 병합했지만 “%{folder}”에서 대체된 원본을 제거할 수 없습니다: %{error}",
   "The installed package decides the release channel.": "설치된 패키지가 릴리스 채널을 결정합니다.",
   "The interpreter “%{program}” was not found. Install it, or point the action at an interpreter that exists": "인터프리터 “%{program}”을(를) 찾을 수 없습니다. 설치하거나 존재하는 인터프리터를 동작에 지정하세요",

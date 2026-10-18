@@ -758,6 +758,7 @@
   "The file type changed during compression": "压缩期间文件类型发生了变化",
   "The file “%{path}” belongs to another user": "文件“%{path}”属于其他用户",
   "The folder association did not change (current value: %{value})": "文件夹的默认打开方式未更改（当前值：%{value}）",
+  "The folder check stopped unexpectedly": "文件夹检查意外停止",
   "The folders were merged, but the replaced originals could not be removed from “%{folder}”: %{error}": "文件夹已合并，但无法从“%{folder}”中删除被替换的原项目：%{error}",
   "The installed package decides the release channel.": "发布渠道由已安装的软件包决定。",
   "The interpreter “%{program}” was not found. Install it, or point the action at an interpreter that exists": "找不到解释器“%{program}”。请安装该解释器，或为操作指定一个已存在的解释器",

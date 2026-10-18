@@ -43,7 +43,9 @@ pub(crate) enum Presence {
 fn unanswered(unanswered: Unanswered) -> io::Error {
     match unanswered {
         Unanswered::TimedOut | Unanswered::Skipped => io::ErrorKind::TimedOut.into(),
-        Unanswered::Failed => io::Error::other("the worker failed"),
+        Unanswered::Failed => {
+            io::Error::other(crate::i18n::tr("The folder check stopped unexpectedly"))
+        }
     }
 }
 

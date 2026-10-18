@@ -758,6 +758,7 @@
   "The file type changed during compression": "圧縮中にファイルの種類が変更されました",
   "The file “%{path}” belongs to another user": "ファイル「%{path}」は別のユーザーが所有しています",
   "The folder association did not change (current value: %{value})": "フォルダーの関連付けは変更されませんでした（現在の値: %{value}）",
+  "The folder check stopped unexpectedly": "フォルダーの確認が予期せず停止しました",
   "The folders were merged, but the replaced originals could not be removed from “%{folder}”: %{error}": "フォルダーは統合されましたが、置き換えた元の項目を「%{folder}」から削除できませんでした: %{error}",
   "The installed package decides the release channel.": "インストールされたパッケージによってリリースチャンネルが決まります。",
   "The interpreter “%{program}” was not found. Install it, or point the action at an interpreter that exists": "インタープリター「%{program}」が見つかりません。インストールするか、存在するインタープリターをアクションに指定してください",
