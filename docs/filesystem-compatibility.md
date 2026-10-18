@@ -1836,7 +1836,9 @@ request, a folder load included, started.
   After 10 s the mount counts as not responding.
 - **Joins.** Folder loads, folder probes and stamp reads run at most one call per path and kind. A
   repeated request joins the running one until it starts reading, and after that waits for one
-  follow-up call, so F5 never gets a listing that began before it was pressed.
+  follow-up call, so F5 never gets a listing that began before it was pressed. A mount-table change
+  that removes the mount answers the requests waiting on its calls as timed out, and the next
+  request starts a call of its own on whatever is mounted there now.
 
 So once a lane has stalled, no new request there takes a worker, except that one request let in
 and one per path reached through a link into a mount whose id is not yet known, however often the

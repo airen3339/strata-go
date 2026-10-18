@@ -178,9 +178,9 @@ impl Lanes {
         self.serials
     }
 
-    fn follow(&mut self, generation: u64, mounts: &MountTable) {
-        if generation == self.generation {
-            return;
+    fn follow(&mut self, generation: u64, mounts: &MountTable) -> Vec<Job> {
+        if generation <= self.generation {
+            return Vec::new();
         }
         let before = std::mem::replace(&mut self.mounts, mounts.clone());
         self.generation = generation;
@@ -193,9 +193,17 @@ impl Lanes {
         self.learned
             .retain(|path, id| !gone(*id) && !arrived.iter().any(|point| path.starts_with(point)));
         self.stalls.retain(|key, _| !key.on(gone));
-        self.tickets.retain(|_, ticket| {
-            !ticket.key.on(gone) && !ticket.reaching.as_ref().is_some_and(|key| key.on(gone))
-        });
+        let dropped: Vec<u64> = self
+            .tickets
+            .extract_if(|_, ticket| {
+                ticket.key.on(gone) || ticket.reaching.as_ref().is_some_and(|key| key.on(gone))
+            })
+            .map(|(ticket, _)| ticket)
+            .collect();
+        self.jobs
+            .extract_if(|_, job| dropped.contains(&job.ticket))
+            .map(|(_, job)| job)
+            .collect()
     }
 
     fn key_for(&self, path: &Path, lexical: Option<u64>) -> LaneKey {
@@ -435,11 +443,19 @@ fn lanes() -> MutexGuard<'static, Lanes> {
 }
 
 fn lanes_following_mounts() -> (MutexGuard<'static, Lanes>, MountTable) {
-    let generation = mount_watch::generation();
-    let mounts = mount_watch::latest();
-    let mut lanes = lanes();
-    lanes.follow(generation, &mounts);
-    (lanes, mounts)
+    let (generation, mounts) = mount_watch::snapshot();
+    (lanes_following(generation, &mounts), mounts)
+}
+
+fn lanes_following(generation: u64, mounts: &MountTable) -> MutexGuard<'static, Lanes> {
+    let mut held = lanes();
+    let stranded = held.follow(generation, mounts);
+    if stranded.is_empty() {
+        return held;
+    }
+    drop(held);
+    stranded.into_iter().for_each(Job::abandon);
+    lanes()
 }
 
 pub(crate) struct Progress {
@@ -657,8 +673,19 @@ impl Run {
 }
 
 struct Job {
+    ticket: u64,
     running: Run,
     next: Option<(Run, Work)>,
+}
+
+impl Job {
+    fn abandon(self) {
+        self.running.cancellable.cancel();
+        let queued = self.next.map(|(run, _)| run.answers).unwrap_or_default();
+        for sender in self.running.answers.into_iter().chain(queued) {
+            let _ = sender.send(Err(Unanswered::TimedOut));
+        }
+    }
 }
 
 struct Start {
@@ -782,6 +809,7 @@ impl Lanes {
         self.jobs.insert(
             join.clone(),
             Job {
+                ticket,
                 running: run,
                 next: None,
             },
@@ -866,6 +894,7 @@ pub(crate) async fn run_joined_in<T: Send + Sync + 'static>(
                 lanes.jobs.insert(
                     join.clone(),
                     Job {
+                        ticket,
                         running: run,
                         next: None,
                     },

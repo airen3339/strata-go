@@ -1,14 +1,24 @@
 // SPDX-License-Identifier: MIT
 
 use std::{
-    path::Path,
+    cell::Cell,
+    path::{Path, PathBuf},
+    pin::Pin,
+    sync::Arc,
     time::{Duration, Instant},
 };
 
+use futures_channel::oneshot;
+use futures_lite::future::{block_on, poll_once};
 use gtk::{gio, glib};
 
-use super::{Class, LaneKey, Lanes, Responsiveness, STALLED_AFTER, Target, Unanswered};
-use crate::adapters::volume::MountTable;
+use super::{
+    Class, Job, LaneKey, Lanes, Progress, Responsiveness, Run, STALLED_AFTER, Target, Unanswered,
+};
+use crate::{
+    adapters::volume::{MountTable, mount_watch},
+    test_support::Gate,
+};
 
 const MOUNTS: &str = "\
 1 0 8:1 / / rw - ext4 /dev/root rw
@@ -301,10 +311,10 @@ fn a_mount_table_change_forgets_only_mounts_it_moved() {
     assert!(!bench.answers("/mnt/nas", 3.0));
     assert!(!bench.answers("/mnt/usb/a", 3.0));
 
-    bench.follow(
-        "1 0 8:1 / / rw - ext4 /dev/root rw\n2 1 8:2 / /home rw - ext4 /dev/home rw\n\
-         51 1 8:33 / /mnt/usb rw - vfat /dev/sdc1 rw\n",
-    );
+    let stick_swapped = "\
+        1 0 8:1 / / rw - ext4 /dev/root rw\n2 1 8:2 / /home rw - ext4 /dev/home rw\n\
+        51 1 8:33 / /mnt/usb rw - vfat /dev/sdc1 rw\n";
+    bench.follow(stick_swapped);
     let after = bench.call("/mnt/nas", 3.1);
     bench.fail(stuck, 3.2);
     assert!(bench.answers("/mnt/usb/a", 3.1), "a stick put in its place");
@@ -312,7 +322,27 @@ fn a_mount_table_change_forgets_only_mounts_it_moved() {
     bench.answer(after, 6.0);
 
     bench.follow("1 0 8:1 / / rw - ext4 /dev/root rw\n50 1 0:95 / /mnt/new rw - nfs4 other:/ rw\n");
-    let _arrived = bench.call("/mnt/new/x", 7.0);
+    let arrived = bench.call("/mnt/new/x", 7.0);
+    let (reply, mut answer) = oneshot::channel();
+    let running = Run::new(bench.lanes.serial(), reply);
+    bench.lanes.jobs.insert(
+        (PathBuf::from("/mnt/new/x"), "check".to_owned()),
+        Job {
+            ticket: arrived,
+            running,
+            next: None,
+        },
+    );
+    let stale = MountTable::parse(stick_swapped);
+    bench
+        .lanes
+        .follow(bench.generation - 1, &stale)
+        .into_iter()
+        .for_each(Job::abandon);
+    assert!(
+        matches!(answer.try_recv(), Ok(None)),
+        "a table older than the one followed"
+    );
     assert!(bench.answers("/srv/data", 9.5), "the root mount");
     assert!(!bench.answers("/mnt/new/x", 9.5));
 }
@@ -425,4 +455,81 @@ fn a_gvfs_call_dropped_while_it_waits_leaves_its_backend_answering() {
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+type Checked<'a> = Pin<Box<dyn Future<Output = Result<Arc<u32>, Unanswered>> + 'a>>;
+
+fn checked(path: &Path, answer: u32, work: impl FnOnce(&Progress) + Send + 'static) -> Checked<'_> {
+    let mut checked = Box::pin(super::run_joined(
+        path,
+        "check".to_owned(),
+        move |progress, _| {
+            work(progress);
+            answer
+        },
+    ));
+    assert!(block_on(poll_once(checked.as_mut())).is_none());
+    checked
+}
+
+fn within<T>(answer: impl Future<Output = T>) -> Option<T> {
+    glib::MainContext::new()
+        .block_on(glib::future_with_timeout(Duration::from_secs(5), answer))
+        .ok()
+}
+
+#[test]
+fn a_request_after_a_publish_removed_its_mount_runs_its_own_work() {
+    crate::test_support::gtk_test(
+        "adapters::volume::mount_lanes::tests::a_request_after_a_publish_removed_its_mount_runs_its_own_work",
+        || {
+            let root = tempfile::tempdir().expect("fixture");
+            let nas = root.path().join("nas");
+            let table = |mounted: bool| {
+                let mut lines = "1 0 8:1 / / rw - ext4 /dev/root rw\n".to_owned();
+                if mounted {
+                    lines += &format!("42 1 0:90 / {} rw - nfs4 nas:/export rw\n", nas.display());
+                }
+                MountTable::parse(lines)
+            };
+            let generation = Cell::new(u64::MAX / 2);
+            let publish = |mounted: bool| {
+                generation.set(generation.get() + 1);
+                mount_watch::publish_for_isolated_test(Some(table(mounted)));
+                drop(super::lanes_following(generation.get(), &table(mounted)));
+            };
+            for (row, reads) in [("joined", false), ("queued behind", true)] {
+                publish(true);
+                let gate = Gate::default();
+                let mut stuck = gate.racer();
+                let first = checked(&nas, 7, move |progress| {
+                    if reads {
+                        progress.begin_reading();
+                    }
+                    stuck();
+                });
+                let deadline = Instant::now() + Duration::from_secs(10);
+                while !gate.reached() {
+                    assert!(Instant::now() < deadline, "{row}: the check starts");
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+                let behind = checked(&nas, 8, |_| {});
+
+                publish(false);
+                let again = within(super::run_joined(&nas, "check".to_owned(), |_, _| 9u32));
+                let waited = [within(first), within(behind)];
+                drop(gate);
+
+                assert_eq!(again, Some(Ok(Arc::new(9))), "{row}");
+                assert_eq!(
+                    waited,
+                    [
+                        Some(Err(Unanswered::TimedOut)),
+                        Some(Err(Unanswered::TimedOut))
+                    ],
+                    "{row}"
+                );
+            }
+        },
+    );
 }

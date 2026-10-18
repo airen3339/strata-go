@@ -114,8 +114,9 @@ impl Watcher {
         self.state().table.clone()
     }
 
-    fn generation(&self) -> u64 {
-        self.state().generation
+    fn snapshot(&self) -> (u64, MountTable) {
+        let state = self.state();
+        (state.generation, state.table.clone())
     }
 
     pub(super) async fn fresh(&self) -> MountTable {
@@ -253,8 +254,14 @@ pub(crate) fn latest() -> MountTable {
     watcher().map_or_else(|| MountTable::parse(b""), Watcher::latest)
 }
 
-pub(crate) fn generation() -> u64 {
-    watcher().map_or(0, Watcher::generation)
+pub(crate) fn snapshot() -> (u64, MountTable) {
+    let (generation, table) =
+        watcher().map_or_else(|| (0, MountTable::parse(b"")), Watcher::snapshot);
+    #[cfg(test)]
+    if let Some(table) = table_for_test() {
+        return (generation, table);
+    }
+    (generation, table)
 }
 
 pub(crate) async fn fresh() -> MountTable {
