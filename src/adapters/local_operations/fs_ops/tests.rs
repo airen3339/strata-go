@@ -112,11 +112,11 @@ fn a_folder_stamp_follows_a_symlink_to_the_folder_and_names_its_mount() {
 #[test]
 fn a_listing_arrives_one_getdents_buffer_at_a_time() {
     let root = tempfile::tempdir().expect("fixture");
-    let names: BTreeSet<OsString> = (0..1500)
-        .map(|index| OsString::from(format!("{index:04}-{}", "x".repeat(40))))
+    let names: BTreeSet<OsString> = (0..300)
+        .map(|index| OsString::from(format!("{index:03}-{}", "x".repeat(196))))
         .collect();
     for name in &names {
-        std::fs::write(root.path().join(name), b"").expect("fixture file");
+        crate::test_support::create_empty_file(&root.path().join(name)).expect("fixture file");
     }
     std::fs::create_dir(root.path().join("folder")).expect("fixture folder");
     let folder = rustix::fs::open(

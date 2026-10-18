@@ -214,6 +214,19 @@ pub(crate) fn saved_pins() -> Vec<(crate::model::Location, String)> {
     crate::adapters::bookmarks::parse_pinned_places(&contents)
 }
 
+/// Opens the new file read-only: vfat mounted with `flush` sleeps 100 ms at
+/// every close of a file opened for writing.
+pub(crate) fn create_empty_file(path: &std::path::Path) -> std::io::Result<()> {
+    use rustix::fs::{Mode, OFlags};
+    rustix::fs::open(
+        path,
+        OFlags::CREATE | OFlags::EXCL | OFlags::RDONLY | OFlags::CLOEXEC,
+        Mode::from_raw_mode(0o644),
+    )
+    .map(drop)
+    .map_err(std::io::Error::from)
+}
+
 /// GTK initialization is thread-affine; each UI test gets a process and disposable preferences.
 pub(crate) fn gtk_test(name: &str, run: impl FnOnce()) {
     gtk_test_with_env(name, std::iter::empty::<(&str, &std::ffi::OsStr)>(), run);

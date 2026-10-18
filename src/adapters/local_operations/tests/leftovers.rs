@@ -793,7 +793,7 @@ fn a_review_lists_what_each_leftover_holds_up_to_its_bound() -> Result<(), Box<d
     let crowded = root.path().join(HiddenName::Originals.fresh());
     fs::create_dir(&crowded)?;
     for index in 0..1_002 {
-        fs::write(crowded.join(format!("{index:04}")), b"")?;
+        crate::test_support::create_empty_file(&crowded.join(format!("{index:04}")))?;
     }
     let empty = root.path().join(HiddenName::Originals.fresh());
     fs::create_dir(&empty)?;
