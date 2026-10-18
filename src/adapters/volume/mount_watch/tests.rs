@@ -97,32 +97,42 @@ fn fresh_within_deadline(watcher: &Arc<Watcher>) -> MountTable {
 }
 
 #[test]
-fn a_changed_table_is_published_and_drops_what_was_learned_of_real_mounts() {
+fn a_table_is_published_only_when_it_changes() {
+    static PUBLISHED: AtomicUsize = AtomicUsize::new(0);
+    fn published() {
+        PUBLISHED.fetch_add(1, Ordering::SeqCst);
+    }
     let (source, control) = fake(ROOT_ONLY);
-    let watcher = Watcher::start(source, forget_mount_capabilities);
+    let watcher = Watcher::start(source, published);
     assert!(!shares(&watcher.latest()));
-    let real = MountKey::Device(u64::MAX - 9);
-    let scoped = MountKey::Test(u64::MAX - 9);
-    let learn = || {
-        for key in [real, scoped] {
-            learn_mount_capability(key, |capabilities| capabilities.hard_links = Some(false));
-        }
-    };
-    learn();
 
     *control.text.lock().expect("fake table") = WITH_SHARE;
     control.wake.send(Some(Wake::Changed)).expect("watcher");
     wait_until("the change is published", || {
-        shares(&watcher.latest()) && mount_capabilities(real).hard_links.is_none()
+        PUBLISHED.load(Ordering::SeqCst) == 1
     });
-    assert_eq!(mount_capabilities(scoped).hard_links, Some(false));
+    assert!(shares(&watcher.latest()));
 
-    learn();
     control.wake.send(Some(Wake::Changed)).expect("watcher");
     wait_until("the unchanged table is read", || {
         control.reads.load(Ordering::SeqCst) == 3
     });
-    assert_eq!(mount_capabilities(real).hard_links, Some(false));
+    assert!(shares(&fresh_within_deadline(&watcher)));
+    assert_eq!(PUBLISHED.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn a_publish_forgets_only_what_was_learned_of_real_mounts() {
+    let real = MountKey::Device(u64::MAX - 9);
+    let scoped = MountKey::Test(u64::MAX - 9);
+    for key in [real, scoped] {
+        learn_mount_capability(key, |capabilities| capabilities.hard_links = Some(false));
+    }
+
+    forget_mount_capabilities();
+
+    assert_eq!(mount_capabilities(real).hard_links, None);
+    assert_eq!(mount_capabilities(scoped).hard_links, Some(false));
     forget_test_mount_capabilities(u64::MAX - 9);
 }
 
