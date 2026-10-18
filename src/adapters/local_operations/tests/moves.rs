@@ -1245,12 +1245,21 @@ fn a_name_of_a_linked_file_changed_after_its_other_name_went_stays() -> Result<(
         let folder = source_dir.join("folder");
         fs::create_dir_all(&folder)?;
         fs::write(folder.join("a"), b"linked")?;
-        fs::hard_link(folder.join("a"), folder.join("b"))?;
+        if !hard_linked(&folder.join("a"), &folder.join("b"))? {
+            eprintln!("skipped on a base without hard links: {row}");
+            continue;
+        }
         let hour_before = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)?
             .as_secs()
             - 3600;
         set_times(&folder.join("a"), hour_before, 0)?;
+        if numbers_go && !a_later_change_time(&folder.join("b"), &folder.join("a"), hour_before)? {
+            eprintln!(
+                "skipped on a base that reports the modification time as the change time: {row}"
+            );
+            continue;
+        }
         let (deleting, checked) = (
             Arc::new(AtomicBool::new(false)),
             Arc::new(AtomicUsize::new(0)),
@@ -1822,17 +1831,23 @@ fn moves_compare_inode_numbers_only_where_the_source_keeps_them() -> Result<(), 
         fs::write(folder.join("sub/b.txt"), b"b")?;
         let (arrival, backup) = (root.path().join("arrival"), source_dir.join("backup.txt"));
         if let Meanwhile::ReplacedAlike { linked } = meanwhile {
-            if linked != Linked::No {
-                fs::hard_link(folder.join("a.txt"), &backup)?;
+            if linked != Linked::No && !hard_linked(&folder.join("a.txt"), &backup)? {
+                eprintln!("skipped on a base without hard links: {case}");
+                continue;
             }
             fs::write(&arrival, b"z")?;
             let hour_before = SystemTime::now()
                 .duration_since(SystemTime::UNIX_EPOCH)?
                 .as_secs()
                 - 3600;
-            for file in [&folder.join("a.txt"), &arrival] {
-                set_times(file, hour_before, 123_456_789)?;
+            set_times(&folder.join("a.txt"), hour_before, 123_456_789)?;
+            if turned_off && !a_later_change_time(&arrival, &folder.join("a.txt"), hour_before)? {
+                eprintln!(
+                    "skipped on a base that reports the modification time as the change time: {case}"
+                );
+                continue;
             }
+            set_times(&arrival, hour_before, 123_456_789)?;
         }
         let evicted = [
             folder.clone(),
