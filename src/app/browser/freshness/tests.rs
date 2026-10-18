@@ -44,6 +44,8 @@ struct Folders {
     checks: RefCell<Vec<Location>>,
     hold_loads: Cell<bool>,
     held_loads: RefCell<Vec<(DirectoryRequest, Emit)>>,
+    queue_loads: Cell<bool>,
+    queued_loads: RefCell<Vec<(DirectoryRequest, Emit)>>,
     fail_loads: Cell<bool>,
     truncate_loads: Cell<bool>,
     responsiveness: Cell<Responsiveness>,
@@ -161,6 +163,17 @@ impl Folders {
                 can_delete: None,
             },
         });
+    }
+
+    fn refuse_queued_loads(&self) {
+        let queued = self.queued_loads.take();
+        for (request, emit) in queued {
+            emit(DirectoryEvent::Failed {
+                request_id: request.id,
+                message: "The operation timed out".to_owned(),
+                refused: true,
+            });
+        }
     }
 
     fn finish_held_loads(&self) {
@@ -292,6 +305,10 @@ impl FileSource for Folders {
 
     fn enumerate(&self, request: DirectoryRequest, emit: Emit) -> LoadHandle {
         self.loads.borrow_mut().push(request.location.clone());
+        if self.queue_loads.get() {
+            self.queued_loads.borrow_mut().push((request, emit));
+            return LoadHandle::new(|| {});
+        }
         if request.background && self.lane_busy(&request.location) {
             emit(DirectoryEvent::Failed {
                 request_id: request.id,
@@ -1164,6 +1181,220 @@ fn a_refresh_on_a_mount_that_stopped_answering_keeps_its_rows() {
                 "stalled {stalled}, re-listing a truncated listing {relisting_truncated}, \
                  the refresh running out of time {probe_runs_out_of_time}: \
                  got {got:?}, expected {expected:?}"
+            ));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+#[derive(Clone, Copy)]
+enum KeptRefresh {
+    MonitorRescan,
+    ReloadKey,
+    CutShort,
+    RefusedAsItAnswers,
+    ReloadedOnceAnswering,
+    BackgroundRelist,
+    HeldByAnInlineEdit,
+    HeldByAnOperation,
+    OwedAndRefusedAgainAsItAnswers,
+    OwedAndBackgroundRelistKept,
+}
+
+fn spinner_follows_the_load(browser: &Browser, events: &RefCell<Vec<BrowserEvent>>) -> bool {
+    let spinning =
+        events.borrow().iter().rev().find_map(|event| match event {
+            BrowserEvent::ColumnRefreshing { depth: 0 }
+            | BrowserEvent::ColumnReloaded { depth: 0 } => Some(true),
+            BrowserEvent::LoadFinished { depth: 0, .. }
+            | BrowserEvent::LoadFailed { depth: 0, .. } => Some(false),
+            _ => None,
+        });
+    spinning.unwrap_or(false)
+        == browser
+            .column_snapshot(0)
+            .is_some_and(|column| column.loading)
+}
+
+#[test]
+fn a_refresh_kept_while_its_mount_was_not_answering_runs_again_once_it_answers() {
+    let mut failures = Vec::new();
+    for (row, refresh) in [
+        (
+            "a monitor's rescan of a folder on a USB stick",
+            KeptRefresh::MonitorRescan,
+        ),
+        ("F5", KeptRefresh::ReloadKey),
+        ("F5 cut short by its time budget", KeptRefresh::CutShort),
+        (
+            "F5 queued behind a listing and refused as the mount answers again",
+            KeptRefresh::RefusedAsItAnswers,
+        ),
+        (
+            "F5, and F5 again once the mount answers",
+            KeptRefresh::ReloadedOnceAnswering,
+        ),
+        (
+            "a background re-list, left to the next check",
+            KeptRefresh::BackgroundRelist,
+        ),
+        (
+            "F5, with an inline rename open when the mount answers",
+            KeptRefresh::HeldByAnInlineEdit,
+        ),
+        (
+            "F5, with an operation writing into the folder when the mount answers",
+            KeptRefresh::HeldByAnOperation,
+        ),
+        (
+            "F5 owed, then another F5 refused as the mount answers again",
+            KeptRefresh::OwedAndRefusedAgainAsItAnswers,
+        ),
+        (
+            "F5 owed, then a background re-list kept once the mount answers",
+            KeptRefresh::OwedAndBackgroundRelistKept,
+        ),
+    ] {
+        let source = Rc::new(Folders::default());
+        let folder = match refresh {
+            KeptRefresh::BackgroundRelist | KeptRefresh::OwedAndBackgroundRelistKept => {
+                source.add("/net/share", network(1), Some(Watching::Live))
+            }
+            _ => source.add("/run/media/me/stick", local(1), Some(Watching::Live)),
+        };
+        let (browser, clock) = browser_on(&source);
+        let editing = Rc::new(Cell::new(false));
+        let held = editing.clone();
+        browser.set_freshness_hold(move || held.get());
+        browser.navigate(folder.clone());
+        let events = recorded(&browser);
+        source.change(&folder, &["listed", "added elsewhere"]);
+        let stall = || source.responsiveness.set(Responsiveness::Stalled);
+        match refresh {
+            KeptRefresh::MonitorRescan => {
+                stall();
+                source.notify(&folder, DirectoryChange::Rescan);
+            }
+            KeptRefresh::ReloadKey
+            | KeptRefresh::ReloadedOnceAnswering
+            | KeptRefresh::HeldByAnInlineEdit
+            | KeptRefresh::HeldByAnOperation
+            | KeptRefresh::OwedAndBackgroundRelistKept => {
+                stall();
+                browser.reload_active();
+            }
+            KeptRefresh::CutShort => {
+                source.probes_run_out_of_time.set(true);
+                stall();
+                browser.reload_active();
+            }
+            KeptRefresh::RefusedAsItAnswers => {
+                source.queue_loads.set(true);
+                stall();
+                browser.reload_active();
+                source.queue_loads.set(false);
+            }
+            KeptRefresh::OwedAndRefusedAgainAsItAnswers => {
+                stall();
+                browser.reload_active();
+                source.queue_loads.set(true);
+                browser.reload_active();
+                source.queue_loads.set(false);
+            }
+            KeptRefresh::BackgroundRelist => {
+                source.hold_checks.set(true);
+                clock.tick_at(15);
+                stall();
+                source.hold_checks.set(false);
+                source.answer_held_checks();
+            }
+        }
+        let kept = (names_at(&browser, 0), source.loads_of(&folder));
+
+        let path = folder.native_path().expect("a native folder").to_path_buf();
+        let activity = matches!(refresh, KeptRefresh::HeldByAnOperation).then(|| {
+            file_activity::begin(OperationScope {
+                roots: vec![path.join("listed")],
+                folders: vec![path],
+            })
+        });
+        editing.set(matches!(refresh, KeptRefresh::HeldByAnInlineEdit));
+        source.responsiveness.set(Responsiveness::Answering);
+        match refresh {
+            KeptRefresh::RefusedAsItAnswers => source.refuse_queued_loads(),
+            KeptRefresh::ReloadedOnceAnswering => {
+                browser.reload_active();
+                browser.follow_responsiveness();
+            }
+            KeptRefresh::OwedAndRefusedAgainAsItAnswers => {
+                source.hold_loads.set(true);
+                source.refuse_queued_loads();
+            }
+            KeptRefresh::OwedAndBackgroundRelistKept => {
+                source.hold_loads.set(true);
+                clock.tick_at(15);
+                source.fail_loads.set(true);
+                source.finish_held_loads();
+                source.fail_loads.set(false);
+            }
+            _ => browser.follow_responsiveness(),
+        }
+        let once_answering = (
+            source.loads_of(&folder),
+            browser.freshness.following.get(),
+            spinner_follows_the_load(&browser, &events),
+        );
+        editing.set(false);
+        drop(activity);
+        source.hold_loads.set(false);
+        source.finish_held_loads();
+        browser.follow_responsiveness();
+        clock.tick_at(30);
+
+        let got = (
+            kept,
+            once_answering,
+            names_at(&browser, 0),
+            count(&events, |event| {
+                matches!(
+                    event,
+                    BrowserEvent::LoadFailed { .. } | BrowserEvent::ColumnReloaded { .. }
+                )
+            }),
+        );
+        let owed_twice = matches!(
+            refresh,
+            KeptRefresh::OwedAndRefusedAgainAsItAnswers | KeptRefresh::OwedAndBackgroundRelistKept
+        );
+        let held = matches!(
+            refresh,
+            KeptRefresh::HeldByAnInlineEdit | KeptRefresh::HeldByAnOperation
+        );
+        let expected = (
+            (
+                vec!["listed".to_owned()],
+                match refresh {
+                    KeptRefresh::OwedAndRefusedAgainAsItAnswers => 3,
+                    _ => 2,
+                },
+            ),
+            (
+                match refresh {
+                    _ if owed_twice => 4,
+                    _ if held => 2,
+                    KeptRefresh::BackgroundRelist => 2,
+                    _ => 3,
+                },
+                owed_twice || held,
+                true,
+            ),
+            vec!["added elsewhere".to_owned(), "listed".to_owned()],
+            usize::from(matches!(refresh, KeptRefresh::ReloadedOnceAnswering)),
+        );
+        if got != expected {
+            failures.push(format!(
+                "{row}: got (kept, (loads, following, spinner follows the load) once answering, \
+                 names, reloads or failures) {got:?}, expected {expected:?}"
             ));
         }
     }

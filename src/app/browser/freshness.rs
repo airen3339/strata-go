@@ -293,14 +293,23 @@ impl Browser {
         self.keep_following_responsiveness(true);
     }
 
-    pub(super) fn note_listing_failed(&self, depth: usize, refused: bool) {
+    pub(super) fn note_listing_unfinished(&self, depth: usize, refused: bool) {
         let unanswered = refused
             || self.location_at(depth).is_some_and(|location| {
                 self.source.responsiveness(&location) != Responsiveness::Answering
             });
+        self.owe_refresh(depth, unanswered);
+    }
+
+    pub(super) fn owe_refresh(&self, depth: usize, owed: bool) {
         if let Some(column) = self.column_freshness(depth) {
-            column.borrow_mut().retry_when_answering = unanswered;
+            column.borrow_mut().retry_when_answering = owed;
         }
+    }
+
+    pub(super) fn take_owed_refresh(&self, depth: usize) -> bool {
+        self.column_freshness(depth)
+            .is_some_and(|column| std::mem::take(&mut column.borrow_mut().retry_when_answering))
     }
 
     fn end_listing(&self, depth: usize, column: &mut ColumnFreshness) -> Option<Listing> {
@@ -360,6 +369,7 @@ impl Browser {
         };
         {
             let mut column = column.borrow_mut();
+            column.retry_when_answering = false;
             self.learn_blind_mounts(depth, &mut column);
             if let Some(Listing {
                 stamp: Some((stamp, stamped)),
@@ -719,10 +729,15 @@ impl Browser {
             let answering = responsiveness == Responsiveness::Answering;
             let not_responding = responsiveness == Responsiveness::NotResponding && !failed;
             let mut column = column.borrow_mut();
-            if failed && answering && std::mem::take(&mut column.retry_when_answering) {
-                answered.push(depth);
+            if !loading
+                && answering
+                && column.retry_when_answering
+                && (failed || (!self.freshness_held() && !Self::operation_touches(&location)))
+            {
+                column.retry_when_answering = false;
+                answered.push((depth, failed));
             }
-            follow |= loading || column.checking || !answering;
+            follow |= loading || column.checking || !answering || column.retry_when_answering;
             if column.not_responding != not_responding {
                 column.not_responding = not_responding;
                 changed.push((depth, not_responding));
@@ -735,8 +750,11 @@ impl Browser {
             });
         }
         self.keep_following_responsiveness(follow);
-        for depth in answered {
-            self.retry_column(depth);
+        for (depth, failed) in answered {
+            match failed {
+                true => self.retry_column(depth),
+                false => self.refresh_keeping_listing(depth, false),
+            }
         }
     }
 

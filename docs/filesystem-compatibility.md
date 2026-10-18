@@ -1880,8 +1880,10 @@ navigating sends one. A GVfs request abandoned while it waits never marks its ba
 A folder whose load was turned away or failed while its mount was not answering loads again by
 itself once the mount answers, on GVfs locations too: a default folder or restored tab whose check
 gave up at start-up, a folder opened while another request waited there, or a refresh that waited
-behind a stuck listing of the folder. A folder that failed while its mount answered keeps its error
-until Retry.
+behind a stuck listing of the folder. An F5, Retry or change monitor's rescan that kept a folder's
+rows that way runs again too, still keeping them, once no inline rename is open or being submitted
+and no operation changes or writes into the folder; a background re-list waits for the folder's
+next check. A folder that failed while its mount answered keeps its error until Retry.
 
 ### What a dead server does
 

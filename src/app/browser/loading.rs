@@ -156,7 +156,7 @@ impl Browser {
         if let Some(OpenLoad::Native(depth)) = target
             && completion.truncated
             && self.cut_short_of_a_complete_listing(depth, request_id)
-            && self.keep_listing(depth, request_id, false)
+            && self.keep_listing(depth, request_id, false, false)
         {
             return;
         }
@@ -196,11 +196,11 @@ impl Browser {
 
     fn receive_failure(self: &Rc<Self>, request_id: RequestId, message: String, refused: bool) {
         let depth = self.state.borrow().depth_for_request(request_id);
-        if let Some(depth) = depth {
-            self.note_listing_failed(depth, refused);
-        }
-        if depth.is_some_and(|depth| self.keep_listing(depth, request_id, true)) {
+        if depth.is_some_and(|depth| self.keep_listing(depth, request_id, true, refused)) {
             return;
+        }
+        if let Some(depth) = depth {
+            self.note_listing_unfinished(depth, refused);
         }
         match self.open_load_target(request_id) {
             Some(OpenLoad::Native(depth)) => {
@@ -249,7 +249,13 @@ impl Browser {
                 .is_some_and(|kept| kept.request_id == request_id && !kept.truncated)
     }
 
-    fn keep_listing(self: &Rc<Self>, depth: usize, request_id: RequestId, failed: bool) -> bool {
+    fn keep_listing(
+        self: &Rc<Self>,
+        depth: usize,
+        request_id: RequestId,
+        failed: bool,
+        refused: bool,
+    ) -> bool {
         let kept = self
             .kept_listings
             .borrow()
@@ -277,11 +283,16 @@ impl Browser {
         {
             return false;
         }
+        let owed = self.take_owed_refresh(depth);
         self.note_listing_kept(depth);
         self.emit(BrowserEvent::LoadFinished {
             depth,
             truncated: kept.truncated,
         });
+        match kept.background {
+            true => self.owe_refresh(depth, owed),
+            false => self.note_listing_unfinished(depth, refused),
+        }
         for (watched, change) in deltas {
             self.handle_directory_change(depth, &watched, change);
         }
@@ -293,6 +304,7 @@ impl Browser {
         }) {
             self.check_departed_directory(depth, location, DepartureEvidence::FailedLoad);
         }
+        self.follow_responsiveness();
         true
     }
 }
