@@ -1124,7 +1124,7 @@ fn a_case_only_rename_goes_through_a_temporary_name() -> Result<(), Box<dyn Erro
                 set_mode(&source, 0o555)?;
             }
             let original = identity(&source);
-            let original_mode = mode(&source)?;
+            let original_mode = forced_mode(&source)? & 0o7777;
 
             assert_eq!(
                 rename_in(root.path(), "report", "report"),

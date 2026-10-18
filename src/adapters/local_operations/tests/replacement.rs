@@ -1043,7 +1043,7 @@ fn a_failed_publication_puts_the_original_back() -> Result<(), Box<dyn Error>> {
         if let Item::ReadOnlyFolder = item {
             fs::set_permissions(&target, mode(0o555))?;
         }
-        let original = (inode(&target)?, fs::symlink_metadata(&target)?.mode());
+        let original = (inode(&target)?, forced_mode(&target)?);
         let folder = root.path().to_path_buf();
         let evicting: Racer = Box::new(move || {
             let originals = originals_folder(&folder)

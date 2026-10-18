@@ -361,6 +361,17 @@ fn base_links_keep_their_number(folder: &Path) -> io::Result<bool> {
     Ok(kept)
 }
 
+fn forced_mode(path: &Path) -> io::Result<u32> {
+    use rustix::fs::{AtFlags, CWD, StatxFlags};
+    let stat = rustix::fs::statx(
+        CWD,
+        path,
+        AtFlags::SYMLINK_NOFOLLOW | AtFlags::STATX_FORCE_SYNC,
+        StatxFlags::TYPE | StatxFlags::MODE,
+    )?;
+    Ok(u32::from(stat.stx_mode))
+}
+
 fn a_later_change_time(path: &Path, than: &Path, seconds: u64) -> io::Result<bool> {
     use std::os::unix::fs::MetadataExt;
     let changed = |metadata: &fs::Metadata| (metadata.ctime(), metadata.ctime_nsec());
