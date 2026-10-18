@@ -53,6 +53,7 @@ fn camera_buttons_cycle_views_keep_the_image_while_loading_and_reset_for_another
                     drawer.state.model_spinner.is_visible(),
                     "the header must show loading feedback"
                 );
+                assert_eq!(drawer.state.content_type.text(), "model/stl");
                 next.emit_clicked();
                 assert_eq!(
                     provider.0.borrow().len(),

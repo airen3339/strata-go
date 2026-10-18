@@ -1366,7 +1366,9 @@ impl PreviewState {
         );
         self.size.set_text(&metadata_size(&entry));
         crate::util::set_modified_date(&self.modified, Some(&entry), "—");
-        self.content_type.set_text(file_extension(&entry));
+        if self.model.borrow().is_none() {
+            self.content_type.set_text(file_extension(&entry));
+        }
         self.load.borrow_mut().take();
         self.pdf_loads.borrow_mut().clear();
 
