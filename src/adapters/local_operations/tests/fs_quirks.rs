@@ -2463,7 +2463,10 @@ impl FsEnvironment for Scoped {
     }
 
     fn file_handle(&self, at: Entry<'_>) -> Result<u64, Errno> {
-        match scope_for(at.dir).and_then(|_| handleless_base(at.dir)) {
+        let made_up = scope_for(at.dir)
+            .and_then(|_| System.current_mount_type(at.dir))
+            .filter(|base| gives_no_handles(base) || family(&base.fs_type) == Family::Fuse);
+        match made_up {
             Some(base) => made_up_handle(at, &base),
             None => System.file_handle(at),
         }
@@ -2508,9 +2511,11 @@ impl FsEnvironment for Scoped {
 }
 
 pub(crate) fn handleless_base(fd: BorrowedFd<'_>) -> Option<MountType> {
-    System
-        .current_mount_type(fd)
-        .filter(|base| base.fs_type == "exfat" || family(&base.fs_type) == Family::Smb)
+    System.current_mount_type(fd).filter(gives_no_handles)
+}
+
+fn gives_no_handles(base: &MountType) -> bool {
+    base.fs_type == "exfat" || family(&base.fs_type) == Family::Smb
 }
 
 /// The base's birth time stands for the generation a reused number changes.
