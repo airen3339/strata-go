@@ -68,9 +68,10 @@ def test_missing_directory_can_be_restored_and_retried(strata):
 
 def test_multiple_arguments_include_non_utf8_directory_and_file(strata):
     root = os.fsencode(strata.fixture.root)
-    directories = [root + b"/startup-first", root + b"/startup-\xff"]
+    directories = [b"startup-first", root + b"/startup-\xff"]
     markers = ["first-argument.txt", "non-utf8-argument.txt"]
     for directory, marker in zip(directories, markers):
+        directory = os.path.join(root, directory)
         os.mkdir(directory)
         with open(directory + b"/" + marker.encode(), "wb") as stream:
             stream.write(b"startup regression\n")
@@ -137,6 +138,7 @@ def test_multiple_arguments_include_non_utf8_directory_and_file(strata):
     )
     windows = strata.application.application_node.find_all(role="frame", name="Strata")
     assert max(colliding_selections(windows)) == 1
+    assert os.readlink(f"/proc/{strata.application.pid}/cwd") == "/"
 
 
 @pytest.mark.parametrize("closed_streams", ["stdout", "stderr", "both"])

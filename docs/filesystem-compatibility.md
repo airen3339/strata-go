@@ -1767,6 +1767,9 @@ worker:
   same link is still there and gives it its image extension on a worker; Open waits for that step.
 - Programs and terminals are resolved and started on a worker, since starting a child waits until
   it has entered its working folder.
+- Once it has resolved its command-line paths, Strata makes `/` its working folder, so libraries
+  that look files up relative to the working folder never wait on the folder Strata was started
+  from. A program that Open With starts without a working folder of its own starts in `/` too.
 - Strata's own settings and state files are saved by one background writer and read again there
   after another program changes them; see [Saved preferences](preferences.md).
 - An enumerator or stream the interface lets go of is closed in the background

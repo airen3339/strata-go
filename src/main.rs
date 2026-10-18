@@ -196,6 +196,7 @@ fn main() -> gtk::glib::ExitCode {
             let _volumes = gio::VolumeMonitor::get();
             adapters::mount_watch::start();
             ui::read_install_facts();
+            leave_launch_folder();
             util::ui_thread::mark();
             return portal::run();
         }
@@ -274,6 +275,14 @@ fn main() -> gtk::glib::ExitCode {
             elapsed_ms = launched.elapsed().as_millis() as u64,
             "startup volume monitor ready"
         );
+    });
+    application.connect_startup(|application| {
+        if application
+            .flags()
+            .contains(gio::ApplicationFlags::IS_SERVICE)
+        {
+            leave_launch_folder();
+        }
     });
     application.connect_startup(|_| install_x11_program_class());
     application.connect_startup(export_file_manager_interface);
@@ -369,6 +378,7 @@ fn handle_command_line(
         .skip(1)
         .map(|argument| cmdline.create_file_for_arg(argument))
         .collect();
+    leave_launch_folder();
     let is_service = application
         .flags()
         .contains(gio::ApplicationFlags::IS_SERVICE);
@@ -395,6 +405,12 @@ fn handle_command_line(
             eprintln!("{message}");
             glib::ExitCode::FAILURE
         }
+    }
+}
+
+fn leave_launch_folder() {
+    if let Err(error) = std::env::set_current_dir("/") {
+        tracing::warn!(%error, "unable to leave the launch folder");
     }
 }
 
