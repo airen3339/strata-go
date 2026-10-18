@@ -1995,13 +1995,14 @@ let _quirks = FsQuirks::install(root.path(), Quirks::without_rename_flags());
 Quirks emulate rejected rename flags (NFS, ntfs-3g), missing hard links (vfat, vboxsf), sshfs
 collisions reported as `EPERM`, gvfsd-fuse refusing to rename over an empty folder, case-insensitive
 lookups, invalid names, unsupported or lying Trash, reused inode numbers, hard links with their own
-inode numbers, missing birth times, lost replies (on sshfs, a lost rename reply leaves the target
-name reporting its old inode number) and racing processes, before or after a call. On emulated ext
-and NFS mounts without birth times Strata reads file handles: the seam reports the mount type under
-the kernel's id of the real mount and the missing birth time, and the handle comes from the real
-filesystem. Where that filesystem gives none (exfat, cifs), the seam makes one up from the real
-inode number and the birth time where the base keeps it (files, and folders other than exfat's,
-which renames restamp), so a number the base hands to a new file gets a new handle.
+inode numbers, missing birth times (where the base reports none, the vfat and exFAT presets record
+one per file that renumbering keeps, as FAT does), lost replies (on sshfs, a lost rename reply
+leaves the target name reporting its old inode number) and racing processes, before or after a call.
+On emulated ext and NFS mounts without birth times Strata reads file handles: the seam reports the
+mount type under the kernel's id of the real mount and the missing birth time, and the handle comes
+from the real filesystem. Where that filesystem gives none (exfat, cifs), the seam makes one up from
+the real inode number and the birth time where the base keeps it (files, and folders other than
+exfat's, which renames restamp), so a number the base hands to a new file gets a new handle.
 
 For copies they also emulate a mount's family and superblock options as mountinfo reports them, the
 device format udev records, refused `O_TMPFILE` and its links, refused clones, a `copy_file_range`

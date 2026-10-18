@@ -233,6 +233,8 @@ pub(crate) enum Births {
     #[default]
     Reported,
     MadeUp,
+    /// One per file that renumbering keeps, where the base reports none, as FAT records them.
+    Recorded,
 }
 
 pub(crate) type Racer = Box<dyn FnMut() + Send>;
@@ -465,6 +467,7 @@ impl Quirks {
             fifos: Support::Rejected(Errno::PERM),
             case_insensitive: true,
             xattrs_refused: vec![("", Errno::OPNOTSUPP)],
+            births: Births::Recorded,
             ..Self::default()
         }
     }
@@ -932,6 +935,8 @@ struct State {
     cached: HashMap<PathBuf, (u64, Option<(i64, u32)>)>,
     created: HashSet<(u64, u64)>,
     made_up: HashMap<(u64, u64), (i64, u32)>,
+    recorded_births: HashMap<(u64, u64), SystemTime>,
+    latest_birth: SystemTime,
     holds: HashMap<(u64, u64), usize>,
     held_paths: HashMap<(u64, u64), PathBuf>,
     closed_holds: Vec<(PathBuf, SystemTime)>,
@@ -953,6 +958,15 @@ impl State {
             at: clock_for_test(),
             own_changes: self.own_changes,
         }
+    }
+
+    fn recorded_birth(&mut self, key: (u64, u64)) -> Option<(i64, u32)> {
+        let latest = &mut self.latest_birth;
+        let born = *self.recorded_births.entry(key).or_insert_with(|| {
+            *latest = SystemTime::now().max(*latest + Duration::from_nanos(1));
+            *latest
+        });
+        timespec(born)
     }
 }
 
@@ -1011,6 +1025,8 @@ impl FsQuirks {
                 cached: HashMap::new(),
                 created: HashSet::new(),
                 made_up: HashMap::new(),
+                recorded_births: HashMap::new(),
+                latest_birth: SystemTime::UNIX_EPOCH,
             }),
         });
         scopes().push(scope.clone());
@@ -1331,6 +1347,11 @@ impl Scope {
         let cached = path
             .as_ref()
             .and_then(|path| state.cached.get(path).copied());
+        if state.quirks.births == Births::Recorded
+            && stat.identity.birth.is_none_or(|birth| birth == (0, 0))
+        {
+            stat.identity.birth = state.recorded_birth(key);
+        }
         if let Some(&birth) = state.reset_births.get(&key).filter(|_| stat.is_directory()) {
             stat.identity.birth = Some(birth);
         }
@@ -1654,7 +1675,7 @@ impl Scope {
                 error
             }
         })?;
-        if self.quirk(|quirks| quirks.births != Births::Reported)
+        if self.quirk(|quirks| quirks.births == Births::MadeUp)
             && let Ok(stat) = System.stat(stored, false)
         {
             self.state()
@@ -2146,6 +2167,12 @@ pub(crate) fn recreated(path: &Path) {
     };
     if let Some(parent) = path.parent().and_then(|parent| parent.canonicalize().ok()) {
         *scope.state().births.entry(parent.join(name)).or_default() += 1;
+    }
+    if let Ok(stat) = rustix::fs::lstat(path) {
+        scope
+            .state()
+            .recorded_births
+            .remove(&(stat.st_dev, stat.st_ino));
     }
 }
 

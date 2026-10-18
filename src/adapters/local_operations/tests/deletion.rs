@@ -998,6 +998,7 @@ fn a_removal_by_a_recorded_identity_follows_the_mounts_rule() -> Result<(), Box<
                     wait_for_a_later_birth_time(&probe, &fs::metadata(&path)?);
                     fs::remove_file(&path)?;
                     fs::write(&path, b"theirs")?;
+                    super::fs_quirks::recreated(&path);
                 }
                 Since::ReplacedAlike => fs::rename(&theirs, &path)?,
             }
