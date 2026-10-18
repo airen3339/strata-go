@@ -31,13 +31,6 @@ fn serial() -> Result<crate::test_support::MainContextGuard<'static>, String> {
         .map_err(|error| error.to_string())
 }
 
-fn temporary_folder_gives_file_handles() -> Result<(), Box<dyn Error>> {
-    let folder = fs::File::open(std::env::temp_dir())?;
-    super::native_fs::file_handle(folder.as_fd(), OsStr::new(""))
-        .ok_or("the temporary folder gives file handles")?;
-    Ok(())
-}
-
 mod aliases;
 mod closes;
 mod conflicts;

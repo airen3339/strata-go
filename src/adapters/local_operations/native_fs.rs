@@ -187,7 +187,8 @@ pub(super) fn identity_at_path(path: &Path) -> Option<ItemIdentity> {
 }
 
 #[expect(unsafe_code, reason = "rustix has no name_to_handle_at")]
-pub(super) fn file_handle(dir: BorrowedFd<'_>, name: &OsStr) -> Option<u64> {
+pub(super) fn file_handle(dir: BorrowedFd<'_>, name: &OsStr) -> Result<u64, rustix::io::Errno> {
+    use rustix::io::Errno;
     use std::hash::{Hash, Hasher};
     const MAX_HANDLE_SZ: usize = 128;
     #[repr(C)]
@@ -196,14 +197,14 @@ pub(super) fn file_handle(dir: BorrowedFd<'_>, name: &OsStr) -> Option<u64> {
         handle_type: libc::c_int,
         f_handle: [u8; MAX_HANDLE_SZ],
     }
-    let path = std::ffi::CString::new(name.as_encoded_bytes()).ok()?;
+    let path = std::ffi::CString::new(name.as_encoded_bytes()).map_err(|_| Errno::INVAL)?;
     let flags = if name.is_empty() {
         libc::AT_EMPTY_PATH
     } else {
         0
     };
     let mut handle = FileHandle {
-        handle_bytes: libc::c_uint::try_from(MAX_HANDLE_SZ).ok()?,
+        handle_bytes: libc::c_uint::try_from(MAX_HANDLE_SZ).map_err(|_| Errno::INVAL)?,
         handle_type: 0,
         f_handle: [0; MAX_HANDLE_SZ],
     };
@@ -219,15 +220,17 @@ pub(super) fn file_handle(dir: BorrowedFd<'_>, name: &OsStr) -> Option<u64> {
             flags,
         )
     };
-    let bytes = handle
-        .f_handle
-        .get(..usize::try_from(handle.handle_bytes).ok()?)?;
-    (result == 0).then(|| {
-        let mut digest = std::hash::DefaultHasher::new();
-        handle.handle_type.hash(&mut digest);
-        bytes.hash(&mut digest);
-        digest.finish()
-    })
+    if result != 0 {
+        return Err(Errno::from_io_error(&io::Error::last_os_error()).unwrap_or(Errno::IO));
+    }
+    let bytes = usize::try_from(handle.handle_bytes)
+        .ok()
+        .and_then(|length| handle.f_handle.get(..length))
+        .ok_or(Errno::OVERFLOW)?;
+    let mut digest = std::hash::DefaultHasher::new();
+    handle.handle_type.hash(&mut digest);
+    bytes.hash(&mut digest);
+    Ok(digest.finish())
 }
 
 pub(super) fn retry_local_open(

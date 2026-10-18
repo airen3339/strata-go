@@ -1993,7 +1993,9 @@ inode numbers, missing birth times, lost replies (on sshfs, a lost rename reply 
 name reporting its old inode number) and racing processes, before or after a call. On emulated ext
 and NFS mounts without birth times Strata reads file handles: the seam reports the mount type under
 the kernel's id of the real mount and the missing birth time, and the handle comes from the real
-filesystem.
+filesystem. Where that filesystem gives none (exfat, cifs), the seam makes one up from the real
+inode number and the birth time where the base keeps it (files, and folders other than exfat's,
+which renames restamp), so a number the base hands to a new file gets a new handle.
 
 For copies they also emulate a mount's family and superblock options as mountinfo reports them, the
 device format udev records, refused `O_TMPFILE` and its links, refused clones, a `copy_file_range`
@@ -2102,8 +2104,7 @@ name stored that the real mount refuses, folds or lists as another (Samba's 8.3 
 folder names). On NFS a file renamed over while open reads as `.nfsXXXX`, and on casefolded
 folders `/proc` shows files the test process created as `name (deleted)`, so quirk patterns by
 name miss them. Tests that emulate NFSv3, or ext without birth times, read the base's real file
-handles: exfat and cifs refuse them, so those tests stop with "the temporary folder gives file
-handles", and FUSE changes them after an eviction. The container has no udev database, so
+handles, which FUSE changes after an eviction. The container has no udev database, so
 exfat-fuse and ntfs-3g are not recognised there: they keep their per-file syncs, and get the name
 rules of a `fuseblk` device udev cannot tell, which learn from refusals (ntfs-3g refuses device
 names). Read failures against a run of the same filter on `origin/main`.

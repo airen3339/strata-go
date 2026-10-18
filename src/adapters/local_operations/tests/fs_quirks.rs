@@ -37,7 +37,7 @@ use super::super::holders;
 use super::super::native_fs::LocalFileIdentity;
 use crate::{
     adapters::volume::{
-        MountKey, MountSite, MountTable, MountType, forget_test_mount_capabilities,
+        Family, MountKey, MountSite, MountTable, MountType, family, forget_test_mount_capabilities,
     },
     services::Holder,
 };
@@ -2390,6 +2390,13 @@ impl FsEnvironment for Scoped {
         (scope.mounts(), reported.identity.birth)
     }
 
+    fn file_handle(&self, at: Entry<'_>) -> Result<u64, Errno> {
+        match scope_for(at.dir).and_then(|_| handleless_base(at.dir)) {
+            Some(base) => made_up_handle(at, &base),
+            None => System.file_handle(at),
+        }
+    }
+
     fn device_format(&self, fd: BorrowedFd<'_>) -> Result<Option<String>, Errno> {
         assert_off_main_thread();
         match scope_for(fd) {
@@ -2425,6 +2432,35 @@ impl FsEnvironment for Scoped {
             None => this_process(),
         }
     }
+}
+
+pub(crate) fn handleless_base(fd: BorrowedFd<'_>) -> Option<MountType> {
+    System
+        .current_mount_type(fd)
+        .filter(|base| base.fs_type == "exfat" || family(&base.fs_type) == Family::Smb)
+}
+
+/// The base's birth time stands for the generation a reused number changes.
+fn made_up_handle(at: Entry<'_>, base: &MountType) -> Result<u64, Errno> {
+    use std::hash::{Hash, Hasher};
+    let flags = if at.name.is_empty() {
+        AtFlags::EMPTY_PATH
+    } else {
+        AtFlags::empty()
+    };
+    let stat = rustix::fs::statx(
+        at.dir,
+        at.name,
+        flags | AtFlags::SYMLINK_NOFOLLOW,
+        StatxFlags::TYPE | StatxFlags::INO | StatxFlags::BTIME,
+    )?;
+    let folder = FileType::from_raw_mode(u32::from(stat.stx_mode)) == FileType::Directory;
+    let birth = (StatxFlags::from_bits_retain(stat.stx_mask).contains(StatxFlags::BTIME)
+        && (!folder || base.identity().folder_births))
+        .then_some((stat.stx_btime.tv_sec, stat.stx_btime.tv_nsec));
+    let mut digest = std::hash::DefaultHasher::new();
+    (stat.stx_dev_major, stat.stx_dev_minor, stat.stx_ino, birth).hash(&mut digest);
+    Ok(digest.finish())
 }
 
 /// Links as on Linux 6.10 and later, where `AT_EMPTY_PATH` needs no privilege, whatever the

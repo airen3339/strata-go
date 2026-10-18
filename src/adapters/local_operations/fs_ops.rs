@@ -25,7 +25,7 @@ use rustix::{
     io::Errno,
 };
 
-use super::native_fs::{LocalFileIdentity, file_handle, retry_local_open};
+use super::native_fs::{LocalFileIdentity, retry_local_open};
 use crate::{
     adapters::volume::MountKey,
     services::{Attributes, IdentityTraits},
@@ -396,7 +396,7 @@ fn statx_at(dir: BorrowedFd<'_>, name: &OsStr, flags: AtFlags) -> Result<EntrySt
                 .then_some(stat.stx_mnt_id);
             let (mounts, birth) = fs().file_handle_inputs(Entry { dir, name }, &entry);
             if mounts.wants_file_handle(mount_id, birth) {
-                entry.identity.handle = file_handle(dir, name);
+                entry.identity.handle = fs().file_handle(Entry { dir, name }).ok();
             }
             Ok(entry)
         }

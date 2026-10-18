@@ -4,7 +4,7 @@ use super::{
     deletion::local_device_is_rotational,
     fs_ops::{Entry, EntryStat, System, Watched, assert_off_main_thread},
     holders,
-    native_fs::opened_path,
+    native_fs::{self, opened_path},
 };
 use crate::{
     adapters::volume::{MountSite, MountTable, MountType, mount_watch},
@@ -40,6 +40,7 @@ pub(super) trait FsEnvironment: Send + Sync {
         at: Entry<'_>,
         stat: &EntryStat,
     ) -> (MountTable, Option<(i64, u32)>);
+    fn file_handle(&self, at: Entry<'_>) -> Result<u64, Errno>;
     /// udev's `ID_FS_TYPE`, when the device has a database record.
     fn device_format(&self, fd: BorrowedFd<'_>) -> Result<Option<String>, Errno>;
     fn rotational(&self, fd: BorrowedFd<'_>) -> Option<bool>;
@@ -144,6 +145,10 @@ impl FsEnvironment for System {
         stat: &EntryStat,
     ) -> (MountTable, Option<(i64, u32)>) {
         (mount_watch::latest(), stat.identity.birth)
+    }
+
+    fn file_handle(&self, at: Entry<'_>) -> Result<u64, Errno> {
+        native_fs::file_handle(at.dir, at.name)
     }
 
     fn device_format(&self, fd: BorrowedFd<'_>) -> Result<Option<String>, Errno> {
