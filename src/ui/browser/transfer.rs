@@ -1037,7 +1037,7 @@ impl ViewState {
                 for (record, ends) in records.into_iter().zip(presence.as_chunks::<2>().0) {
                     match ends {
                         [Presence::Absent, _] => missing += 1,
-                        [_, Presence::Present(_)] => collisions.push(record),
+                        [_, Presence::Present] => collisions.push(record),
                         _ => accepted.push(UndoMoveItem {
                             record,
                             conflict: TransferConflict::FailIfExists,

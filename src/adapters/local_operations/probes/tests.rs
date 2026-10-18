@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 use std::{
-    fs, io,
+    fs,
     time::{Duration, Instant},
 };
 
@@ -17,7 +17,7 @@ use crate::{
         local_operations::tests::fs_quirks::{FsQuirks, Op, Quirks},
         volume::{MountTable, mount_lanes, mount_watch},
     },
-    model::{EntryKind, Location},
+    model::Location,
     services::{LocationValidationError, file_activity},
     test_support::Gate,
 };
@@ -29,8 +29,8 @@ fn answer<T>(probe: impl Future<Output = T>) -> T {
 fn summary(presence: &Presence) -> String {
     match presence {
         Presence::Absent => "absent".to_owned(),
-        Presence::Present(kind) => format!("{kind:?}"),
-        Presence::Unknown(error) => format!("unknown {}", error.raw_os_error().unwrap_or_default()),
+        Presence::Present => "present".to_owned(),
+        Presence::Unknown => "unknown".to_owned(),
     }
 }
 
@@ -49,13 +49,13 @@ fn presence_reports_absence_only_where_it_is_proven() -> Result<(), Box<dyn std:
         },
     );
     let rows = [
-        ("file", "File"),
-        ("folder", "Directory"),
-        ("dangling", "SymbolicLink"),
+        ("file", "present"),
+        ("folder", "present"),
+        ("dangling", "present"),
         ("missing", "absent"),
         ("gone/child", "absent"),
         ("file/child", "absent"),
-        ("flaky", "unknown 5"),
+        ("flaky", "unknown"),
     ];
     let locations: Vec<_> = rows
         .iter()
@@ -76,10 +76,7 @@ fn presence_of_an_unreachable_remote_location_is_unknown() {
         &[Location::uri("sftp://strata-probe-test.invalid/missing")],
         &gio::Cancellable::new(),
     ));
-    assert!(
-        matches!(found.as_slice(), [Presence::Unknown(_)]),
-        "{found:?}"
-    );
+    assert!(matches!(found.as_slice(), [Presence::Unknown]), "{found:?}");
 }
 
 #[test]
@@ -260,10 +257,7 @@ fn probes_of_a_folder_that_stopped_answering_time_out_at_once()
     ));
     let listed = answer(folder(root.path()));
     assert!(started.elapsed() < Duration::from_secs(1));
-    assert!(
-        matches!(other.as_slice(), [Presence::Unknown(error)] if error.kind() == io::ErrorKind::TimedOut),
-        "{other:?}"
-    );
+    assert!(matches!(other.as_slice(), [Presence::Unknown]), "{other:?}");
     assert!(
         matches!(listed, Err(LocationValidationError::Unavailable(_))),
         "{listed:?}"
@@ -277,7 +271,7 @@ fn probes_of_a_folder_that_stopped_answering_time_out_at_once()
             &gio::Cancellable::new(),
         ))
         .as_slice(),
-        [Presence::Present(EntryKind::File)]
+        [Presence::Present]
     ));
     Ok(())
 }

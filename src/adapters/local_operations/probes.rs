@@ -25,19 +25,15 @@ use crate::{
         mount_lanes::{self, Class, Progress, Unanswered},
         mount_watch,
     },
-    model::{EntryKind, Location},
-    services::{LocationValidationError, file_activity, gio_error_detail, io_error_detail},
+    model::Location,
+    services::{LocationValidationError, file_activity, io_error_detail},
 };
 
 #[derive(Debug)]
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "callers so far act only on proven absence")
-)]
 pub(crate) enum Presence {
     Absent,
-    Present(EntryKind),
-    Unknown(io::Error),
+    Present,
+    Unknown,
 }
 
 fn unanswered(unanswered: Unanswered) -> io::Error {
@@ -49,33 +45,15 @@ fn unanswered(unanswered: Unanswered) -> io::Error {
     }
 }
 
-fn listed_kind(kind: FileType) -> EntryKind {
-    match kind {
-        FileType::Directory => EntryKind::Directory,
-        FileType::RegularFile => EntryKind::File,
-        FileType::Symlink => EntryKind::SymbolicLink,
-        _ => EntryKind::Other,
-    }
-}
-
-fn gio_kind(kind: gio::FileType) -> EntryKind {
-    match kind {
-        gio::FileType::Directory => EntryKind::Directory,
-        gio::FileType::Regular => EntryKind::File,
-        gio::FileType::SymbolicLink => EntryKind::SymbolicLink,
-        _ => EntryKind::Other,
-    }
-}
-
 fn absent(error: Errno) -> bool {
     matches!(error, Errno::NOENT | Errno::NOTDIR)
 }
 
-fn presence_of(kind: Result<FileType, Errno>) -> Presence {
-    match kind {
-        Ok(kind) => Presence::Present(listed_kind(kind)),
+fn presence_of(answer: Result<(), Errno>) -> Presence {
+    match answer {
+        Ok(()) => Presence::Present,
         Err(error) if absent(error) => Presence::Absent,
-        Err(error) => Presence::Unknown(error.into()),
+        Err(_) => Presence::Unknown,
     }
 }
 
@@ -139,9 +117,9 @@ pub(crate) async fn presence(
                             Ok(admitted) => {
                                 names_in(&folder, &names, &cancellable, admitted.progress())
                             }
-                            Err(refused) => names
+                            Err(_) => names
                                 .iter()
-                                .map(|(index, _)| (*index, Presence::Unknown(unanswered(refused))))
+                                .map(|(index, _)| (*index, Presence::Unknown))
                                 .collect(),
                         }
                     })
@@ -151,7 +129,7 @@ pub(crate) async fn presence(
                 found.await.unwrap_or_else(|_| {
                     indexes
                         .into_iter()
-                        .map(|index| (index, Presence::Unknown(unanswered(Unanswered::Failed))))
+                        .map(|index| (index, Presence::Unknown))
                         .collect()
                 })
             }
@@ -170,7 +148,7 @@ pub(crate) async fn presence(
     }
     answers
         .into_iter()
-        .map(|answer| answer.unwrap_or_else(|| Presence::Unknown(unanswered(Unanswered::Failed))))
+        .map(|answer| answer.unwrap_or(Presence::Unknown))
         .collect()
 }
 
@@ -185,12 +163,12 @@ fn names_in(
         .iter()
         .map(|(index, name)| {
             if cancellable.is_cancelled() {
-                return (*index, Presence::Unknown(io::ErrorKind::Interrupted.into()));
+                return (*index, Presence::Unknown);
             }
             let Some(name) = name else {
                 let stamp = folder_stamp(folder, false);
                 progress.answered(&stamp);
-                return (*index, presence_of(stamp.map(|stamp| stamp.kind)));
+                return (*index, presence_of(stamp.map(drop)));
             };
             let dir = dir.get_or_insert_with(|| {
                 let opened = open_folder(folder);
@@ -201,7 +179,7 @@ fn names_in(
                 Ok(dir) => {
                     let stat = fs().stat(Entry::new(dir, name), false);
                     progress.answered(&stat);
-                    presence_of(stat.map(|stat| stat.kind))
+                    presence_of(stat.map(drop))
                 }
                 Err(error) => presence_of(Err(*error)),
             };
@@ -212,7 +190,7 @@ fn names_in(
 
 async fn remote_presence(location: &Location, cancellable: &gio::Cancellable) -> Presence {
     let Some(uri) = location.uri_value() else {
-        return Presence::Unknown(io::ErrorKind::InvalidInput.into());
+        return Presence::Unknown;
     };
     let file = gio::File::for_uri(uri);
     let query = gio::CancellableFuture::new(
@@ -224,11 +202,9 @@ async fn remote_presence(location: &Location, cancellable: &gio::Cancellable) ->
         cancellable.clone(),
     );
     match mount_lanes::run_remote(mount_lanes::authority(uri), Class::Interactive, query).await {
-        Err(refused) => Presence::Unknown(unanswered(refused)),
-        Ok(Err(_)) => Presence::Unknown(io::ErrorKind::Interrupted.into()),
-        Ok(Ok(Ok(info))) => Presence::Present(gio_kind(info.file_type())),
+        Ok(Ok(Ok(_))) => Presence::Present,
         Ok(Ok(Err(error))) if error.matches(gio::IOErrorEnum::NotFound) => Presence::Absent,
-        Ok(Ok(Err(error))) => Presence::Unknown(io::Error::other(gio_error_detail(&error))),
+        _ => Presence::Unknown,
     }
 }
 
