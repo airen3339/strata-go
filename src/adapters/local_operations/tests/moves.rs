@@ -9,6 +9,7 @@ use rustix::io::Errno;
 
 use super::fs_quirks::{NameOpens, Op, Support, hold};
 use super::*;
+use crate::adapters::volume::{Family, mount_capabilities};
 use crate::services::{Holder, KeptCause, KeptItem, SpecialKind, TransferReport};
 
 #[test]
@@ -1230,7 +1231,7 @@ fn a_name_of_a_linked_file_changed_after_its_other_name_went_stays() -> Result<(
         ..Quirks::default()
     };
     for (row, source, numbers_go, evicted) in [
-        ("ext4", Quirks::default as Preset, false, false),
+        ("ext4", Quirks::ext4 as Preset, false, false),
         ("cifs, server inode numbers turned off", cifs, true, false),
         (
             "cifs, server inode numbers turned off, names numbered afresh after the copy",
@@ -1991,6 +1992,12 @@ fn a_move_across_volumes_reads_the_source_mount_once() -> Result<(), Box<dyn Err
     assert_eq!(super::names(&destination)?, names);
     assert!(super::names(&sources)?.is_empty());
     assert_eq!(source_scope.count(Op::MountType), 1);
+    let smb = mount_capabilities(source_scope.key()).family == Some(Family::Smb);
+    let reads_again = source_scope.count(Op::CurrentMountType);
+    assert!(
+        reads_again <= usize::from(smb) * names.len(),
+        "{reads_again} reads of the current mount type, SMB: {smb}"
+    );
     Ok(())
 }
 

@@ -283,7 +283,7 @@ fn restore_copy_refuses_a_trash_item_replaced_after_it_was_checked() -> Result<(
             fixture.path(),
             Quirks {
                 before: vec![(op, pattern, 0, racer)],
-                ..Quirks::without_placement()
+                ..Quirks::without_placement().on_ext4()
             },
         );
 
@@ -361,15 +361,23 @@ fn a_cancelled_restore_copy_of_a_folder_is_a_cancel_only_once_the_folder_is_gone
     // filling it), checks it, empties it and checks its name before removing
     // it. Rows fail the open or a check, or renumber the folder as libfuse
     // without `use_ino` does, where only its type is compared.
-    let sshfs = Some(("fuse.sshfs", "rw"));
-    for (mount_type, fail, renumber, removed) in [
-        (None, Some((Op::OpenDir, 2)), false, false),
-        (None, Some((Op::StatFd, 2)), false, false),
-        (None, None, true, false),
-        (None, Some((Op::Stat, 2)), false, false),
+    let host: Preset = Quirks::without_placement;
+    let ext4 = || Quirks::without_placement().on_ext4();
+    let sshfs = || Quirks {
+        mount_type: Some(("fuse.sshfs", "rw")),
+        ..Quirks::without_placement()
+    };
+    for (preset, fail, renumber, removed) in [
+        (host, Some((Op::OpenDir, 2)), false, false),
+        (host, Some((Op::StatFd, 2)), false, false),
+        (ext4, None, true, false),
+        (host, Some((Op::Stat, 2)), false, false),
         (sshfs, None, true, true),
     ] {
-        let row = format!("{mount_type:?}, {fail:?}, renumbered: {renumber}");
+        let row = format!(
+            "{:?}, {fail:?}, renumbered: {renumber}",
+            preset().mount_type
+        );
         let fixture = tempfile::tempdir()?;
         let source = fixture.path().join("source");
         fs::create_dir(&source)?;
@@ -396,9 +404,8 @@ fn a_cancelled_restore_copy_of_a_folder_is_a_cancel_only_once_the_folder_is_gone
                     .map(|(op, skip)| (op, "destination", skip, Errno::IO))
                     .into_iter()
                     .collect(),
-                mount_type,
                 reflink: Support::Rejected(Errno::OPNOTSUPP),
-                ..Quirks::without_placement()
+                ..preset()
             },
         );
 

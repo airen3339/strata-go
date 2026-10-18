@@ -85,6 +85,7 @@ pub(crate) enum Op {
     GetXattr,
     SetXattr,
     MountType,
+    CurrentMountType,
     DeviceFormat,
     OpenDir,
     List,
@@ -414,10 +415,14 @@ impl Quirks {
     }
 
     pub(crate) fn ext4() -> Self {
+        Self::default().on_ext4()
+    }
+
+    pub(crate) fn on_ext4(self) -> Self {
         Self {
             mount_type: Some(EXT4),
             fs_type: Some(EXT4_SUPER_MAGIC),
-            ..Self::default()
+            ..self
         }
     }
 
@@ -896,6 +901,7 @@ struct Scope {
     id: u64,
     root: PathBuf,
     mount_id: Option<u64>,
+    host: Option<MountType>,
     own_device: bool,
     state: Mutex<State>,
     /// Makes looking a name up and creating it one step, as a filesystem that
@@ -990,9 +996,11 @@ impl FsQuirks {
                     StatxFlags::from_bits_retain(stat.stx_mask).contains(StatxFlags::MNT_ID)
                 })
                 .map(|stat| stat.stx_mnt_id);
+        let root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
         let scope = Arc::new(Scope {
             id: NEXT_SCOPE.fetch_add(1, Ordering::Relaxed),
-            root: root.canonicalize().unwrap_or_else(|_| root.to_path_buf()),
+            host: host_mount_type(mount_id, &root),
+            root,
             mount_id,
             own_device: quirks.own_device,
             naming: Mutex::new(()),
@@ -1458,7 +1466,7 @@ impl Scope {
                 point: scope.root.clone(),
                 root: PathBuf::from(root),
             };
-            Ok(Some((scope.mount_type(), site)))
+            Ok(scope.mount_type().map(|mount_type| (mount_type, site)))
         })
         .ok()
         .flatten()
@@ -1499,40 +1507,55 @@ impl Scope {
         read(&self.state().quirks)
     }
 
-    fn mount_type(&self) -> MountType {
+    fn mount_type(&self) -> Option<MountType> {
+        self.emulated_or(|| self.host.clone())
+    }
+
+    fn current_mount_type(&self) -> Option<MountType> {
+        self.emulated_or(|| host_mount_type(self.mount_id, &self.root))
+    }
+
+    fn emulated_or(&self, host: impl FnOnce() -> Option<MountType>) -> Option<MountType> {
         let serverino_disabled = self.state().serverino_disabled;
-        let (fs_type, super_options) = self.quirk(|quirks| quirks.mount_type).unwrap_or(EXT4);
-        let super_options = super_options
-            .split(',')
-            .filter(|option| !serverino_disabled || *option != "serverino")
-            .collect::<Vec<_>>()
-            .join(",");
-        MountType {
-            fs_type: fs_type.to_owned(),
-            super_options,
+        let mut mount = match self.quirk(|quirks| quirks.mount_type) {
+            Some((fs_type, super_options)) => MountType {
+                fs_type: fs_type.to_owned(),
+                super_options: super_options.to_owned(),
+            },
+            None => host()?,
+        };
+        if serverino_disabled {
+            mount.super_options = mount
+                .super_options
+                .split(',')
+                .filter(|option| *option != "serverino")
+                .collect::<Vec<_>>()
+                .join(",");
         }
+        Some(mount)
     }
 
     fn mounts(&self) -> MountTable {
-        let MountType {
-            fs_type,
-            super_options,
-        } = self.mount_type();
         MountTable::parse(
             self.mount_id
-                .map(|id| format!("{id} 0 0:0 / / rw - {fs_type} test {super_options}\n"))
+                .zip(self.mount_type())
+                .map(|(id, mount)| {
+                    let (fs_type, options) = (mount.fs_type, mount.super_options);
+                    format!("{id} 0 0:0 / / rw - {fs_type} test {options}\n")
+                })
                 .unwrap_or_default(),
         )
     }
 
     fn server_numbers(&self) -> bool {
-        let mount = self.mount_type();
-        mount.server_numbers()
-            || (mount.fs_type == "cifs"
-                && mount
-                    .super_options
-                    .split(',')
-                    .any(|option| option == "posix"))
+        self.mount_type().is_some_and(|mount| {
+            mount.server_numbers()
+                || (mount.fs_type == "cifs"
+                    && mount
+                        .super_options
+                        .split(',')
+                        .any(|option| option == "posix"))
+        })
     }
 
     fn invalid(&self, name: &OsStr) -> Option<Errno> {
@@ -2067,6 +2090,15 @@ fn path_of(dir: BorrowedFd<'_>) -> Option<PathBuf> {
     std::fs::read_link(format!("/proc/self/fd/{}", dir.as_raw_fd())).ok()
 }
 
+fn host_mount_type(mount_id: Option<u64>, root: &Path) -> Option<MountType> {
+    let table = MountTable::parse(std::fs::read("/proc/self/mountinfo").ok()?);
+    let mount = match mount_id {
+        Some(id) => table.mount_of(id),
+        None => table.mount_at(root),
+    };
+    mount.map(|(mount_type, _)| mount_type.clone())
+}
+
 /// The basename an fd-only call logs; `#<inode> (deleted)` for an unnamed file.
 fn fd_name(fd: BorrowedFd<'_>) -> OsString {
     path_of(fd)
@@ -2408,8 +2440,11 @@ impl FsEnvironment for Scoped {
         assert_off_main_thread();
         match scope_for(fd) {
             Some(scope) => scope
-                .run(Op::MountType, &[], |scope| Ok(scope.mount_type()))
-                .ok(),
+                .run(Op::CurrentMountType, &[], |scope| {
+                    Ok(scope.current_mount_type())
+                })
+                .ok()
+                .flatten(),
             None => System.current_mount_type(fd),
         }
     }
@@ -2438,9 +2473,10 @@ impl FsEnvironment for Scoped {
         assert_off_main_thread();
         match scope_for(fd) {
             Some(scope) => scope.run(Op::DeviceFormat, &[], |scope| {
-                Ok(scope
-                    .quirk(|quirks| quirks.device_format)
-                    .map(str::to_owned))
+                match scope.quirk(|quirks| (quirks.mount_type, quirks.device_format)) {
+                    (None, None) => System.device_format(fd),
+                    (_, format) => Ok(format.map(str::to_owned)),
+                }
             }),
             None => System.device_format(fd),
         }
@@ -2742,8 +2778,8 @@ impl FsOps for Scoped {
                 .run(Op::Statfs, &[], |scope| {
                     let system = System.statfs(dir);
                     let (kind, name_max) = scope.quirk(|quirks| (quirks.fs_type, quirks.name_max));
-                    Ok(Some(FsStat {
-                        kind: kind.unwrap_or(EXT4_SUPER_MAGIC),
+                    Ok(kind.or(system.map(|stat| stat.kind)).map(|kind| FsStat {
+                        kind,
                         name_max: name_max.or(system.map(|stat| stat.name_max)).unwrap_or(0),
                     }))
                 })

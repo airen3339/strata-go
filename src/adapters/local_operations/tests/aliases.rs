@@ -377,7 +377,7 @@ fn top_level_items_a_destination_takes_for_an_earlier_one_are_numbered_and_repor
                         fs::write(source.join(name), name)?;
                     }
                 }
-                let sources = FsQuirks::install(&source, Quirks::default());
+                let sources = FsQuirks::install(&source, Quirks::ext4());
                 let _destination = FsQuirks::install(&destination, preset());
 
                 let events = run_paste(PasteRequest {

@@ -2100,6 +2100,14 @@ in the container (`docker exec strata-fslab …`) in a server's own folder (`/sr
 through the client mount. Such a change goes to the server's filesystem directly, not through nfsd,
 smbd or sftp-server.
 
+A preset reports the lab mount's mountinfo type unless it names `mount_type`, the mount's
+`statfs` type unless it names `fs_type`, and the mount's udev format only when it names neither a
+mount type nor a device format. `Quirks::default()` names none of them, so Strata applies the lab
+mount's rules there, and a preset that names only a mount type keeps the base's `statfs` type,
+which decides exchanges. The presets of real filesystems, and rows that need one's rules
+(`on_ext4`), name both. The Replace row that substitutes the target Strata holds for its Trash
+check skips on NFS, where nothing is held ("skipped on an NFS base").
+
 Unit tests layer quirks on a fully featured filesystem, so on a limited mount some of them fail by
 design: a test expecting a plain rename sees the ladder link instead on NFS, fixtures with
 symlinks, FIFOs or Unix permissions cannot exist on vfat, a racer keyed to a step the mount never

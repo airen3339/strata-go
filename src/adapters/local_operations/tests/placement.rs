@@ -559,7 +559,8 @@ fn a_lost_reply_over_a_placeholder_removes_only_one_proven_untouched() -> Result
         lost_renames_keep_inodes: true,
         ..Quirks::vboxsf()
     };
-    let folders = || without_flags(Errno::NOSYS);
+    let links_refused = || links_refused_for_the_item().on_ext4();
+    let folders = || without_flags(Errno::NOSYS).on_ext4();
     let unknown_type = || Quirks {
         mount_type: Some(("jfs", "rw")),
         ..links_refused_for_the_item()
@@ -581,7 +582,7 @@ fn a_lost_reply_over_a_placeholder_removes_only_one_proven_untouched() -> Result
         (Quirks::sshfs, false, InodeNumbers::Renewed),
         (Quirks::sshfs, true, InodeNumbers::Renewed),
         (vboxsf, false, InodeNumbers::Renewed),
-        (links_refused_for_the_item, false, InodeNumbers::Kept),
+        (links_refused, false, InodeNumbers::Kept),
         (folders, true, InodeNumbers::Kept),
         (unknown_type, false, InodeNumbers::Unknown),
         (unread_type, true, InodeNumbers::Unknown),
@@ -993,6 +994,10 @@ fn the_probe_learns_each_quirk_and_leaves_nothing_behind() -> Result<(), Box<dyn
         .flat_map(|case| [false, true].map(|learned_first| (case, learned_first)))
     {
         let row = format!("{:?}, learned first: {learned_first}", quirks().mount_type);
+        let quirks = || match quirks() {
+            unnamed if unnamed.mount_type.is_none() => unnamed.on_ext4(),
+            named => named,
+        };
         let root = tempfile::tempdir()?;
         let parent = open_local_parent_directory(root.path())?;
         {

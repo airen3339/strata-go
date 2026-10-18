@@ -1125,7 +1125,10 @@ fn selected_names_of_a_linked_file_on_an_smb_share_are_opened_one_at_a_time()
             after: vec![(Op::OpenSource, "linked-*", 0, hold)],
             ..Quirks::default()
         };
-        let mounts = mounts(smb, |_| Quirks::default())?;
+        let mounts = mounts(smb, |_| Quirks {
+            rotational: Some(false),
+            ..Quirks::default()
+        })?;
         if thread::available_parallelism().map_or(1, usize::from) < 2 {
             eprintln!("skipped: the bulk path copies one file at a time on this machine");
             return Ok(());
