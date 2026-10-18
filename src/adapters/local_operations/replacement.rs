@@ -1018,6 +1018,7 @@ pub(super) struct MergeHooks<'a> {
     pub(super) copy_into_target: CopyStep,
     pub(super) stage_overwrite: StageOverwrite,
     pub(super) on_merged: &'a dyn Fn(MergePlan),
+    pub(super) progress: Option<Rc<TransferProgressTracker>>,
 }
 
 pub(super) fn classify_merge<'a>(
@@ -1218,6 +1219,7 @@ pub(super) async fn merge_owing(
     let folders = (&source, &target);
     classify_merge(folders, &mut plan, cancellable, (&hooks.names, folder)).await?;
     let target_path = target.path();
+    let progress = hooks.progress.as_deref();
     // Originals go to Trash, or aside where Trash is unavailable, before
     // anything is copied.
     let mut trashed = Vec::new();
@@ -1256,7 +1258,7 @@ pub(super) async fn merge_owing(
                 originals,
                 ..MergePlan::default()
             });
-            return Err(merge_aside::abandon(aside, error, HashMap::new()).await);
+            return Err(merge_aside::abandon(aside, error, HashMap::new(), progress).await);
         }
     }
     let written: Vec<PathBuf> = plan
@@ -1315,7 +1317,9 @@ pub(super) async fn merge_owing(
     if let Some(path) = native_path(&target).filter(|_| move_source || aside.is_some()) {
         match copy_engine::barrier(path).await {
             Ok(barrier) => owed.barrier = Some(barrier),
-            Err(error) => return Err(merge_aside::abandon(aside, error, HashMap::new()).await),
+            Err(error) => {
+                return Err(merge_aside::abandon(aside, error, HashMap::new(), progress).await);
+            }
         }
     }
     let copying = MergeCopy {
@@ -1344,7 +1348,7 @@ pub(super) async fn merge_owing(
     }
     let copied = match copied {
         Ok(copied) => copied,
-        Err(error) => return Err(merge_aside::abandon(aside, error, over_aside).await),
+        Err(error) => return Err(merge_aside::abandon(aside, error, over_aside, progress).await),
     };
     if native_path(&source).is_none()
         && owed
@@ -1353,7 +1357,7 @@ pub(super) async fn merge_owing(
             .is_some_and(copy_engine::Barrier::syncs_each_file)
         && let Err(error) = copy_engine::sync_files(written, cancellable).await
     {
-        return Err(merge_aside::abandon(aside, error, over_aside).await);
+        return Err(merge_aside::abandon(aside, error, over_aside, progress).await);
     }
     owed.nested = copied.nested;
     if let Some(aside) = merge_aside::finish(aside).await? {
@@ -1405,9 +1409,10 @@ pub(super) fn progress_merge_hooks(
 ) -> MergeHooks<'_> {
     MergeHooks {
         names: names.clone(),
-        copy_into_target: merge_copy(progress, names),
+        copy_into_target: merge_copy(progress.clone(), names),
         stage_overwrite: releasing_stage_overwrite(operation),
         on_merged,
+        progress,
     }
 }
 

@@ -98,7 +98,7 @@ impl Deletion {
                 });
                 Ok(())
             }
-            Self::Aside(aside) => aside.remove().await,
+            Self::Aside(aside) => aside.remove(progress, unlinks.leftovers()).await,
         }
     }
 

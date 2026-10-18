@@ -913,14 +913,7 @@ impl Originals {
         deadline: &Deadline,
     ) -> Result<(), Refused> {
         let folder = at(dir, &self.name);
-        let unchanged = || match (fs.stat(folder, false), fs.stat_fd(self.handle.as_fd())) {
-            (Ok(named), Ok(held)) => named.identity == held.identity,
-            _ => false,
-        };
-        if !unchanged() {
-            return Err(Refused::Changed(Errno::NOENT));
-        }
-        leftovers::remove_folder(fs, folder, deadline, &|| false, &unchanged)
+        leftovers::remove_held_folder(fs, folder, self.handle.as_fd(), deadline, &|| false)
     }
 
     pub(super) fn refusal(&self, fs: &dyn FsOps, dir: BorrowedFd<'_>, refused: Refused) -> String {

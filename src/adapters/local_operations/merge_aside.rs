@@ -7,7 +7,7 @@
 
 use std::{
     collections::{HashMap, HashSet},
-    ffi::OsString,
+    ffi::{OsStr, OsString},
     os::fd::{AsFd, OwnedFd},
     path::{Path, PathBuf},
     sync::Arc,
@@ -21,14 +21,20 @@ use rustix::{
 
 use super::{
     copy_engine::Ownership,
-    deletion::{PinnedEntry, parallel_delete_local},
-    fs_ops::{Entry, drop_off_main_thread, fs},
+    deletion::{PinnedEntry, parallel_delete_local_with_worker_count},
+    fs_ops::{Entry, FsOps, drop_off_main_thread, fs},
     io_error,
+    leftovers::{self, Deadline, Refused},
     native_fs::{LocalFileIdentity, open_local_parent_directory},
     placement::{self, Feasibility, PlaceError},
-    placement_reason, run_blocking, was_cancelled,
+    placement_reason,
+    progress::TransferProgressTracker,
+    run_blocking, was_cancelled,
 };
-use crate::{model::hidden_names::HiddenName, services::Attributes};
+use crate::{
+    model::{Location, hidden_names::HiddenName},
+    services::{Attributes, KeptItem, TransferReport},
+};
 
 struct Folder {
     name: OsString,
@@ -64,6 +70,52 @@ pub(super) struct MergeAside {
 struct Kept {
     folder: PathBuf,
     reason: PlaceError,
+}
+
+enum Left {
+    Nothing,
+    StillOpen(KeptItem),
+    Something,
+}
+
+enum Removed {
+    Gone,
+    Held(Errno),
+    HeldBelow,
+    Kept,
+}
+
+fn removed(
+    fs: &dyn FsOps,
+    at: Entry<'_>,
+    held: &OwnedFd,
+    deadline: &Deadline,
+    held_child: impl Fn(&OsStr) -> bool,
+) -> Removed {
+    if fs.stat(at, false).err() == Some(Errno::NOENT) {
+        return Removed::Gone;
+    }
+    match leftovers::remove_held_folder(fs, at, held.as_fd(), deadline, &|| false) {
+        Ok(()) | Err(Refused::Os(Errno::NOENT)) => Removed::Gone,
+        Err(Refused::StillOpen(errno)) => Removed::Held(errno),
+        Err(Refused::Os(errno @ (Errno::NOTEMPTY | Errno::EXIST))) => {
+            let Ok(names) = fs.names(Entry::new(held, OsStr::new("."))) else {
+                return Removed::Kept;
+            };
+            if names.is_empty()
+                || names.iter().any(|name| {
+                    !held_child(name) && !leftovers::is_leftover(fs, held.as_fd(), name)
+                })
+            {
+                Removed::Kept
+            } else if names.iter().any(|name| held_child(name)) {
+                Removed::HeldBelow
+            } else {
+                Removed::Held(errno)
+            }
+        }
+        Err(_) => Removed::Kept,
+    }
 }
 
 fn could_not_set_aside(name: &str, error: PlaceError) -> glib::Error {
@@ -232,9 +284,49 @@ impl MergeAside {
         Ok(current)
     }
 
+    fn remove_folders(&mut self, deadline: &Deadline) -> Left {
+        // Their mirror handles would name Strata as the holder.
+        self.moved.clear();
+        let fs = fs();
+        let mut held = HashSet::new();
+        let mut first = None;
+        for mirror in self.mirrors.drain(..).rev() {
+            let at = Entry::new(&*mirror.parent, &mirror.name);
+            let held_child = |name: &OsStr| held.contains(&mirror.relative.join(name));
+            match removed(fs, at, &mirror.handle, deadline, held_child) {
+                Removed::Held(errno) => {
+                    first.get_or_insert((mirror.parent, mirror.name, errno));
+                }
+                Removed::HeldBelow => {}
+                Removed::Gone | Removed::Kept => continue,
+            }
+            held.insert(mirror.relative);
+        }
+        let (Some(target), Some(folder)) = (&self.target, &self.folder) else {
+            return Left::Nothing;
+        };
+        let container = Entry::new(&**target, &folder.name);
+        let held_child = |name: &OsStr| held.contains(Path::new(name));
+        match removed(fs, container, &folder.handle, deadline, held_child) {
+            Removed::Gone => return Left::Nothing,
+            Removed::Kept => return Left::Something,
+            Removed::Held(errno) => {
+                first.get_or_insert_with(|| (Arc::clone(target), folder.name.clone(), errno));
+            }
+            Removed::HeldBelow => {}
+        }
+        let Some((dir, name, errno)) = first else {
+            return Left::Something;
+        };
+        Left::StillOpen(KeptItem {
+            location: Location::local(self.target_path.join(&folder.name)),
+            cause: leftovers::kept_open(fs, Entry::new(&*dir, &name), errno),
+        })
+    }
+
     /// An original whose name holds anything but the merge's own copy, as `placed`
     /// tells it, stays in the folder.
-    fn put_back(&mut self, placed: &HashMap<PathBuf, Ownership>) -> Result<(), Kept> {
+    fn put_back(&mut self, placed: &HashMap<PathBuf, Ownership>) -> Result<Option<KeptItem>, Kept> {
         let mut failure = None;
         for moved in std::mem::take(&mut self.moved).into_iter().rev() {
             let aside = Entry::new(&*moved.aside_parent, &moved.name);
@@ -253,24 +345,14 @@ impl MergeAside {
                 failure.get_or_insert(error);
             }
         }
-        for mirror in self.mirrors.drain(..).rev() {
-            let _ = fs().unlink(
-                Entry::new(&*mirror.parent, &mirror.name),
-                AtFlags::REMOVEDIR,
-            );
-        }
-        let (Some(target), Some(folder)) = (&self.target, &self.folder) else {
-            return Ok(());
+        let reason = match (self.remove_folders(&Deadline::default()), failure) {
+            (Left::Nothing, _) => return Ok(None),
+            (Left::StillOpen(kept), None) => return Ok(Some(kept)),
+            (_, failure) => failure.unwrap_or(PlaceError::Unconfirmed),
         };
-        let entry = Entry::new(&**target, &folder.name);
-        if placement::remove_if_unchanged(fs(), entry, folder.identity, AtFlags::REMOVEDIR)
-            || fs().stat(entry, false).err() == Some(Errno::NOENT)
-        {
-            return Ok(());
-        }
         Err(Kept {
-            folder: self.target_path.join(&folder.name),
-            reason: failure.unwrap_or(PlaceError::Unconfirmed),
+            folder: self.folder_path().unwrap_or_default(),
+            reason,
         })
     }
 
@@ -296,21 +378,50 @@ impl MergeAside {
         failure
     }
 
-    pub(super) async fn remove(mut self) -> Result<(), glib::Error> {
+    pub(super) async fn remove(
+        mut self,
+        progress: Option<&TransferProgressTracker>,
+        deadline: &Deadline,
+    ) -> Result<(), glib::Error> {
         let path = self.folder_path().unwrap_or_default();
-        let (Some(target), Some(folder)) = (self.target.take(), self.folder.take()) else {
+        let (Some(target), Some(folder)) = (self.target.clone(), self.folder.as_ref()) else {
             return Ok(());
         };
-        parallel_delete_local(
-            vec![PinnedEntry {
-                parent: target,
-                name: folder.name,
-                identity: Some(folder.identity),
-            }],
+        let root = PinnedEntry {
+            parent: target,
+            name: folder.name.clone(),
+            identity: Some(folder.identity),
+        };
+        let deleted = parallel_delete_local_with_worker_count(
+            vec![root],
             gio::Cancellable::new(),
+            None,
+            deadline.clone(),
         )
-        .await
-        .map_err(|error| not_removed(&path, &error))
+        .await;
+        let Err(error) = deleted else {
+            return Ok(());
+        };
+        let deadline = deadline.clone();
+        let left = run_blocking(move || {
+            Ok(match self.remove_folders(&deadline) {
+                Left::Nothing => Ok(None),
+                Left::StillOpen(kept) => Ok(Some(kept)),
+                Left::Something => Err(()),
+            })
+        })
+        .await;
+        match (left, progress) {
+            (Ok(Ok(None)), _) => Ok(()),
+            (Ok(Ok(Some(kept))), Some(progress)) => {
+                progress.report(TransferReport {
+                    kept: vec![kept],
+                    ..TransferReport::default()
+                });
+                Ok(())
+            }
+            _ => Err(not_removed(&path, &error)),
+        }
     }
 
     pub(super) fn not_removed(&self, error: &glib::Error) -> glib::Error {
@@ -360,13 +471,22 @@ pub(super) async fn abandon(
     aside: Option<MergeAside>,
     error: glib::Error,
     placed: HashMap<PathBuf, Ownership>,
+    progress: Option<&TransferProgressTracker>,
 ) -> glib::Error {
     let Some(mut aside) = aside.filter(MergeAside::used) else {
         return error;
     };
     let folder = aside.folder_path().unwrap_or_default();
     let kept = match gio::spawn_blocking(move || aside.put_back(&placed)).await {
-        Ok(Ok(())) => return error,
+        Ok(Ok(open)) => {
+            if let Some(progress) = progress {
+                progress.report(TransferReport {
+                    kept: open.into_iter().collect(),
+                    ..TransferReport::default()
+                });
+            }
+            return error;
+        }
         Ok(Err(kept)) => kept,
         Err(_) => Kept {
             folder,

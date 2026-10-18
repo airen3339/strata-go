@@ -452,9 +452,12 @@ the merge fails or is cancelled, and are removed once it succeeds and is flushed
 original back over a copy the merge already placed at its name, the merge deletes that copy while it
 is still as placed; anything else at the name stays, and the original stays in the folder, which the
 error names. An original whose name the merge left free, because the incoming item was a special
-file the destination cannot store or a source that a merging move kept, is put back instead. It
-refuses to set a file aside where Replace would. How the incoming items are placed is described
-under [Merges](#merges).
+file the destination cannot store or a source that a merging move kept, is put back instead. Where
+another program has an original open on NFS, SMB or FUSE, deleting it or putting it back can leave
+the mount's [leftover](#files-that-are-still-open) in the folder. The folder then stays and is
+reported as still open ("“%{name}” was left in “%{folder}”, as a file in it is still open in
+%{program}"), which alone never stops the merge. It refuses to set a file aside where Replace would.
+How the incoming items are placed is described under [Merges](#merges).
 
 ## Copying
 
@@ -1368,16 +1371,22 @@ inside a folder is left alone:
 
 ### Removing a folder that holds only leftovers
 
-Deleting a folder, removing the source folders of a move, cleaning up a failed copy and removing a
-merge's stage all go through one removal in `src/adapters/local_operations/leftovers.rs`. When
+Deleting a folder, removing the source folders of a move, cleaning up a failed copy, removing a
+merge's stage and removing a folder of set-aside originals all go through one removal in
+`src/adapters/local_operations/leftovers.rs`. When
 `rmdir` fails with `ENOTEMPTY`, or with `EACCES` and an empty listing on SMB with POSIX extensions,
 it lists the folder. Anything that is not the mount family's leftover ends it with the error as it
 is. Otherwise it tries again, with pauses of 10 ms doubling to 50 ms, listing again after each
 refusal, until a budget runs out: 2 s on NFS and FUSE, and on SMB the client's `closetimeo` (one
 second by default) plus half a second, at most 10 s. It stops at once when something else is
-listed, when the folder at the name is no longer the one it checked, or when the operation is
-cancelled. One budget covers a whole Delete, a paste's source deletions, or a copy's cleanups, so a
-thousand held folders cost one wait. A folder that empties goes at once and costs no wait.
+listed or when the folder at the name is no longer the one it checked. A Delete and a move's source
+deletions also stop when the operation is cancelled. Cleanups are never cut short, as they also run
+after a cancel: a failed copy's, a merge's stage, and a folder of set-aside originals, which is
+removed once its originals have gone back. One budget covers a whole Delete, a paste's deletions
+after its items are placed (its sources and the originals it set aside), or a copy's cleanups, so a
+thousand held folders cost one wait. Each put back of set-aside originals has a budget of its own,
+so cancelling a merge or Replace whose original another program holds open can take that whole
+budget once more. A folder that empties goes at once and costs no wait.
 
 ### Naming what holds it
 

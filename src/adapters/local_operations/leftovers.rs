@@ -119,6 +119,30 @@ pub(super) fn remove_folder(
     }
 }
 
+pub(super) fn remove_held_folder(
+    fs: &dyn FsOps,
+    at: Entry<'_>,
+    held: BorrowedFd<'_>,
+    deadline: &Deadline,
+    stopped: &dyn Fn() -> bool,
+) -> Result<(), Refused> {
+    let unchanged = || match (fs.stat(at, false), fs.stat_fd(held)) {
+        (Ok(named), Ok(held)) => named.identity == held.identity,
+        _ => false,
+    };
+    if !unchanged() {
+        return Err(Refused::Changed(Errno::NOENT));
+    }
+    remove_folder(fs, at, deadline, stopped, &unchanged)
+}
+
+pub(super) fn kept_open(fs: &dyn FsOps, folder: Entry<'_>, errno: Errno) -> KeptCause {
+    match holder(fs, folder) {
+        None if errno == Errno::ACCESS => KeptCause::Undeletable(errno.raw_os_error()),
+        holder => KeptCause::StillOpen(holder),
+    }
+}
+
 pub(super) fn holder(fs: &dyn FsOps, at: Entry<'_>) -> Option<Holder> {
     let leftovers: Vec<_> = fs
         .names(at)
@@ -458,14 +482,8 @@ impl Recovery<'_> {
         reported: usize,
     ) -> bool {
         let fs = self.fs;
-        let unchanged = || match (fs.stat(folder, false), fs.stat_fd(held.as_fd())) {
-            (Ok(named), Ok(held)) => named.identity == held.identity,
-            _ => false,
-        };
-        if !unchanged() {
-            return false;
-        }
-        let refused = match remove_folder(fs, folder, &self.deadline, self.stopped, &unchanged) {
+        let removed = remove_held_folder(fs, folder, held.as_fd(), &self.deadline, self.stopped);
+        let refused = match removed {
             Ok(()) | Err(Refused::Os(Errno::NOENT)) => return true,
             Err(Refused::Os(Errno::NOTEMPTY | Errno::EXIST) | Refused::Changed(_)) => return false,
             Err(Refused::Stopped(_)) => return false,
@@ -477,10 +495,7 @@ impl Recovery<'_> {
                 self.failed(relative, PlaceError::Io(errno), folder.dir);
                 return false;
             }
-            Refused::StillOpen(errno) => match holder(fs, folder) {
-                None if errno == Errno::ACCESS => KeptCause::Undeletable(errno.raw_os_error()),
-                holder => KeptCause::StillOpen(holder),
-            },
+            Refused::StillOpen(errno) => kept_open(fs, folder, errno),
             refused => KeptCause::Undeletable(refused.errno().raw_os_error()),
         };
         self.kept(relative, cause);

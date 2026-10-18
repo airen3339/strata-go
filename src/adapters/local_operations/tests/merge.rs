@@ -93,6 +93,7 @@ fn a_merge_replaces_nothing_with_a_link_the_destination_cannot_hold() -> Result<
                 copy_into_target: super::super::merge_copy(None, fixing()),
                 stage_overwrite: stage,
                 on_merged: &on_merged,
+                progress: None,
             },
         ))?;
 
@@ -155,6 +156,7 @@ fn fat_merge_overwrites_the_names_it_plans_and_keeps_the_names_that_need_no_fix(
                 copy_into_target: copy,
                 stage_overwrite: stage,
                 on_merged: &on_merged,
+                progress: None,
             },
         ))?;
         let nested = target.join("nested_");
@@ -241,6 +243,7 @@ fn a_merge_off_fat_keeps_the_names_fat_would_fix() -> Result<(), Box<dyn Error>>
                 copy_into_target: copy,
                 stage_overwrite: stage,
                 on_merged: &on_merged,
+                progress: None,
             },
         ))?;
 
@@ -318,6 +321,7 @@ fn a_merge_onto_fat_takes_the_rules_of_a_folder_inside_it_only_from_another_devi
                     copy_into_target: copy(),
                     stage_overwrite: stage,
                     on_merged: &on_merged,
+                    progress: None,
                 },
             ))?;
 
@@ -396,6 +400,7 @@ fn a_merge_within_one_disk_fixes_the_names_another_filesystem_mounted_in_its_sou
                     copy_into_target: copy(),
                     stage_overwrite: stage,
                     on_merged: &on_merged,
+                    progress: None,
                 },
             ))?;
 
@@ -446,6 +451,7 @@ fn a_merge_records_the_names_its_copy_gives_a_cut_name() -> Result<(), Box<dyn E
                 copy_into_target: copy,
                 stage_overwrite: stage,
                 on_merged: &on_merged,
+                progress: None,
             },
         ))?;
 
@@ -500,6 +506,7 @@ fn merging_folders_unites_contents_and_overwrites_shared_names() -> Result<(), B
             copy_into_target: real_copy(),
             stage_overwrite: stage,
             on_merged: &on_merged,
+            progress: None,
         },
     ));
 
@@ -584,6 +591,7 @@ fn merging_recurses_into_subdirectories_shared_by_both_sides() -> Result<(), Box
             copy_into_target: real_copy(),
             stage_overwrite: stage,
             on_merged: &on_merged,
+            progress: None,
         },
     ));
 
@@ -654,6 +662,7 @@ fn a_merge_from_a_location_without_paths_does_not_claim_provenance_for_undo()
             copy_into_target: real_copy(),
             stage_overwrite: stage,
             on_merged: &on_merged,
+            progress: None,
         },
     ));
 
@@ -855,6 +864,7 @@ fn a_staging_failure_aborts_the_merge_and_reports_only_what_was_staged()
                 copy_into_target: real_copy(),
                 stage_overwrite: stage,
                 on_merged: &on_merged,
+                progress: None,
             },
         ));
 
@@ -1689,6 +1699,7 @@ fn a_failed_merge_preserves_the_destinations_existing_contents() -> Result<(), B
             }),
             stage_overwrite: Rc::new(trash_stage_overwrite),
             on_merged: &no_plan,
+            progress: None,
         },
     ));
 
@@ -3120,6 +3131,7 @@ fn a_merge_undo_deletes_only_what_the_merge_left_unchanged() -> Result<(), Box<d
                 copy_into_target: real_copy(),
                 stage_overwrite: stage,
                 on_merged: &on_merged,
+                progress: None,
             },
         ))?;
         let [a, b] = ["docs/a.txt", "docs/b.txt"].map(|path| target.join(path));
@@ -3711,6 +3723,7 @@ fn an_undo_keeps_what_was_too_big_to_record() -> Result<(), Box<dyn Error>> {
                 copy_into_target: real_copy(),
                 stage_overwrite: stage,
                 on_merged: &on_merged,
+                progress: None,
             },
         ))?;
         let [a, b] = ["a.txt", "b.txt"].map(|name| target.join(name));
@@ -3854,6 +3867,7 @@ fn a_merge_records_what_it_creates_only_where_undo_cannot_trash_it() -> Result<(
                 copy_into_target: real_copy(),
                 stage_overwrite: stage,
                 on_merged: &on_merged,
+                progress: None,
             },
         ))?;
 
@@ -4235,6 +4249,7 @@ fn merge_through_trash(
             copy_into_target,
             stage_overwrite: Rc::new(trash_stage_overwrite),
             on_merged: &on_merged,
+            progress: None,
         },
     ));
     (result, plans.take())
@@ -4370,6 +4385,146 @@ fn without_trash_an_original_the_merge_left_nothing_in_place_of_stays() -> Resul
         assert_eq!(fs::read(target.join("x"))?, b"original", "{row}");
         if moving {
             assert_eq!(fs::read(source.join("x"))?, b"third", "{row}");
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn a_merge_without_trash_reports_its_folder_kept_by_an_original_still_open()
+-> Result<(), Box<dyn Error>> {
+    let _serial = serial()?;
+    let editor = Some("Text Editor");
+    for (row, move_sources, original, preset, holder) in [
+        ("copy fails", false, "x", Quirks::nfs3 as Preset, editor),
+        ("copy fails", false, "sub/x", Quirks::nfs3, editor),
+        ("left out", false, "x", Quirks::nfs3, editor),
+        ("left out", true, "sub/x", Quirks::nfs3, editor),
+        ("replaced", true, "x", Quirks::nfs3, editor),
+        ("replaced", true, "x", Quirks::cifs_posix, editor),
+        ("replaced", true, "x", Quirks::cifs_posix, None),
+        ("replaced", true, "sub/x", Quirks::nfs3, None),
+        ("replaced", true, "sub/x", Quirks::cifs_posix, None),
+    ] {
+        let holder = holder.map(|program| crate::services::Holder::Program(program.to_owned()));
+        let root = tempfile::tempdir()?;
+        let sources = root.path().join("sources");
+        let destination = root.path().join("destination");
+        let (source, target) = (sources.join("run"), destination.join("run"));
+        write_files(&source, &[("y.txt", "new y")])?;
+        write_files(&target, &[(original, "original")])?;
+        if row == "replaced" {
+            write_files(&source, &[("also/z", "incoming")])?;
+            write_files(&target, &[("also/z", "original")])?;
+        }
+        fs::create_dir_all(source.join(original).parent().ok_or("no parent")?)?;
+        let mut source_quirks = Quirks::default();
+        let _socket = if row == "left out" {
+            Some(std::os::unix::net::UnixListener::bind(
+                source.join(original),
+            )?)
+        } else {
+            fs::write(source.join(original), b"incoming")?;
+            None
+        };
+        if row == "copy fails" {
+            source_quirks.fail = vec![(Op::OpenSource, "x", 0, Errno::IO)];
+        }
+        let _sources = FsQuirks::install(&sources, source_quirks);
+        let _destination = FsQuirks::install(
+            &destination,
+            without_trash(Quirks {
+                holder: holder.clone(),
+                ..preset()
+            }),
+        );
+        let _clock = ClockGuard::set(std::time::SystemTime::now());
+        let _held = hold(&target.join(original));
+        let events = Rc::new(RefCell::new(Vec::new()));
+        let emitted = events.clone();
+        let _operation = LocalOperationProvider.paste(
+            PasteRequest {
+                id: OperationRequestId(1729),
+                destination: Location::local(&destination),
+                items: vec![PasteItem {
+                    source: Location::local(&source),
+                    conflict: TransferConflict::Merge,
+                    target_name: None,
+                }],
+                move_sources,
+            },
+            Rc::new(move |event| emitted.borrow_mut().push(event)),
+        );
+
+        drive_until_transfer_settles(&events);
+
+        let listed = !matches!(
+            preset().silly_rename,
+            Some(super::fs_quirks::Silly {
+                aside: super::fs_quirks::Aside::Unlisted(_),
+                ..
+            })
+        );
+        let row = format!(
+            "{row} {original}, moving: {move_sources}, {:?}",
+            preset().mount_type
+        );
+        let events = events.take();
+        let folder = aside_folder(&target)?.ok_or_else(|| format!("{row}: no merge folder"))?;
+        let kept = events
+            .iter()
+            .filter_map(|event| match event {
+                OperationEvent::ItemsReported { report, .. } => Some(report.kept.clone()),
+                _ => None,
+            })
+            .flatten()
+            .collect::<Vec<_>>();
+        let cause = match holder {
+            None if !listed => KeptCause::Undeletable(Errno::ACCESS.raw_os_error()),
+            holder => KeptCause::StillOpen(holder),
+        };
+        let mut expected = vec![KeptItem {
+            location: Location::local(target.join(&folder)),
+            cause,
+        }];
+        if row.starts_with("left out") && move_sources {
+            expected.push(KeptItem {
+                location: Location::local(source.join(original)),
+                cause: KeptCause::Skipped(crate::services::SpecialKind::Socket),
+            });
+        }
+        assert_eq!(kept, expected, "{row}: {events:?}");
+        let now_there: &[u8] = if row.starts_with("replaced") {
+            b"incoming"
+        } else {
+            b"original"
+        };
+        assert_eq!(fs::read(target.join(original))?, now_there, "{row}");
+        let aside = target.join(&folder).join(original);
+        let leftovers = names(aside.parent().ok_or("no parent")?)?;
+        assert!(
+            leftovers.len() == usize::from(listed)
+                && leftovers.iter().all(|name| name.starts_with(".nfs")),
+            "{row}: {leftovers:?}"
+        );
+        match terminal_transfer(&events) {
+            Some(OperationEvent::TransferFailed { message, .. }) if row.starts_with("copy") => {
+                assert!(!message.contains(&folder), "{row}: {message}");
+                assert_eq!(fs::read(source.join(original))?, b"incoming", "{row}");
+            }
+            Some(OperationEvent::Pasted { .. }) if !row.starts_with("copy") => {
+                assert_eq!(fs::read(target.join("y.txt"))?, b"new y", "{row}");
+                for name in ["y.txt", original] {
+                    let gone = move_sources && (name == "y.txt" || row.starts_with("replaced"));
+                    assert_eq!(source.join(name).exists(), !gone, "{row}: {name}");
+                }
+                assert_eq!(
+                    item_moves(&events).len(),
+                    usize::from(move_sources),
+                    "{row}"
+                );
+            }
+            other => panic!("{row}: {other:?}"),
         }
     }
     Ok(())
