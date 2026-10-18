@@ -569,6 +569,46 @@ fn the_private_run_directory_is_owner_only() {
     );
 }
 
+#[test]
+fn a_run_started_on_the_ui_thread_prepares_its_private_folder_off_it() {
+    for planted in [false, true] {
+        let outcome = std::thread::spawn(move || {
+            let fixture = Fixture::new();
+            let action = fixture.action(
+                "hello",
+                &script(ActionRuntime::Bash, "run.sh", "#!/bin/bash\necho ran\n"),
+                ExecutionMode::WholeSelection,
+            );
+            if !action.is_available() {
+                return None;
+            }
+            if planted {
+                fs::create_dir_all(fixture.path().join("runtime")).expect("runtime root");
+                fs::write(fixture.path().join("runtime/actions"), b"").expect("planted file");
+            }
+            crate::util::ui_thread::mark();
+            Some(run(&fixture.runner, request(action, &[], fixture.path())))
+        })
+        .join()
+        .expect("the run starts without a file call on the UI thread");
+        let Some(outcome) = outcome else {
+            eprintln!("skipping: bash is not installed");
+            return;
+        };
+        if planted {
+            assert!(
+                matches!(outcome.events.as_slice(), [ActionRunEvent::Failed(message)]
+                    if message.contains("private working directory")),
+                "{:?}",
+                outcome.events
+            );
+        } else {
+            let (code, _, log) = outcome.ended();
+            assert_eq!(code, Some(0), "{log}");
+        }
+    }
+}
+
 fn noop_sink() -> ActionEventSink {
     std::sync::Arc::new(|_event: ActionRunEvent| {})
 }
