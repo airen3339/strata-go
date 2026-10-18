@@ -1242,8 +1242,17 @@ Local renames go through the same routine instead of GIO's check-then-rename.
   exfat-fuse and other path-keyed FUSE daemons give each spelling its own inode number, and so does
   cifs once it has turned server numbers off, so there the new spelling counts as the item itself
   only when the folder lists no such name, the item's own name is the only one that matches it
-  ignoring case, and type, size and modification time agree. The rename prompt decides "already
-  exists" by the same rule, so it never refuses a case-only rename that the rename would accept.
+  ignoring case, and type, size and modification time agree.
+- **Names that lead to the item itself.** The 10xer rename prompt decides "already exists" by the
+  rename's own rule, so it never refuses a name the rename would accept. A name the folder lists is
+  taken even when it is another hard link to the same file, and so is one that differs from such a
+  link's name only in case: renaming `a.txt` to its link `link.txt`, or to `Link.txt` on a
+  case-insensitive folder, keeps the prompt open with "already exists", and nothing changes.
+  Another spelling of the item's own name passes where the folder lists no such name, as in
+  case-insensitive folders, and so does a case variant that a mount numbers separately when the
+  rule above counts it as the item itself. A name the folder matches to another link by rules
+  beyond case, such as Unicode normalization, passes the prompt; the rename then moves the item
+  aside and back and reports the name as taken.
 - On mounts with neither `RENAME_NOREPLACE` nor usable hard links, renaming a file takes the
   [reserved-name step](#the-reserved-name-step-and-its-risk) like any other placement, and so does
   renaming a folder where renaming over an empty folder is refused.
