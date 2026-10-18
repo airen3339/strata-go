@@ -1751,8 +1751,8 @@ worker:
   when it is proven missing or not a folder; a timeout or an I/O error opens it with its error and
   keeps the saved choice.
 - Context menus and the delete dialog read the mount table the watcher published and a cache of
-  removable destinations whose roots were checked off the thread, and Send To checks the chosen
-  device again while the transfer prepares. Drag targets, encryption hints, unmounting, and the
+  removable destinations whose roots and remembered Send To folders were checked off the thread,
+  and Send To checks the chosen device again while the transfer prepares. Drag targets, encryption hints, unmounting, and the
   drive properties and Format dialogs, which open at once and fill in their facts, read that table
   or ask a worker.
 - Undo and redo, Compress, and the folder choosers of Copy To, Move To, Extract To and Send To ask

@@ -190,6 +190,7 @@ struct RemovableCache {
     writable: RefCell<HashMap<PathBuf, (u64, bool)>>,
     unanswered: RefCell<HashSet<PathBuf>>,
     destinations: RefCell<Vec<RemovableDestination>>,
+    recent_folders: RefCell<HashMap<String, (u64, HashSet<PathBuf>)>>,
     generation: Cell<u64>,
     refresh_queued: Cell<bool>,
     watchers: RefCell<Vec<Watcher>>,
@@ -238,6 +239,95 @@ pub(in crate::ui) fn removable_destinations() -> Vec<RemovableDestination> {
     start_removable_destinations();
     probe_unanswered_roots();
     REMOVABLE.with(|cache| cache.destinations.borrow().clone())
+}
+
+pub(in crate::ui) fn send_to_recent_folders(destination: &RemovableDestination) -> Vec<PathBuf> {
+    let remembered = crate::ui::preferences::PreferenceManager::shared()
+        .send_to_recent_destinations(&destination.id);
+    if remembered.is_empty() {
+        return remembered;
+    }
+    let previous = REMOVABLE.with(|cache| {
+        cache
+            .recent_folders
+            .borrow()
+            .get(&destination.id)
+            .map(|(_, found)| found.clone())
+            .unwrap_or_default()
+    });
+    let mut unlisted = previous.clone();
+    let listed = remembered
+        .iter()
+        .filter(|relative| unlisted.remove(*relative))
+        .cloned()
+        .collect();
+    check_recent_folders(destination.clone(), remembered, previous);
+    listed
+}
+
+fn check_recent_folders(
+    destination: RemovableDestination,
+    remembered: Vec<PathBuf>,
+    previous: HashSet<PathBuf>,
+) {
+    let generation = REMOVABLE.with(next_generation);
+    gtk::glib::MainContext::default().spawn_local(async move {
+        let Some(found) = folders_inside(&destination.root, &remembered, &previous).await else {
+            return;
+        };
+        let changed = REMOVABLE.with(|cache| {
+            let mut known = cache.recent_folders.borrow_mut();
+            if known
+                .get(&destination.id)
+                .is_some_and(|(checked, _)| *checked > generation)
+            {
+                return false;
+            }
+            known
+                .insert(destination.id, (generation, found.clone()))
+                .map_or(!found.is_empty(), |(_, previous)| previous != found)
+        });
+        if changed {
+            notify_removable_watchers();
+        }
+    });
+}
+
+async fn folders_inside(
+    root: &Path,
+    remembered: &[PathBuf],
+    previous: &HashSet<PathBuf>,
+) -> Option<HashSet<PathBuf>> {
+    use crate::{adapters::probes, services::LocationValidationError};
+    let unanswered =
+        |error: &LocationValidationError| matches!(error, LocationValidationError::Unavailable(_));
+    let root = match probes::destination_folder(root).await {
+        Ok(root) => root,
+        Err(error) if unanswered(&error) => return None,
+        Err(_) => return Some(HashSet::new()),
+    };
+    let mut folders = HashSet::new();
+    let mut found = HashSet::new();
+    for relative in remembered
+        .iter()
+        .filter(|relative| crate::ui::preferences::is_valid_send_to_relative_path(relative))
+    {
+        match probes::destination_folder(&root.join(relative)).await {
+            Ok(folder) if folder != root && folder.starts_with(&root) => {
+                if folders.insert(folder) {
+                    found.insert(relative.clone());
+                }
+            }
+            Err(error) if unanswered(&error) && previous.contains(relative) => {
+                found.insert(relative.clone());
+            }
+            _ => {}
+        }
+        if found.len() == crate::ui::preferences::SEND_TO_RECENT_DESTINATIONS_LIMIT {
+            break;
+        }
+    }
+    Some(found)
 }
 
 pub(in crate::ui) fn removable_destination_root(id: &str) -> Option<PathBuf> {
@@ -363,7 +453,7 @@ fn probe_removable_root(root: PathBuf, generation: u64) {
 }
 
 fn publish_removable_destinations() {
-    let watchers = REMOVABLE.with(|cache| {
+    let changed = REMOVABLE.with(|cache| {
         let writable = cache.writable.borrow();
         let mut destinations = without_ambiguous_destinations(
             cache
@@ -380,9 +470,18 @@ fn publish_removable_destinations() {
         );
         sort_removable_destinations(&mut destinations);
         if *cache.destinations.borrow() == destinations {
-            return Vec::new();
+            return false;
         }
         cache.destinations.replace(destinations);
+        true
+    });
+    if changed {
+        notify_removable_watchers();
+    }
+}
+
+fn notify_removable_watchers() {
+    let watchers: Vec<_> = REMOVABLE.with(|cache| {
         cache
             .watchers
             .borrow()

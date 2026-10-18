@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: MIT
 
+use std::path::Path;
+
 use super::*;
 use crate::ui::browser::context_menu::tests::wait_until;
 use crate::ui::browser::{BrowserView, PeekBehavior, SendToMenuTestOverride};
@@ -19,6 +21,14 @@ fn has_visible_label(widget: &gtk::Widget, text: &str) -> bool {
         }
     }
     false
+}
+
+fn menu_labels(menu: &ActionMenuSection) -> Vec<String> {
+    let mut items = Vec::new();
+    if let Some(model) = menu.popover.menu_model() {
+        collect_presentations(&model, &mut items);
+    }
+    items.into_iter().map(|item| item.label).collect()
 }
 
 #[test]
@@ -136,11 +146,40 @@ fn send_to_offers_a_device_once_its_root_is_checked_off_the_ui_thread() {
             let directory = tempfile::tempdir().expect("source fixture");
             std::fs::write(directory.path().join("note.txt"), b"source").expect("source file");
             let device = tempfile::tempdir().expect("device fixture");
+            for remembered in ["Photos", "Damaged"] {
+                std::fs::create_dir(device.path().join(remembered)).expect("remembered folder");
+            }
+            let preferences = crate::ui::preferences::PreferenceManager::shared();
+            for remembered in ["Gone", "Photos", "Damaged"] {
+                preferences.remember_send_to_destination(
+                    "volume:fixture-usb",
+                    Path::new(remembered),
+                    None,
+                );
+            }
             let parked = crate::test_support::parked::Parked::default();
+            let recent = crate::test_support::parked::Parked::default();
             let _device = crate::adapters::FsQuirks::install(
                 device.path(),
                 crate::adapters::Quirks {
-                    before: vec![(crate::adapters::FsOp::Access, "*", 0, parked.racer())],
+                    before: vec![
+                        (crate::adapters::FsOp::Access, "*", 0, parked.racer()),
+                        (
+                            crate::adapters::FsOp::FolderStamp,
+                            "Photos",
+                            0,
+                            recent.racer(),
+                        ),
+                    ],
+                    fail: vec![
+                        (
+                            crate::adapters::FsOp::FolderStamp,
+                            "Damaged",
+                            0,
+                            rustix::io::Errno::IO
+                        );
+                        20
+                    ],
                     ..crate::adapters::Quirks::default()
                 },
             );
@@ -191,7 +230,27 @@ fn send_to_offers_a_device_once_its_root_is_checked_off_the_ui_thread() {
             );
             assert_eq!(parked.reached_on_ui_thread(), Some(false));
             parked.release();
-            wait_until(|| has_visible_label(popover.upcast_ref(), "Send to…"));
+            wait_until(|| has_visible_label(popover.upcast_ref(), "Send to…") && recent.reached());
+            assert_eq!(
+                recent.reached_on_ui_thread(),
+                Some(false),
+                "remembered folders are checked on the device's lane"
+            );
+            assert!(!menu_labels(&menu).contains(&"Photos (recent)".to_owned()));
+            recent.release();
+            wait_until(|| menu_labels(&menu).contains(&"Photos (recent)".to_owned()));
+            for (unoffered, why) in [
+                (
+                    "Gone (recent)",
+                    "a remembered folder that no longer exists is not offered",
+                ),
+                (
+                    "Damaged (recent)",
+                    "a remembered folder that keeps failing is not offered",
+                ),
+            ] {
+                assert!(!menu_labels(&menu).contains(&unoffered.to_owned()), "{why}");
+            }
             popover.popdown();
             view.browser().clear_observer();
             window.destroy();

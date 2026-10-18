@@ -7,6 +7,7 @@ use futures_lite::future::BoxedLocal;
 use crate::{adapters::probes, services::LocationValidationError};
 
 pub(super) fn canonical_existing_directory(path: &Path) -> Option<PathBuf> {
+    crate::util::ui_thread::assert_off();
     let canonical = std::fs::canonicalize(path).ok()?;
     canonical.is_dir().then_some(canonical)
 }

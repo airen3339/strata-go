@@ -2,8 +2,8 @@
 
 use std::{
     cell::{Cell, RefCell},
-    collections::{HashMap, HashSet},
-    path::{Path, PathBuf},
+    collections::HashMap,
+    path::PathBuf,
     rc::{Rc, Weak},
 };
 
@@ -346,13 +346,12 @@ impl ActionMenuSection {
             choose_folder,
         };
         let destinations = crate::ui::removable_destinations();
-        let preferences = crate::ui::preferences::PreferenceManager::shared();
         let recent_destinations = destinations
             .iter()
             .map(|destination| {
                 (
                     destination.id.clone(),
-                    preferences.send_to_recent_destinations(&destination.id),
+                    crate::ui::send_to_recent_folders(destination),
                 )
             })
             .collect();
@@ -577,9 +576,9 @@ pub(super) fn append_send_to_menu(
         root.append(Some("Drive root"), Some(&format!("custom.{name}")));
         let recent_paths = recent_destinations
             .get(&destination.id)
-            .map(|paths| valid_recent_destinations(&destination.root, paths))
-            .unwrap_or_default();
-        for (recent_index, relative) in recent_paths.into_iter().enumerate() {
+            .into_iter()
+            .flatten();
+        for (recent_index, relative) in recent_paths.enumerate() {
             let recent_name = format!("send-to-recent-{index}-{recent_index}");
             let id = destination.id.clone();
             let selected = sources.to_vec();
@@ -631,37 +630,6 @@ pub(super) fn append_send_to_menu(
         devices.append_item(&item);
     }
     model.append_submenu(Some(&crate::i18n::tr("Send to…")), &devices);
-}
-
-fn valid_recent_destinations(root: &Path, persisted: &[PathBuf]) -> Vec<PathBuf> {
-    let Some(canonical_root) = crate::ui::browser::destination::canonical_existing_directory(root)
-    else {
-        return Vec::new();
-    };
-    let mut seen_relative = HashSet::new();
-    let mut seen_destinations = HashSet::new();
-    let mut valid = Vec::new();
-    for relative in persisted {
-        if !crate::ui::preferences::is_valid_send_to_relative_path(relative)
-            || !seen_relative.insert(relative)
-        {
-            continue;
-        }
-        let Some(destination) = crate::ui::browser::destination::canonical_directory_within(
-            &canonical_root,
-            &canonical_root.join(relative),
-        ) else {
-            continue;
-        };
-        if destination == canonical_root || !seen_destinations.insert(destination) {
-            continue;
-        }
-        valid.push(relative.clone());
-        if valid.len() == crate::ui::preferences::SEND_TO_RECENT_DESTINATIONS_LIMIT {
-            break;
-        }
-    }
-    valid
 }
 
 pub(super) fn refresh_presentation(
