@@ -585,6 +585,22 @@ fn a_target_is_replaced_only_while_its_mount_still_knows_it() -> Result<(), Box<
         for file in [&target, &arrival] {
             set_times(file, hour_before, 0)?;
         }
+        let told_by_change_time = matches!(
+            meanwhile,
+            Meanwhile::ReplacedAlikeOnceNumbersWent
+                | Meanwhile::ReplacedAlikeAndEvictedOnceNumbersWent
+        );
+        if told_by_change_time && !a_later_change_time(&arrival, &target, hour_before)? {
+            eprintln!(
+                "skipped on a base that reports the modification time as the change time: {row}"
+            );
+            continue;
+        }
+        let stage_evicted = matches!(meanwhile, Meanwhile::StageEvicted);
+        if stage_evicted && !base_takes_rename_flags(root.path())? {
+            eprintln!("skipped on a base that refuses or fakes rename flags: {row}");
+            continue;
+        }
         let happened = Arc::new(AtomicBool::new(!possible));
         let stage_closes: Vec<(Op, &str, usize, Racer)> = (0..4)
             .map(|skip| {
@@ -618,7 +634,6 @@ fn a_target_is_replaced_only_while_its_mount_still_knows_it() -> Result<(), Box<
             };
             done.store(happened, Ordering::Release);
         });
-        let stage_evicted = matches!(meanwhile, Meanwhile::StageEvicted);
         let scope = FsQuirks::install(
             &share,
             Quirks {
@@ -644,7 +659,9 @@ fn a_target_is_replaced_only_while_its_mount_still_knows_it() -> Result<(), Box<
             assert_eq!(fs::read(&target)?, b"new", "{row}");
             assert_eq!(names(&share)?, ["source", "target"], "{row}");
         } else {
-            let error = result.expect_err("the target changed");
+            let Err(error) = result else {
+                panic!("{row}: replaced instead of refusing")
+            };
             assert!(error.to_string().contains("changed"), "{row}: {error}");
             assert_eq!(fs::read(&target)?, theirs, "{row}");
             assert_eq!(names(&share)?, ["source", "target"], "{row}");

@@ -2106,17 +2106,21 @@ symlinks, FIFOs or Unix permissions cannot exist on vfat, a racer keyed to a ste
 takes (an `O_TMPFILE` link, a hole, a `syncfs`, an exchange) never runs, and a time with a fraction
 of a second is rounded away on vfat, exfat-fuse and sshfs. Those three report the modification
 time as the change time, so tests that land the SMB client's deferred closes fail there after two
-seconds. A fixture's name can be one the mount refuses (`a:b` on vfat), and a preset can expect a
+seconds, and Replace rows whose replacement only its change time tells apart skip there ("skipped
+on a base that reports the modification time as the change time"). A fixture's name can be one the
+mount refuses (`a:b` on vfat), and a preset can expect a
 name stored that the real mount refuses, folds or lists as another (Samba's 8.3 aliases, long SMB
 folder names). On NFS a file renamed over while open reads as `.nfsXXXX`, and on casefolded
 folders `/proc` shows files the test process created as `name (deleted)`, so quirk patterns by
 name miss them. Tests that emulate NFSv3, or ext without birth times, read the base's real file
 handles, which FUSE changes after an eviction; the test of the handle read itself is skipped on
 exfat and cifs bases, which give none, and says so on stderr ("skipped on a base without file
-handles"). The container has no udev database, so exfat-fuse and ntfs-3g are not recognised there:
-they keep their per-file syncs, and get the name rules of a `fuseblk` device udev cannot tell, which
-learn from refusals (ntfs-3g refuses device names). Read failures against a run of the same filter
-on `origin/main`.
+handles"). The vfat row that exchanges a renumbered stage skips where the base refuses rename flags
+(NFS, sshfs, ntfs-3g) or overwrites for them (exfat-fuse): "skipped on a base that refuses or fakes
+rename flags". The container has no udev database, so exfat-fuse and ntfs-3g are not recognised
+there: they keep their per-file syncs, and get the name rules of a `fuseblk` device udev cannot
+tell, which learn from refusals (ntfs-3g refuses device names). Read failures against a run of the
+same filter on `origin/main`.
 
 A FUSE daemon gets every name a preset over it passes on, and exfat-fuse stores overlong forms
 and encoded surrogates, writing an overlong `/` into its volume as a real `/`, which `fsck.exfat`

@@ -324,6 +324,37 @@ fn set_times(path: &Path, seconds: u64, nanoseconds: u32) -> io::Result<()> {
     Ok(())
 }
 
+fn base_takes_rename_flags(folder: &Path) -> io::Result<bool> {
+    use rustix::fs::{CWD, RenameFlags, renameat_with};
+    let (one, other) = (folder.join("rename-probe"), folder.join("rename-probe-2"));
+    fs::write(&one, b"one")?;
+    let renamed = renameat_with(CWD, &one, CWD, &other, RenameFlags::NOREPLACE).is_ok();
+    fs::write(&one, b"one")?;
+    let exchanged = renameat_with(CWD, &one, CWD, &other, RenameFlags::EXCHANGE).is_ok();
+    // exfat-fuse accepts RENAME_EXCHANGE and overwrites instead of swapping.
+    let overwrote = exchanged && fs::symlink_metadata(&one).is_err();
+    for probe in [&one, &other] {
+        let _ = fs::remove_file(probe);
+    }
+    Ok(renamed && !overwrote)
+}
+
+fn a_later_change_time(path: &Path, than: &Path, seconds: u64) -> io::Result<bool> {
+    use std::os::unix::fs::MetadataExt;
+    let changed = |metadata: &fs::Metadata| (metadata.ctime(), metadata.ctime_nsec());
+    let earlier = changed(&fs::symlink_metadata(than)?);
+    loop {
+        set_times(path, seconds, 0)?;
+        let stamped = fs::symlink_metadata(path)?;
+        if changed(&stamped) == (stamped.mtime(), stamped.mtime_nsec()) {
+            return Ok(false);
+        }
+        if changed(&stamped) > earlier {
+            return Ok(true);
+        }
+    }
+}
+
 /// Sets the times of each file beneath `root` again from outside the seam,
 /// as Samba does once the SMB client's deferred close of a file it wrote
 /// reaches it: only the change time moves.
