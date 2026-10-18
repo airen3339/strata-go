@@ -608,7 +608,7 @@ pub(super) async fn replace_through_stage(
     let staged_ownership = copy_engine::staged_ownership(&staged);
     let mut copied = (sources.take(), report);
     loop {
-        let parent = staged.parent.clone();
+        let parent = OffMain::new(staged.parent.clone());
         let step_plan = plan.clone();
         let step = match removal {
             Removal::Trashed(trashed) => {
@@ -616,7 +616,7 @@ pub(super) async fn replace_through_stage(
                     publish_staged_replacement(staged, target_path.to_path_buf(), durable).await?;
                 if let Some(sources) = &mut copied.0 {
                     sources.copied_to(copy_engine::published(
-                        parent,
+                        parent.into_inner(),
                         plan.target_name.clone(),
                         ownership.clone(),
                     ));
@@ -644,7 +644,7 @@ pub(super) async fn replace_through_stage(
                     set_aside_and_publish(plan, staged, target_path, durable).await?;
                 if let Some(sources) = &mut copied.0 {
                     sources.copied_to(copy_engine::published(
-                        parent,
+                        parent.into_inner(),
                         plan.target_name.clone(),
                         ownership,
                     ));
@@ -837,7 +837,7 @@ pub(super) async fn replace_owing(
     else {
         return Ok(Owed::default());
     };
-    let plan = Arc::new(plan);
+    let plan = OffMain::new(Arc::new(plan));
     let removal = match plan.strategy {
         ReplaceStrategy::Staged(removal) => removal,
         ReplaceStrategy::PlaceSource => {

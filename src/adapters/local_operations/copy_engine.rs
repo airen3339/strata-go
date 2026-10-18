@@ -42,7 +42,7 @@ use super::{
         PinnedEntry, bounded_local_worker_count, local_delete_worker_count,
         parallel_delete_local_blocking_with_workers,
     },
-    fs_ops::{Entry, EntryStat, FsOps, fs},
+    fs_ops::{Entry, EntryStat, FsOps, OffMain, fs},
     io_error,
     leftovers::{self, Deadline},
     mount_profile::{self, FolderRules, NamePolicy, Site, known_mount},
@@ -416,7 +416,7 @@ pub(super) async fn copy_in_place(
         ..options
     };
     let workers = options.workers;
-    let copied_into = parent.clone();
+    let copied_into = OffMain::new(parent.clone());
     let followed = following(
         Item::Pinned(source, name),
         options,
@@ -432,7 +432,7 @@ pub(super) async fn copy_in_place(
     let mut manifest = followed
         .manifest
         .ok_or_else(|| translated_io_error("The copy stopped unexpectedly"))?;
-    manifest.copied_to(Published::proven(copied_into, name, ownership));
+    manifest.copied_to(Published::proven(copied_into.into_inner(), name, ownership));
     Ok((manifest, left_report(&target, followed.left)))
 }
 

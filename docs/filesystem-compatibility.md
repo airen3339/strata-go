@@ -1767,7 +1767,8 @@ worker:
   (`src/adapters/gio_close.rs`), as GLib would otherwise close it in place. With the server
   stopped, closing a read-only file blocked on NFSv4.2 and exfat-fuse in the lab, and closing a
   written one blocked on NFS, SMB and exfat-fuse until the server returned. A written stream is
-  never closed this way, since its close reports lost data.
+  never closed this way, since its close reports lost data. The folder descriptors that a restore
+  from Trash, an Undo of a merge or a Replace paste holds are closed on a worker too.
 
 The exceptions are:
 
@@ -1785,10 +1786,9 @@ The exceptions are:
   (`GDesktopAppInfo`), and the toolkit's own resources (icons, fonts, styles, MIME data) from
   system paths.
 - Quitting, which waits up to 10 s for queued settings saves.
-- Calls not yet moved to a worker. The folder descriptors that a restore from Trash, an Undo of a
-  merge or a Replace paste used are closed as it ends. Opening a media preview's audio output loads
-  its sound plugins, also looking for them relative to the folder Strata was started from, which
-  stays its working folder. Running a custom action creates its private folder under
+- Calls not yet moved to a worker. Opening a media preview's audio output loads its sound plugins,
+  also looking for them relative to the folder Strata was started from, which stays its working
+  folder. Running a custom action creates its private folder under
   `$XDG_RUNTIME_DIR/strata/actions`. A theme change rescans the text-view styles Strata generates
   in its cache folder.
 

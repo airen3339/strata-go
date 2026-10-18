@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 use super::{
-    fs_ops::{Entry, fs},
+    fs_ops::{Entry, OffMain, fs},
     holders,
     placement::{PlaceError, RenameFailure},
     release::{self, ActiveOperation},
@@ -287,8 +287,8 @@ pub(super) async fn move_restore_path(
         }
         let placed = placement::place(fs(), from, to, Some(stat.identity));
         Ok(Some((
-            source_parent,
-            target_parent,
+            OffMain::new(source_parent),
+            OffMain::new(target_parent),
             stat.identity,
             trashed,
             placed,
@@ -317,8 +317,8 @@ pub(super) async fn move_restore_path(
         ..copy_engine::Options::default()
     };
     let (sources, mut report) = copy_engine::copy_in_place(
-        (source_parent, source_name, source_identity),
-        (target_parent, target_path),
+        (source_parent.into_inner(), source_name, source_identity),
+        (target_parent.into_inner(), target_path),
         options,
         &cancellable,
     )
