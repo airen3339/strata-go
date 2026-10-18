@@ -579,7 +579,7 @@ What the lab's mounts keep, with udisks' default options:
 | ntfs3 | exact | 100 ns | yes |
 | NFSv4.2 | exact | to the nanosecond, set again after close | `user.*` where the server supports them |
 | NFSv3 | exact | to the nanosecond | no |
-| SMB with POSIX extensions | exact | 100 ns | `user.*` |
+| SMB with POSIX extensions | exact, except the sticky bit, which Samba drops; a file just created shows the mount's `file_mode` until a lookup or forced stat returns the server's mode | 100 ns | `user.*` |
 | SMB without them | 0755; a read-only file shows 0555 | 100 ns | `user.*` |
 | ntfs-3g | 0777 | 100 ns | `user.*` |
 | sshfs | exact | whole seconds | no |
