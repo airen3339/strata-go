@@ -1361,7 +1361,14 @@ pub(super) fn alias_of(
         return same_item.then_some(source.identity);
     }
     let single_name = !source.is_directory() && source.nlink == 1;
-    let alias = single_name || names().is_ok_and(|names| !names.iter().any(|name| name == to.name));
+    let alias = single_name
+        || names().is_ok_and(|names| {
+            !names.iter().any(|name| name == to.name)
+                && names
+                    .iter()
+                    .filter(|name| same_ignoring_case(name, to.name))
+                    .all(|name| name == from.name)
+        });
     alias.then_some(source.identity)
 }
 

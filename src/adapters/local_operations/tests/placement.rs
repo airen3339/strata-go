@@ -1213,17 +1213,27 @@ fn a_file_handle_follows_the_item_and_not_its_name() -> Result<(), Box<dyn Error
 
 #[test]
 fn a_hard_link_is_never_taken_for_a_case_alias() -> Result<(), Box<dyn Error>> {
-    let root = tempfile::tempdir()?;
-    let _scope = FsQuirks::install(root.path(), case_insensitive(Quirks::default()));
-    fs::write(root.path().join("report"), b"data")?;
-    fs::hard_link(root.path().join("report"), root.path().join("Report"))?;
+    for (link, wanted) in [("Report", "Report"), ("Notes", "notes")] {
+        let root = tempfile::tempdir()?;
+        let scope = FsQuirks::install(root.path(), case_insensitive(Quirks::default()));
+        fs::write(root.path().join("report"), b"data")?;
+        fs::hard_link(root.path().join("report"), root.path().join(link))?;
 
-    assert_eq!(
-        rename_in(root.path(), "report", "Report"),
-        Err(RenameFailure::Place(PlaceError::Exists))
-    );
-    assert_eq!(names(root.path())?, ["Report", "report"]);
-    assert_eq!(fs::metadata(root.path().join("report"))?.nlink(), 2);
+        assert!(
+            super::super::typed_names::rename_taken(
+                &root.path().join("report"),
+                &root.path().join(wanted)
+            ),
+            "{wanted}"
+        );
+        assert_eq!(
+            rename_in(root.path(), "report", wanted),
+            Err(RenameFailure::Place(PlaceError::Exists))
+        );
+        assert_eq!(scope.count(Op::Rename), 1, "{wanted}");
+        assert_eq!(names(root.path())?, [link, "report"]);
+        assert_eq!(fs::metadata(root.path().join("report"))?.nlink(), 2);
+    }
     Ok(())
 }
 
