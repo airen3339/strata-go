@@ -195,6 +195,7 @@ fn main() -> gtk::glib::ExitCode {
             restart_with_local_vfs_if_gvfs_is_unresponsive();
             let _volumes = gio::VolumeMonitor::get();
             adapters::mount_watch::start();
+            ui::read_install_facts();
             util::ui_thread::mark();
             return portal::run();
         }
@@ -312,6 +313,7 @@ fn main() -> gtk::glib::ExitCode {
         }
     });
     adapters::mount_watch::start();
+    ui::read_install_facts();
     util::ui_thread::mark();
     util::ui_thread::stalls::start();
     application.run()

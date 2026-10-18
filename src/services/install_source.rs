@@ -40,7 +40,11 @@ static DETECTED: OnceLock<InstallSource> = OnceLock::new();
 
 impl InstallSource {
     pub fn detect() -> &'static Self {
-        DETECTED.get_or_init(|| Self::from_marker_path(marker_path()))
+        DETECTED.get_or_init(|| {
+            #[cfg(not(test))]
+            crate::util::ui_thread::assert_off();
+            Self::from_marker_path(marker_path())
+        })
     }
 
     #[cfg(test)]

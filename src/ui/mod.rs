@@ -74,3 +74,9 @@ pub use window::{UnlockTarget, present, present_open, present_reveal, present_un
 pub(crate) fn prepare_portal_ui() {
     let _theme = theme::ThemeManager::shared();
 }
+
+pub(crate) fn read_install_facts() {
+    let _startup = crate::util::ui_thread::allow(crate::util::ui_thread::Exception::Startup);
+    crate::services::InstallSource::detect();
+    open_with::uses_portal();
+}

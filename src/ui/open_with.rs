@@ -25,7 +25,11 @@ use super::{
 /// files are handed to the host through the OpenURI portal instead.
 pub(in crate::ui) fn uses_portal() -> bool {
     static FLATPAK: OnceLock<bool> = OnceLock::new();
-    *FLATPAK.get_or_init(|| std::path::Path::new("/.flatpak-info").exists())
+    *FLATPAK.get_or_init(|| {
+        #[cfg(not(test))]
+        crate::util::ui_thread::assert_off();
+        std::path::Path::new("/.flatpak-info").exists()
+    })
 }
 
 /// Opens each file with the host's default handler, or lets the desktop's

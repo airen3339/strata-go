@@ -1771,9 +1771,10 @@ worker:
 
 The exceptions are:
 
-- The reads that build the first window, before it shows: Strata's settings and state files and
-  GTK's bookmarks file. The bundled font Strata writes at start is read by fontconfig whenever it
-  lays out text.
+- The reads at start, before the first window shows: Strata's settings and state files, GTK's
+  bookmarks file, the install marker beside Strata's executable and the check for a Flatpak
+  sandbox. The bundled font Strata writes at start is read by fontconfig whenever it lays out
+  text.
 - GLib's volume monitor, which works only on the main thread. Strata takes it once, in the primary
   instance's start-up, right after checking that GVfs answers and before the first window shows.
   Under GLib's own unix volume monitor (`GIO_USE_VOLUME_MONITOR=unix`, as without GVfs), that first
