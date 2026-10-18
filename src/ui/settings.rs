@@ -2241,6 +2241,7 @@ fn process_start_time(pid: u32) -> Option<String> {
 fn restart_waiter(current_exe: &std::path::Path, parent_pid: u32) -> Option<Command> {
     use std::{os::unix::process::CommandExt, process::Stdio};
 
+    crate::util::ui_thread::assert_off();
     let mut command = crate::trusted_command::command("sh").ok()?;
     let sleep = crate::trusted_command::resolve("sleep").ok()?;
     let start_time = process_start_time(parent_pid).unwrap_or_default();
@@ -2276,14 +2277,12 @@ fn restart_waiter(current_exe: &std::path::Path, parent_pid: u32) -> Option<Comm
     Some(command)
 }
 
-/// A closed window may no longer have an application; never exit the process in that case.
 fn restart(application: Option<&gtk::Application>) {
-    let Some(application) = application else {
-        return;
-    };
-    let Ok(current_exe) = crate::services::installed_executable() else {
-        return;
-    };
+    restart_with(application, start_restart_waiter);
+}
+
+fn start_restart_waiter() -> Option<std::process::Child> {
+    let current_exe = crate::services::installed_executable().ok()?;
     // Wait for this process to exit completely before relaunching. A fixed
     // delay could overlap the old and new GTK/Wayland clients and rapidly hand
     // keyboard focus through an underlying terminal. Besides re-activating the
@@ -2291,22 +2290,43 @@ fn restart(application: Option<&gtk::Application>) {
     // affected systems. Detach the waiter from inherited terminal streams and
     // put it in its own process group so applying an update cannot disturb the
     // terminal that launched Strata.
-    let Some(mut waiter) = restart_waiter(&current_exe, std::process::id()) else {
+    restart_waiter(&current_exe, std::process::id())?
+        .spawn()
+        .ok()
+}
+
+thread_local! {
+    static RESTART_IN_FLIGHT: Cell<bool> = const { Cell::new(false) };
+}
+
+/// A closed window may no longer have an application; never exit the process in that case.
+fn restart_with(
+    application: Option<&gtk::Application>,
+    start: impl FnOnce() -> Option<std::process::Child> + Send + 'static,
+) {
+    let Some(application) = application.cloned() else {
         return;
     };
-    if restart_blocker_shown(application) {
+    if RESTART_IN_FLIGHT.get() || restart_blocker_shown(&application) {
         return;
     }
-    let Ok(mut waiter) = waiter.spawn() else {
-        return;
-    };
-    // Do not leave a waiter behind when an unregistered close handler refuses.
-    if !close_windows_for_restart(application) {
-        let _ = waiter.kill();
-        let _ = waiter.wait();
-        return;
-    }
-    application.quit();
+    RESTART_IN_FLIGHT.set(true);
+    glib::spawn_future_local(async move {
+        let started = gio::spawn_blocking(start).await;
+        RESTART_IN_FLIGHT.set(false);
+        let Ok(Some(mut waiter)) = started else {
+            return;
+        };
+        // Do not leave a waiter behind when an unregistered close handler refuses.
+        if !close_windows_for_restart(&application) {
+            gio::spawn_blocking(move || {
+                let _ = waiter.kill();
+                let _ = waiter.wait();
+            });
+            return;
+        }
+        application.quit();
+    });
 }
 
 /// Checks every window before closing any, so a refusal cannot leave some closed.
