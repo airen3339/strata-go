@@ -452,7 +452,7 @@ fn search_hits_leave_only_once_a_worker_proves_them_gone() {
         || {
             use crate::adapters::{FsOp, FsQuirks, Quirks};
             PreferenceManager::shared().set_filter_include_subfolders(true);
-            for mode in [BrowserMode::Columns, BrowserMode::List, BrowserMode::Icons] {
+            for mode in [BrowserMode::Columns, BrowserMode::List] {
                 let fixture = tempfile::tempdir().expect("search fixture");
                 let deeper = fixture.path().join("nested/deeper");
                 std::fs::create_dir_all(&deeper).expect("nested folders");

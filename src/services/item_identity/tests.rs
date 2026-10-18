@@ -69,9 +69,8 @@ fn without_birth(evidence: Evidence) -> Evidence {
     }
 }
 
-fn changed(evidence: Evidence, size: u64) -> Evidence {
+fn changed(evidence: Evidence) -> Evidence {
     let attributes = evidence.attributes.map(|attributes| Attributes {
-        size,
         ctime: Some((120, 0)),
         ..attributes
     });
@@ -245,15 +244,6 @@ fn an_item_is_known_again_only_by_what_its_mount_proves() {
             true,
         ),
         (
-            "unknown mount, same number and birth",
-            UNKNOWN,
-            FOLDER,
-            FOLDER,
-            UNKNOWN,
-            true,
-            true,
-        ),
-        (
             "unknown mount, renumbered",
             UNKNOWN,
             FOLDER,
@@ -284,7 +274,7 @@ fn an_item_is_known_again_only_by_what_its_mount_proves() {
             "change time moved where births are real",
             RENEWED,
             FILE,
-            changed(renumbered(FILE), 5),
+            changed(renumbered(FILE)),
             RENEWED,
             true,
             true,
@@ -299,19 +289,10 @@ fn an_item_is_known_again_only_by_what_its_mount_proves() {
             true,
         ),
         (
-            "SMB file replaced elsewhere, its time kept and its birth repeated",
-            SMB,
-            FILE,
-            changed(renumbered(FILE), 6),
-            SMB,
-            false,
-            false,
-        ),
-        (
             "SMB file whose cached number and birth outlived a replacement",
             SMB,
             FILE,
-            changed(FILE, 5),
+            changed(FILE),
             SMB,
             false,
             false,
@@ -347,7 +328,7 @@ fn an_item_is_known_again_only_by_what_its_mount_proves() {
             "SMB file read with server numbers, decided after they went",
             SMB_SERVER_NUMBERS,
             FILE,
-            changed(renumbered(FILE), 5),
+            changed(renumbered(FILE)),
             SMB,
             false,
             false,

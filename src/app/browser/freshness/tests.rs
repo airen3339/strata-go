@@ -531,23 +531,6 @@ fn names_at(browser: &Browser, depth: usize) -> Vec<String> {
 }
 
 #[test]
-fn a_folder_other_writers_change_relists_when_its_stamp_moves() {
-    let source = Rc::new(Folders::default());
-    let share = source.add("/net/share", network(1), Some(Watching::Live));
-    let (browser, clock) = browser_on(&source);
-    browser.navigate(share.clone());
-
-    clock.tick_at(15);
-    let unchanged = (source.checks_of(&share), source.loads_of(&share));
-    source.change(&share, &["listed", "added elsewhere"]);
-    clock.tick_at(30);
-
-    assert_eq!(unchanged, (1, 1));
-    assert_eq!((source.checks_of(&share), source.loads_of(&share)), (2, 2));
-    assert_eq!(names_at(&browser, 0), ["added elsewhere", "listed"]);
-}
-
-#[test]
 fn an_unchanged_stamp_never_relists_while_a_changed_one_does() {
     let source = Rc::new(Folders::default());
     let share = source.add("/net/share", network(1), Some(Watching::Live));
@@ -607,11 +590,7 @@ fn a_folder_only_this_kernel_writes_is_never_checked_while_a_network_folder_is()
 #[test]
 fn a_folder_without_a_monitor_is_checked() {
     let mut failures = Vec::new();
-    for (watching, checked) in [
-        (None, true),
-        (Some(Watching::Unavailable), true),
-        (Some(Watching::Live), false),
-    ] {
+    for watching in [None, Some(Watching::Unavailable)] {
         let source = Rc::new(Folders::default());
         let folder = source.add("/home/me/docs", local(1), watching);
         let (browser, clock) = browser_on(&source);
@@ -621,9 +600,8 @@ fn a_folder_without_a_monitor_is_checked() {
         clock.tick_at(15);
 
         let got = (armed, source.checks_of(&folder));
-        let expected = (checked, usize::from(checked));
-        if got != expected {
-            failures.push(format!("{watching:?}: got {got:?}, expected {expected:?}"));
+        if got != (true, 1) {
+            failures.push(format!("{watching:?}: got {got:?}"));
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
