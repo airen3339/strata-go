@@ -1747,7 +1747,7 @@ fn a_link_whose_target_stops_answering_trips_only_that_link() -> Result<(), Box<
 }
 
 #[test]
-fn a_load_from_a_gvfs_backend_that_stopped_answering_is_refused_at_once()
+fn a_load_or_folder_check_on_a_gvfs_backend_that_stopped_answering_is_refused_at_once()
 -> Result<(), Box<dyn Error>> {
     use crate::adapters::mount_lanes;
 
@@ -1788,9 +1788,24 @@ fn a_load_from_a_gvfs_backend_that_stopped_answering_is_refused_at_once()
         )
     };
 
+    let checked = Rc::new(RefCell::new(HashMap::new()));
+    let check = |location: &Location| {
+        let checked = checked.clone();
+        let key = location.clone();
+        LocalFileSource.validate_location_async(
+            location.clone(),
+            Rc::new(move |result| {
+                checked.borrow_mut().insert(key.clone(), result);
+            }),
+        )
+    };
+
     let refused = [load(&stopped[0], 1), load(&stopped[1], 3)];
     let elsewhere = load(&answering, 2);
-    drain_until(|| (1..=3).all(|id| outcome_of(&events, id).is_some()));
+    let checks = [&stopped[0], &stopped[1], &answering].map(check);
+    drain_until(|| {
+        (1..=3).all(|id| outcome_of(&events, id).is_some()) && checked.borrow().len() == 3
+    });
 
     let timed_out = Some(Err("The operation timed out".to_owned()));
     assert_eq!(
@@ -1808,7 +1823,16 @@ fn a_load_from_a_gvfs_backend_that_stopped_answering_is_refused_at_once()
         )
     );
     assert_ne!(outcome_of(&events, 2), timed_out);
-    drop((stuck, refused, elsewhere));
+    let unavailable = Err(LocationValidationError::Unavailable(
+        crate::services::io_error_detail(&ErrorKind::TimedOut.into()),
+    ));
+    let checked = checked.take();
+    assert_eq!(
+        stopped.each_ref().map(|location| checked.get(location)),
+        [Some(&unavailable); 2]
+    );
+    assert_ne!(checked.get(&answering), Some(&unavailable));
+    drop((stuck, refused, elsewhere, checks));
     Ok(())
 }
 

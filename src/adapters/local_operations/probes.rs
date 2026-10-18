@@ -253,7 +253,7 @@ fn listable(folder: &Path, progress: &Progress) -> Result<(), LocationValidation
     opened.map(drop).map_err(invalid)
 }
 
-fn unavailable(refused: Unanswered) -> LocationValidationError {
+pub(crate) fn unavailable(refused: Unanswered) -> LocationValidationError {
     LocationValidationError::Unavailable(io_error_detail(&unanswered(refused)))
 }
 

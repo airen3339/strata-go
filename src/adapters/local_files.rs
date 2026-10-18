@@ -1456,16 +1456,19 @@ impl FileSource for LocalFileSource {
             });
             return LoadHandle::new(move || task.abort());
         }
-        let file = gio::File::for_uri(location.uri_value().unwrap_or_default());
+        let uri = location.uri_value().unwrap_or_default().to_owned();
         let task = glib::MainContext::default().spawn_local(async move {
-            let result = file
-                .query_info_future(
-                    "standard::type",
-                    gio::FileQueryInfoFlags::NONE,
-                    glib::Priority::DEFAULT,
-                )
-                .await;
-            emit(uri_validation_result(&location, result));
+            let query = gio::File::for_uri(&uri).query_info_future(
+                "standard::type",
+                gio::FileQueryInfoFlags::NONE,
+                glib::Priority::DEFAULT,
+            );
+            let laned =
+                mount_lanes::run_remote(mount_lanes::authority(&uri), Class::Interactive, query);
+            emit(match laned.await {
+                Ok(result) => uri_validation_result(&location, result),
+                Err(refused) => Err(super::local_operations::probes::unavailable(refused)),
+            });
         });
         LoadHandle::new(move || task.abort())
     }
