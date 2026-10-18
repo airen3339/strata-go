@@ -119,7 +119,9 @@ which `gio::FileMonitor` (not `Send`) cannot cross without a wrapper.
 
 `BareMonitor` is the only value that moves a monitor between that worker and the UI thread, and
 it never carries a signal handler: the worker creates the monitor with no thread-default main
-context pushed, so its events reach the default main context, and sends it bare. The UI thread
+context pushed, so its events reach the default main context, and sends it bare. That delivery
+is read from GLib's and GVfs's source; for a GVfs folder it was not measured (see [What a dead
+server does](filesystem-compatibility.md#what-a-dead-server-does)). The UI thread
 connects the `changed` handler, whose closure owns `Rc` state. On release the UI thread first
 disconnects that handler, removes the coalescing timeout and drops the state, and only then drops
 the bare monitor, whose `Drop` hands it to the worker for `g_file_monitor_cancel` and the final

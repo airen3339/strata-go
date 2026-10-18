@@ -1787,6 +1787,11 @@ The exceptions are:
   text.
 - GLib's volume monitor, which works only on the main thread. Strata takes it once, in the primary
   instance's start-up, right after checking that GVfs answers and before the first window shows.
+  Strata skips that check while the marker it wrote after the last passing check still matches the
+  running `gvfsd` processes. The marker does not list GVfs's volume monitors
+  (`gvfs-udisks2-volume-monitor` and the like), which this first use asks, so neither a `gvfsd`
+  process that hangs without restarting nor a volume monitor that hangs, restarted or not, is
+  caught there.
   Under GLib's own unix volume monitor (`GIO_USE_VOLUME_MONITOR=unix`, as without GVfs), that first
   use checks every removable mount under `/run/media/$USER`; in the lab it hung for more than 10 s
   while the daemon of such a FUSE mount (ntfs-3g, exfat-fuse) was stopped. Once the monitor exists,
@@ -1887,6 +1892,11 @@ Measured in the lab over loopback, with the server stopped:
   once on a change. Strata's mount watcher (`src/adapters/volume/mount_watch.rs`) reads it on its
   own thread, waits 50 ms for a burst of changes to end, and publishes the table to readers that
   do no I/O: a burst of 3,000 changes cost 3 reads, and sustained churn 0.6 to 0.8 % of one core.
+- **GVfs was not stopped.** The lab stopped no GVfs backend and no `gvfs-udisks2` volume monitor.
+  How GVfs folder monitors and stream closes behave while their backend is stopped, whether a GVfs
+  folder's monitor, made off the interface thread, delivers its events to it, and how long the
+  first use of the volume monitor waits when `gvfs-udisks2` is stopped before Strata starts are
+  unverified.
 
 ### Folder monitors
 
