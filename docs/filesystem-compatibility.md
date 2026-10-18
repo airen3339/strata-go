@@ -1795,6 +1795,10 @@ The exceptions are:
   (`GDesktopAppInfo`), and the toolkit's own resources (icons, fonts, styles, MIME data) from
   system paths. Text previews take their languages from GtkSourceView's bundled and system
   folders and never read the user's own `gtksourceview-5` folder.
+- On a GVfs location, a stream whose open or create succeeds just as it is cancelled (a text
+  preview, a camera thumbnail, New File, a copy's hidden stage). GLib then frees it itself, and its
+  close is one request to the GVfs backend on the interface thread. These opens keep their cancel,
+  so that it still cuts a stuck request short.
 - Quitting, which waits up to 10 s for queued settings saves.
 
 The [main-thread I/O audit](e2e-testing.md#main-thread-io-audit) reports any other file call the

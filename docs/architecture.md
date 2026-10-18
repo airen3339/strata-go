@@ -377,7 +377,7 @@ for readers that do no I/O; `adapters/volume/mount_lanes.rs`, which bounds the f
 monitors and other requests it admits to a mount that stops answering;
 `adapters/local_files/monitors.rs`, the one worker that creates and cancels file monitors;
 `adapters/gio_close.rs`, which closes the enumerators and streams the interface lets go of in the
-background; and `storage/writer.rs`, the background writer for Strata's own settings and state. See
+background (GLib still closes a GVfs stream whose open succeeded just as it was cancelled); and `storage/writer.rs`, the background writer for Strata's own settings and state. See
 [Unresponsive mounts](filesystem-compatibility.md#unresponsive-mounts) and the [main-thread I/O
 audit](e2e-testing.md#main-thread-io-audit).
 

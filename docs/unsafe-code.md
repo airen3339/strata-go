@@ -101,8 +101,10 @@ main context. Strata passes no callback, which GIO annotates as allowed.
 The object is alive for the call, and GLib holds its own reference until the close ends. The
 cancellable, callback and user data are null. The calls run only on the UI thread, and only
 when no other operation is pending on the object; `Closing` rechecks pending objects until
-then. Written streams are never closed this way, as their close reports lost data. The
-regression test closes a probe enumerator and stream let go after and during a call, and
+then. Written streams are never closed this way, as their close reports lost data. A GVfs stream
+whose open succeeded just as it was cancelled never reaches Strata: GLib frees it, and it closes
+in place (see [Off the interface thread](filesystem-compatibility.md#off-the-interface-thread)).
+The regression test closes a probe enumerator and stream let go after and during a call, and
 requires each close to run off the UI thread.
 
 ### File and folder monitors made off the UI thread
