@@ -906,8 +906,6 @@ fn rejected_exchange_falls_back_to_aside_and_is_remembered() -> Result<(), Box<d
     let _serial = serial()?;
     let mode = |path: &Path| fs::metadata(path).map(|metadata| metadata.mode() & 0o7777);
     let set_mode = |path: &Path, mode| fs::set_permissions(path, fs::Permissions::from_mode(mode));
-    // A read-only folder is refused for itself: the copy cannot enter the
-    // originals folder, or the original cannot be exchanged out of its own.
     for (locked, exchanges) in [(Locked::Copy, 0), (Locked::EmptyOriginal, 1)] {
         let root = tempfile::tempdir()?;
         let source = root.path().join("source");
@@ -990,9 +988,6 @@ fn a_failed_publication_puts_the_original_back() -> Result<(), Box<dyn Error>> {
         ReadOnlyFolder,
         Symlink,
     }
-    // Publication follows the rename into the originals folder, which never links and
-    // which a read-only folder retries once it is writable. A refused exchange first
-    // parks the copy in such a folder and moves it back.
     for (item, quirks, (op, skip), evicted) in [
         (Item::File, Quirks::default(), (Op::Rename, 1), false),
         (Item::Folder, Quirks::default(), (Op::Rename, 1), false),
@@ -1075,8 +1070,6 @@ fn a_failed_publication_puts_the_original_back() -> Result<(), Box<dyn Error>> {
 #[test]
 fn a_taken_name_keeps_the_original_aside_and_names_it() -> Result<(), Box<dyn Error>> {
     let _serial = serial()?;
-    // The racer writes just before the new item is published at `target`, or
-    // saves over it just as the original is set aside, which sets the save aside.
     let cases: [(Preset, Op, usize, bool, bool); 4] = [
         (Quirks::default, Op::Rename, 1, false, false),
         (Quirks::vboxsf, Op::Create, 0, false, false),
@@ -1284,7 +1277,6 @@ fn same_filesystem_replacing_move_refuses_a_substituted_source() -> Result<(), B
             without_trash(
                 NFS_SUPER_MAGIC,
                 Quirks {
-                    // As the original is set aside, before the source moves.
                     before: vec![(Op::Rename, "target", 0, racer)],
                     ..quirks()
                 },

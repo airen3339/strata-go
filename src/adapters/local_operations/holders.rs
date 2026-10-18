@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: MIT
 
-//! Reads `/proc` only: nothing is called through another process's descriptors.
-
 use std::{
     collections::HashSet,
     ffi::{OsStr, OsString},
@@ -30,12 +28,10 @@ use crate::{
     services::{Holder, file_activity},
 };
 
-/// Estimated, not measured on a desktop (lab probe P12).
 const SCAN_BUDGET: Duration = Duration::from_millis(200);
 
 const ANCESTORS: usize = 64;
 
-/// With no `leftovers`, any file open below the folder on its mount.
 pub(super) fn find(fs: &dyn FsOps, at: Entry<'_>, leftovers: &[OsString]) -> Option<Holder> {
     let folder = fs
         .open_at(
@@ -64,7 +60,6 @@ pub(super) fn held_inside(holder: Option<&Holder>) -> Option<String> {
     })
 }
 
-/// `EBUSY` comes from another computer's handle, which this computer's `/proc` never shows.
 pub(super) fn refused_rename(fs: &dyn FsOps, from: Entry<'_>, errno: Errno) -> Option<String> {
     let (_, capabilities) = known_mount(fs, from.dir);
     capabilities.deferred_close?;
@@ -156,7 +151,6 @@ impl Target {
         })
     }
 
-    /// Before Linux 5.14 `fdinfo` has no inode, and the path alone decides.
     fn confirms(&self, pid: u32, fd: &OsStr) -> bool {
         let Ok(info) =
             std::fs::read_to_string(format!("/proc/{pid}/fdinfo/{}", fd.to_string_lossy()))
@@ -242,7 +236,6 @@ fn is_strata(pid: u32) -> bool {
         let Some((parent, group, session)) = parent_group_session(process) else {
             break;
         };
-        // Strata starts its helpers, never what it launches for the user, as process groups.
         if parent == own {
             if group == process
                 && parent_group_session(own)
@@ -286,7 +279,6 @@ fn app_name(pid: u32) -> Option<String> {
         })
 }
 
-/// The app units uwsm, GNOME and KDE start apps in, innermost first, except Strata's own.
 pub(super) fn app_ids(cgroup: &str, own: &str) -> Vec<String> {
     let strata: Vec<&str> = units(own).collect();
     units(cgroup)
@@ -338,7 +330,6 @@ fn unescape(escaped: &str) -> String {
     String::from_utf8_lossy(&text).into_owned()
 }
 
-/// GIO's launch variable, which a launched app's children inherit with another pid.
 pub(super) fn launched_desktop_file(environ: &[u8], pid: u32) -> Option<PathBuf> {
     let mut file = None;
     let mut launched = None;

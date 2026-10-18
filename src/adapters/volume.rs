@@ -205,7 +205,6 @@ impl PendingVolumeLookup {
         Self { cancellable, state }
     }
 
-    /// Still runs after this handle is dropped.
     pub(crate) fn wait(&self, then: impl FnOnce(VolumeRelation) + 'static) {
         self.state.borrow_mut().waiting.push(Box::new(then));
     }

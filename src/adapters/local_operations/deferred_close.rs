@@ -13,7 +13,6 @@ use crate::adapters::volume::SillyNames;
 /// How long after `closetimeo` the SMB client may take to close the handle.
 const MARGIN: Duration = Duration::from_millis(500);
 
-/// The longest a wait lasts, as `closetimeo` may be set to days.
 const LIMIT: Duration = Duration::from_secs(10);
 
 const FIRST_PAUSE: Duration = Duration::from_millis(10);
@@ -45,7 +44,6 @@ impl Wait {
     }
 
     pub(super) fn pause(&mut self, stopped: &dyn Fn() -> bool) -> Pause {
-        // A clock set back ends the wait rather than stretch it.
         let Ok(spent) = now().duration_since(self.started) else {
             return Pause::Spent;
         };
@@ -69,7 +67,6 @@ pub(super) fn closing(closetimeo: Duration) -> Duration {
 
 pub(super) struct WaitCancelled;
 
-/// Linux 6.17 to 7.1 may keep closed SMB handles open below a renamed folder (unverified).
 pub(super) fn retry_folder_rename<T, E>(
     fs: &dyn FsOps,
     folder: Entry<'_>,

@@ -32,8 +32,6 @@ pub(crate) struct MountCapabilities {
     pub links_keep_numbers: bool,
     pub rename_over_empty_directory: Option<bool>,
     pub tmpfile: Option<bool>,
-    /// Whether an unnamed file links only through `/proc`: `AT_EMPTY_PATH`
-    /// needs Linux 6.10 unprivileged.
     pub tmpfile_link_through_proc: Option<bool>,
     pub reflink: Option<bool>,
     pub copy_range: Option<bool>,

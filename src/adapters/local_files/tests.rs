@@ -507,7 +507,6 @@ fn a_directory_reporting_changes_against_itself_is_not_its_own_child() {
     );
 }
 
-/// Waits on the main context, which the caller holds, until the monitor is live.
 fn live_watch(location: Location, notify: Rc<dyn Fn(DirectoryChange)>) -> LoadHandle {
     let reported = Rc::new(Cell::new(None));
     let report = reported.clone();
@@ -1890,8 +1889,6 @@ fn stamp_of(answer: StampAnswer) -> DirectoryStamp {
     }
 }
 
-/// Waits until a change made now gets a later change time than `than`, which a kernel without
-/// multigrain timestamps can stamp within the same tick.
 fn wait_past(probe: &Path, than: &DirectoryStamp) {
     let than = than.changed.expect("a native change time");
     loop {

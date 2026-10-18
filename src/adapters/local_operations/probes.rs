@@ -89,7 +89,6 @@ fn open_folder(path: &Path) -> Result<OwnedFd, Errno> {
 
 type Names = Vec<(usize, Option<OsString>)>;
 
-/// Never follows a final symbolic link.
 pub(crate) async fn presence(
     locations: &[Location],
     cancellable: &gio::Cancellable,
@@ -303,7 +302,6 @@ pub(crate) async fn writable_folder(path: &Path) -> Result<Option<PathBuf>, Unan
     .map(Arc::unwrap_or_clone)
 }
 
-/// Any doubt keeps the folder.
 pub(crate) async fn folder_was_deleted(path: &Path) -> bool {
     let (Some(parent), Some(name)) = (path.parent(), path.file_name()) else {
         return false;
@@ -395,7 +393,6 @@ pub(crate) async fn child_folders(
     .map_or_else(|_| Vec::new(), Arc::unwrap_or_clone)
 }
 
-/// The folder's real path; search permission is enough, so write-only folders qualify.
 pub(crate) async fn destination_folder(path: &Path) -> Result<PathBuf, LocationValidationError> {
     let folder = path.to_owned();
     mount_lanes::run_joined(path, "destination folder".to_owned(), move |progress, _| {

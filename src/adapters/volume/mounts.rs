@@ -53,7 +53,7 @@ impl MountType {
     /// FAT and exFAT, libfuse without `use_ino` and cifs without server inode numbers number an
     /// entry afresh once the kernel has evicted it, and vboxsf keeps a name's number for whatever
     /// a rename puts there. The kernel's exFAT driver stamps a folder's birth time at each rename
-    /// into or within it. cifs can turn server inode numbers off at any time.
+    /// into or within it.
     pub(crate) fn identity(&self) -> IdentityTraits {
         let smb = family(&self.fs_type) == Family::Smb;
         let numbers = match (family(&self.fs_type), self.fs_type.as_str()) {
@@ -72,7 +72,6 @@ impl MountType {
         }
     }
 
-    /// Their handles carry the inode's generation; FUSE handles change once an entry is evicted.
     pub(crate) fn wants_file_handle(&self, birth: Option<(i64, u32)>) -> bool {
         matches!(
             family(&self.fs_type),
@@ -80,7 +79,6 @@ impl MountType {
         ) && birth.is_none_or(|birth| birth == (0, 0))
     }
 
-    /// cifs drops `serverino` when it turns server numbers off, and never prints `noserverino`.
     pub(crate) fn server_numbers(&self) -> bool {
         family(&self.fs_type) == Family::Smb
             && self
@@ -252,7 +250,6 @@ impl MountType {
     }
 }
 
-/// sshfs's default `dcache_timeout` of 20 s, on a whole-second clock.
 pub(crate) const SSHFS_DAEMON_CACHE: Duration = Duration::from_secs(21);
 
 pub(crate) const FAT32_MAX_FILE_SIZE: u64 = u32::MAX as u64;

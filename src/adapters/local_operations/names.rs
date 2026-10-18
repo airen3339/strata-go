@@ -106,7 +106,6 @@ fn numbered_names_after(
         .map(move |index| numbered_name(base_stem, index, extension, limit, is_directory))
 }
 
-/// A name that ends in its dot has no extension: `readme.` numbers as `readme. (1)`.
 fn numbered_parts(name: &OsStr, is_directory: bool) -> (&OsStr, &OsStr) {
     let path = Path::new(name);
     let stem = match path.extension() {
@@ -118,7 +117,6 @@ fn numbered_parts(name: &OsStr, is_directory: bool) -> (&OsStr, &OsStr) {
     (stem, OsStr::from_bytes(&name.as_bytes()[stem.len()..]))
 }
 
-/// Unlike [`numbered_names`], a ` (n)` the name already has is kept, not counted on.
 pub(super) fn with_number(
     name: &OsStr,
     number: u64,

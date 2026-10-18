@@ -412,8 +412,8 @@ pub(super) async fn trashed_entries_for_originals(
         .iter()
         .filter_map(|location| location.native_path().map(Path::to_path_buf))
         .collect::<HashSet<_>>();
-    // GVfs can miss an item re-trashed under the same basename after a restore, and may not run
-    // at all, so prefer the authoritative freedesktop.org metadata before consulting trash:///.
+    // GVfs can miss an item re-trashed under the same basename after a restore, so prefer the
+    // authoritative freedesktop.org metadata before consulting trash:///.
     let context = RestoreContext::current().await;
     let fallback_context = context.clone();
     let fallback_requested = requested.clone();

@@ -44,7 +44,10 @@ use crate::{
     services::{Attributes, IdentityTraits, InodeNumbers, KeptCause, Proof},
 };
 
-/// A transfer's deletions share one, as its items may hold names of one file.
+/// The link count each name deletions removed of a file with several names
+/// had just before, by device and inode. A transfer's deletions share one,
+/// as its items may hold names of one file. Those counts tell which
+/// removals followed a snapshot: the ones at or below its count.
 #[derive(Default)]
 pub(in crate::adapters::local_operations) struct Unlinks {
     unlinked: Mutex<HashMap<(u64, u64), Unlinked>>,
@@ -59,7 +62,6 @@ impl Unlinks {
 
 #[derive(Default)]
 struct Unlinked {
-    /// Link counts just before each removal; those at or below a snapshot's count followed it.
     counts: Vec<u64>,
     left: Option<(i64, u32)>,
 }
@@ -563,10 +565,7 @@ impl Ownership {
 
     /// A file rewritten in place, or another one given its inode number and
     /// birth time, shows only in its size or modification time, and within
-    /// one tick of a coarse clock only in its contents. Where the mount
-    /// numbers an evicted entry afresh, the birth time stands in for the
-    /// inode number where both stats report one, and where renames reset a
-    /// folder's birth time, a folder's type, as its entries are checked too.
+    /// one tick of a coarse clock only in its contents.
     fn holds(
         &self,
         fs: &dyn FsOps,
@@ -993,9 +992,6 @@ pub(super) fn remove(
     walk(fs, parent, root, unlinks, cancelled, false, false)
 }
 
-/// As [`remove`], for what an operation placed: every folder of the record
-/// is its own, so one it left read-only is opened to its owner while its
-/// entries go, and gets its mode back if it stays.
 pub(super) fn remove_placed(
     fs: &'static dyn FsOps,
     parent: Arc<OwnedFd>,
@@ -1102,7 +1098,6 @@ struct Deletion {
     kept: Mutex<Vec<(PathBuf, KeptCause)>>,
     removed: AtomicBool,
     compare_only: bool,
-    /// The mount's family where every folder recorded is the operation's own.
     own_folders: Option<Family>,
 }
 
@@ -1199,8 +1194,6 @@ impl Deletion {
     }
 }
 
-/// A folder of the operation's own opened to its owner, which gets its mode
-/// back unless it is removed.
 struct Loosened {
     fs: &'static dyn FsOps,
     fd: Arc<OwnedFd>,

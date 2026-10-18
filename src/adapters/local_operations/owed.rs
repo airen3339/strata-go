@@ -39,7 +39,6 @@ pub(super) enum Deletion {
     Sources(gio::File, Manifest),
     /// With the links a GIO copy left out of it, which stay.
     Source(gio::File, Vec<gio::File>),
-    /// With the replaced item's path.
     Displaced(DisplacedOriginal, PathBuf),
     Aside(MergeAside),
 }

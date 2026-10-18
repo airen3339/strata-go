@@ -1,8 +1,5 @@
 // SPDX-License-Identifier: MIT
 
-//! Files unlinked while open, which network and FUSE clients keep under hidden names until
-//! the last close.
-
 use std::{
     cell::OnceCell,
     collections::HashSet,
@@ -50,10 +47,7 @@ use crate::{
     },
 };
 
-/// How long a leftover may outlive the last close on NFS and FUSE: the lab saw 84 ms at
-/// most over loopback, and a network adds round trips.
 const LINGERS: Duration = Duration::from_secs(2);
-/// vfat keeps local times: from another time zone a fresh probe can look up to 26 hours old.
 const PROBES_STALE_AFTER: Duration = Duration::from_secs(60 * 60);
 const REVIEWED_ENTRIES: usize = 1_000;
 
@@ -618,7 +612,6 @@ pub(super) fn start_sweep(folder: &Location, names: &[OsString]) {
     ));
 }
 
-/// Never retried: read-only mounts keep refusing, and an unplugged device may fake a removal.
 pub(super) fn sweep_probes(fs: &dyn FsOps, folder: &Path, names: &[OsString], progress: &Progress) {
     let claimed: Vec<_> = {
         let mut swept = SWEPT.lock().unwrap_or_else(|poison| poison.into_inner());

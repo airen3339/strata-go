@@ -106,8 +106,6 @@ fn a_copy_cut_off_by_an_unplug_leaves_only_its_stage() -> Result<(), Box<dyn Err
 #[test]
 fn an_unplug_after_setting_aside_keeps_the_original_under_its_name() -> Result<(), Box<dyn Error>> {
     let _serial = serial()?;
-    // A copy publishes a stage after setting the original aside; a move on its
-    // own filesystem renames the source over the name.
     for (quirks, moving) in [(Quirks::nfs3(), false), (Quirks::ext4(), true)] {
         let row = format!("moving: {moving}");
         let root = tempfile::tempdir()?;
@@ -158,7 +156,6 @@ fn an_unplug_mid_case_only_rename_keeps_the_old_spelling() -> Result<(), Box<dyn
     let root = tempfile::tempdir()?;
     let item = root.path().join("report");
     fs::write(&item, b"data")?;
-    // Skips the direct rename, which the old spelling already answers.
     let scope = FsQuirks::install(
         root.path(),
         Quirks {
@@ -243,8 +240,6 @@ fn a_refused_exchange_sets_the_original_aside_after_moving_the_copy_back()
     let target = root.path().join("target");
     fs::write(&source, b"new")?;
     fs::write(&target, b"old")?;
-    // Unplugged once the original is aside: the copy went into a folder for the
-    // exchange, came back to its stage name, and the original took its place.
     let scope = FsQuirks::install(
         root.path(),
         Quirks {

@@ -190,9 +190,6 @@ impl<'a> Mount<'a> {
     }
 }
 
-/// With `expected`, another item at `from` is refused as `Changed` before
-/// anything moves, and another item at `to` once moved stays there,
-/// `Unconfirmed`: nothing proves it came from `from`.
 pub(super) fn place(
     fs: &dyn FsOps,
     from: Entry<'_>,
@@ -976,7 +973,6 @@ pub(super) fn open_beneath(
     })
 }
 
-/// Only into a folder this operation just made, so a plain rename clobbers nothing.
 pub(super) fn move_aside(
     fs: &dyn FsOps,
     from: Entry<'_>,
@@ -1079,7 +1075,6 @@ pub(super) fn place_back(
     })
 }
 
-// Linux moves a folder to another parent only if its `..` can be rewritten.
 fn with_owner_write<T>(
     fs: &dyn FsOps,
     folder: Entry<'_>,
@@ -1195,7 +1190,6 @@ pub(super) fn exchange_through(
     target: Entry<'_>,
     copy: LocalFileIdentity,
 ) -> Result<Exchanged, PlaceError> {
-    // A read-only folder cannot change parent; set-aside publishes the copy in place.
     let denied = |error| matches!(error, PlaceError::Io(Errno::ACCESS | Errno::PERM));
     let originals = Originals::create(fs, target.dir)?;
     let parked = originals.entry(target.name);

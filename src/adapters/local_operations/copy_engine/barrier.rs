@@ -33,8 +33,6 @@ struct Plan {
 impl Plan {
     fn of(mount: &Mount) -> Self {
         let mut plan = match mount.family {
-            // FAT's `sync_fs` writes back without flushing the device's cache, which
-            // its `fsync`, of folders too, does; ntfs3's misses renames a lost device never got.
             Family::Fat | Family::Ntfs3 => Self {
                 sync_fs: true,
                 sync_dir: true,
@@ -178,7 +176,6 @@ impl Barrier {
     }
 
     pub(super) fn reach(&self, fs: &dyn FsOps, removable: bool) -> Result<(), Errno> {
-        // Before `syncfs` for ntfs3's lost renames, after it for FAT's device cache.
         if self.plan.sync_dir && self.plan.sync_fs {
             fs.sync_dir(self.dir.as_fd())?;
         }

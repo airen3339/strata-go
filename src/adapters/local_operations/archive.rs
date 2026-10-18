@@ -70,22 +70,10 @@ use std::{
 /// every 100 ms via [`archive_progress_timer`]. Returns a [`LoadHandle`] that
 /// cancels in-flight work when dropped.
 ///
-/// Emits [`ArchiveStarted`] immediately, [`ArchiveProgress`] while running,
-/// then [`Compressed`], preceded by an [`ItemsReported`] when a replaced
-/// original could not be removed, or [`Failed`] or [`Cancelled`], depending on
-/// the outcome.
-///
 /// # Concurrency
 ///
 /// Runs on the default [`glib::MainContext`]. Archive encoding happens on a
 /// worker thread via [`gio::spawn_blocking`].
-///
-/// [`ArchiveStarted`]: OperationEvent::ArchiveStarted
-/// [`ArchiveProgress`]: OperationEvent::ArchiveProgress
-/// [`ItemsReported`]: OperationEvent::ItemsReported
-/// [`Compressed`]: OperationEvent::Compressed
-/// [`Failed`]: OperationEvent::Failed
-/// [`Cancelled`]: OperationEvent::Cancelled
 pub(super) fn compress(request: CompressRequest, emit: Rc<dyn Fn(OperationEvent)>) -> LoadHandle {
     let cancellable = gio::Cancellable::new();
     let release_cancellable = cancellable.clone();
@@ -420,7 +408,6 @@ pub(super) fn extract(request: ExtractRequest, emit: Rc<dyn Fn(OperationEvent)>)
     })
 }
 
-/// Also removes the folder when the extraction panics.
 struct CreatedFolder<'a>(Option<&'a Path>);
 
 impl Drop for CreatedFolder<'_> {

@@ -84,7 +84,6 @@ impl CaseVariants {
     }
 }
 
-/// Path-keyed FUSE daemons number each spelling of one item as its own node.
 pub(super) async fn taken_by(target: &gio::File, earlier: Vec<Saved>) -> bool {
     let Some(path) = target.path().filter(|_| !earlier.is_empty()) else {
         return false;

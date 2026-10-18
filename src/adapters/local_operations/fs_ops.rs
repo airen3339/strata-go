@@ -197,7 +197,6 @@ pub(super) trait FsOps: super::environment::FsEnvironment {
         dir: BorrowedFd<'_>,
         each: &mut dyn FnMut(Listed) -> ControlFlow<()>,
     ) -> Result<(), Errno>;
-    /// Follows symbolic links, as listing the folder does.
     fn folder_stamp(&self, path: &Path, force_sync: bool) -> Result<FolderStamp, Errno>;
     fn access(&self, path: &Path, access: Access) -> Result<(), Errno>;
     fn create_node(&self, at: Entry<'_>, kind: FileType, mode: Mode) -> Result<(), Errno>;

@@ -2553,7 +2553,6 @@ fn a_merge_without_trash_cancelled_after_it_placed_a_copy_puts_the_original_back
         let _destination = FsQuirks::install(
             &destination,
             without_trash(Quirks {
-                // The first rename of `a.txt` sets the original aside, the second places the copy.
                 after: vec![(Op::Rename, "a.txt", 1, racer)],
                 ..preset()
             }),

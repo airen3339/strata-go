@@ -445,7 +445,6 @@ pub(super) fn set_aside_failure(failure: RenameFailure, name: &str) -> glib::Err
     }
 }
 
-/// An original kept in an originals folder until its replacement is safe on disk.
 pub(super) struct DisplacedOriginal {
     pub(super) parent: OffMain<Arc<OwnedFd>>,
     pub(super) originals: placement::Originals,

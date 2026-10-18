@@ -34,9 +34,7 @@ pub(super) trait FsEnvironment: Send + Sync {
         flags: gio::FileMonitorFlags,
     ) -> Result<gio::FileMonitor, glib::Error>;
     fn unwatch(&self, file: &gio::File, monitor: gio::FileMonitor);
-    /// The kernel's table, not the watcher's: cifs changes options without a mount-table event.
     fn current_mount_type(&self, fd: BorrowedFd<'_>) -> Option<MountType>;
-    /// The mount table and birth time that decide whether `statx_at` reads the entry's handle.
     fn file_handle_inputs(
         &self,
         at: Entry<'_>,
@@ -193,7 +191,6 @@ fn mount_of(id: u64) -> Option<(MountType, MountSite)> {
         .or_else(|| MountTable::current().mount_of(id).map(owned))
 }
 
-/// `None` before Linux 5.8.
 fn mount_id(fd: BorrowedFd<'_>) -> Option<u64> {
     rustix::fs::statx(
         fd,

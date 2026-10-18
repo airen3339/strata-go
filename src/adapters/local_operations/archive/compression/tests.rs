@@ -752,8 +752,7 @@ fn a_name_taken_during_replacement_keeps_the_original_aside() -> Result<(), Box<
     let _serial = ASYNC_MAIN_CONTEXT_DEFAULT
         .lock()
         .map_err(|error| error.to_string())?;
-    // The first rename of the name sets the original aside, the second publishes. A
-    // save over the name just as the original is set aside is set aside instead.
+    // The first rename of the name sets the original aside; the second publishes.
     for (skip, saves_over) in [(1, false), (0, true)] {
         let root = tempfile::tempdir()?;
         let archive = root.path().join("existing.zip");

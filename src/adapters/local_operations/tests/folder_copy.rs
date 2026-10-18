@@ -450,7 +450,6 @@ fn a_claimed_file_evicted_before_its_job_is_still_written() -> Result<(), Box<dy
     let (source, destination) = (root.path().join("source"), root.path().join("destination"));
     fs::create_dir(&source)?;
     fs::create_dir(&destination)?;
-    // A FAT short name may stand for any long name, so both are claimed.
     for file in ["PROGRA~1", "Program Files"] {
         fs::write(source.join(file), file)?;
     }

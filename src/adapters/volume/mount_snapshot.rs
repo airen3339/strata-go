@@ -12,7 +12,6 @@ pub(crate) struct RemovableRoot {
     pub(crate) path: PathBuf,
 }
 
-/// Mount facts that lookups on navigation read without touching the disk or querying GIO.
 pub(crate) struct MountSnapshot<'a> {
     pub(crate) table: MountTable,
     pub(crate) removable: &'a [RemovableRoot],

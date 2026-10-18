@@ -46,8 +46,6 @@ impl Drop for BareMonitor {
                 file: self.file.clone(),
             };
             if let Err(mpsc::SendError(Job::Release(mut unsent))) = send(Job::Release(release)) {
-                // Never cancel on the UI thread: a creation stuck on a dead mount holds GLib's
-                // inotify lock.
                 std::mem::forget(unsent.monitor.take());
             }
         }

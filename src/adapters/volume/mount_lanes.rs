@@ -45,7 +45,6 @@ pub(crate) enum Unanswered {
 
 pub(crate) use crate::services::Responsiveness;
 
-/// Errors from a server or daemon that stopped answering are not progress.
 pub(crate) trait Outcome {
     fn made_progress(&self) -> bool;
 }
@@ -225,7 +224,6 @@ impl Lanes {
         }
     }
 
-    /// `Some` places the request on a stall it shares, to find out whether that has cleared.
     fn verdict(
         &self,
         target: &Target<'_>,
@@ -300,7 +298,6 @@ impl Lanes {
         }
     }
 
-    /// Whether anything is stalled; watches on while a request may still stall.
     fn watch(&mut self, now: Instant) -> bool {
         let next = self
             .tickets
@@ -406,7 +403,6 @@ thread_local! {
     static FOLLOWERS: RefCell<Vec<Weak<dyn Fn()>>> = RefCell::default();
 }
 
-/// `notify` runs on the main thread while it lives, whenever a request may have stopped answering.
 pub(crate) fn follow(notify: &Rc<dyn Fn()>) {
     FOLLOWERS.with(|followers| {
         let mut followers = followers.borrow_mut();
@@ -416,7 +412,6 @@ pub(crate) fn follow(notify: &Rc<dyn Fn()>) {
 }
 
 fn watch_after(delay: Duration) {
-    // Tests drive the lanes by hand: a timer would fire on another test's thread.
     if !cfg!(test) {
         glib::timeout_add_once(delay, watch_stalls);
     }
@@ -521,7 +516,6 @@ impl Progress {
         self.reading.store(true, Ordering::Relaxed);
     }
 
-    /// Follows `path` onto what may be another mount, so a dead target trips only `path`.
     pub(crate) fn reach<T: Outcome>(
         &self,
         path: &Path,
@@ -551,7 +545,6 @@ impl Admitted {
         &self.progress
     }
 
-    /// Dropping a pending GIO call parks nothing, and its answer would never be seen.
     pub(crate) async fn call<F: Future>(&self, call: F) -> F::Output {
         self.calling.set(true);
         let answer = call.await;
@@ -626,7 +619,6 @@ pub(crate) fn admit_remote(authority: String, class: Class) -> Result<Admitted, 
     admitted(&mut lanes(), target, class)
 }
 
-/// GVfs backends that stop answering keep GIO's asynchronous calls waiting forever.
 pub(crate) async fn run_remote<T: Outcome>(
     authority: String,
     class: Class,
@@ -853,7 +845,6 @@ impl Drop for Waiting {
     }
 }
 
-/// `kind` must name the work and its answer's type.
 pub(crate) async fn run_joined<T: Send + Sync + 'static>(
     path: &Path,
     kind: String,

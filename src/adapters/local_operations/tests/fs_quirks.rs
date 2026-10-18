@@ -88,11 +88,9 @@ pub(crate) enum Op {
     DeviceFormat,
     OpenDir,
     List,
-    /// One per `getdents64`, the last one finding no more entries.
     ListChunks,
     FolderStamp,
     Access,
-    /// Creating a folder's change monitor.
     Watch,
     Unwatch,
     CreateNode,
@@ -218,29 +216,22 @@ impl Silly {
     }
 }
 
-/// How long a client answers plain stats from the times it cached, as NFS does for
-/// `acdirmin` and `acregmin` and SMB for `actimeo`.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct CachedTimes {
     pub folders: Duration,
     pub files: Duration,
 }
 
-/// How long listing a folder repeats the names it listed last, as the SMB client lists a
-/// cached directory and sshfs its daemon's cache.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct CachedListing {
     pub kept_for: Duration,
-    /// Each listing or stamp of the folder keeps the names, as a held SMB directory lease does.
     pub renewed_by_use: bool,
 }
 
-/// Samba makes a creation time up from a file's times; the client keeps the first one it saw.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) enum Births {
     #[default]
     Reported,
-    /// For entries not created through the seam.
     MadeUp,
 }
 
@@ -287,7 +278,6 @@ pub(crate) struct Quirks {
     /// with the errno, as Samba makes it under a longer temporary name.
     pub folder_name_limit: Option<(usize, Errno)>,
     pub symlinks: Support,
-    /// The `statfs` type; `None` reports ext4's, never the host's.
     pub fs_type: Option<FsWord>,
     pub name_max: Option<u32>,
     pub trash: Trash,
@@ -313,14 +303,10 @@ pub(crate) struct Quirks {
     /// Runs once, after the matching call after skipping the given number of matches, whether
     /// or not the call succeeded.
     pub after: Vec<(Op, &'static str, usize, Racer)>,
-    /// Lets the matching call through after skipping the given number of matches, then fails
-    /// every later call with `EIO`, as a yanked device does, until [`FsQuirks::replug`].
     pub unplugged_after: Option<(Op, &'static str, usize)>,
-    /// The mountinfo type and super options; `None` reports ext4's, never the host's.
     pub mount_type: Option<(&'static str, &'static str)>,
     pub mount_root: Option<&'static str>,
     pub device_format: Option<&'static str>,
-    /// Whether the scope's disk spins; the host's disk is never asked.
     pub rotational: Option<bool>,
     pub tmpfile: Support,
     pub tmpfile_link: TmpfileLink,
@@ -340,12 +326,8 @@ pub(crate) struct Quirks {
     pub node_create: Support,
     /// `mknodat` of a named pipe, which FAT, exFAT and SMB refuse.
     pub fifos: Support,
-    /// Unlinking a file a [`HoldGuard`] or a descriptor of this process holds puts it aside
-    /// instead, as network and FUSE clients do until the last close.
     pub silly_rename: Option<Silly>,
-    /// The program a `/proc` scan names; without one, only this process is scanned.
     pub holder: Option<Holder>,
-    /// Folder renames and Trash fail with `EACCES` while a file below is held, and this long after.
     pub folder_renames_refused_below: Option<Duration>,
     /// Files report a size of 0 whatever they hold, so `copy_file_range`
     /// copies nothing from them, as virtual files on FUSE (lxcfs) do.
@@ -374,22 +356,13 @@ pub(crate) struct Quirks {
     /// filesystem mounted inside another does; scopes otherwise share the
     /// device of the folder they are made in, as bind mounts do.
     pub own_device: bool,
-    /// Folder stamps carry no mount id, as before Linux 5.8.
     pub no_mount_ids: bool,
     /// A stat that does not force revalidation reports the change time the
     /// last stat of the entry saw, until this long after by the test clock,
     /// as the SMB client answers from its attribute cache (`actimeo`).
     pub cached_change_times: Option<Duration>,
-    /// A folder stamp that does not force revalidation reports the times the last
-    /// revalidation saw, until this long after by the test clock or a change this scope
-    /// made, whose replies the client learns from.
     pub cached_times: Option<CachedTimes>,
-    /// Every folder stamp, forced or not, reports the times the daemon fetched until this
-    /// long after by the test clock or a change this scope made, as sshfs answers from its
-    /// cache.
     pub daemon_cache: Option<Duration>,
-    /// Listing a folder repeats the names it listed last, except after a change this scope
-    /// made, which the client sees at once.
     pub cached_listing: Option<CachedListing>,
     /// Times stamped at or after this instant read as it, as one tick of the coarse clock
     /// stamps them where the kernel has no multigrain timestamps. The tick lasts as long as
@@ -406,7 +379,7 @@ impl Quirks {
         }
     }
 
-    /// No `RENAME_NOREPLACE`, no hard links, no rename over an empty folder and no birth times.
+    /// No `RENAME_NOREPLACE`, no hard links, and no rename over an empty folder.
     pub(crate) fn vboxsf() -> Self {
         Self {
             mount_type: Some(("vboxsf", VBOXSF_OPTIONS)),
@@ -919,7 +892,6 @@ impl Fetch {
 struct Scope {
     id: u64,
     root: PathBuf,
-    /// The kernel's id of the real mount under the root, which entries' stats report.
     mount_id: Option<u64>,
     own_device: bool,
     state: Mutex<State>,
@@ -952,11 +924,8 @@ struct State {
     read_only_unseen: HashSet<PathBuf>,
     /// The change time each entry's last stat saw, and when, by device and inode.
     seen_change_times: HashMap<(u64, u64), ((i64, u32), SystemTime)>,
-    /// The times each folder stamp's last revalidation saw, by device and inode.
     seen_times: HashMap<(u64, u64), Seen>,
-    /// The names each folder listed, by path.
     listings: HashMap<PathBuf, (Listed, Fetch)>,
-    /// Changes this scope made, which its client sees at once.
     own_changes: u64,
     unplugged: bool,
     serverino_disabled: bool,
@@ -2200,7 +2169,6 @@ fn renumber(path: &Path) -> bool {
     })
 }
 
-/// As [`renumbered`], unless a descriptor of this process holds it or cifs keeps server numbers.
 pub(crate) fn evict(path: &Path) -> bool {
     let Ok(stat) = rustix::fs::lstat(path) else {
         return false;
@@ -2222,7 +2190,6 @@ pub(crate) fn evict(path: &Path) -> bool {
     !scope.server_numbers() && renumber(path)
 }
 
-/// Another program opens the file at `path` and keeps it open until the guard drops.
 pub(crate) fn hold(path: &Path) -> HoldGuard {
     let scope = scope_for_path(path).expect("a scope holding the file");
     let stat = rustix::fs::lstat(path).expect("the held file");
@@ -2236,8 +2203,6 @@ pub(crate) fn hold(path: &Path) -> HoldGuard {
     HoldGuard { scope, key }
 }
 
-/// As the cifs client turns server inode numbers off after a collision, with no mount-table event:
-/// cached entries keep their numbers and birth times, even across replacements, until evicted.
 pub(crate) fn autodisable_serverino(path: &Path) -> bool {
     let Some(scope) = scope_containing(path) else {
         return false;

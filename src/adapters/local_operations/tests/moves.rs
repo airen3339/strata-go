@@ -2542,10 +2542,6 @@ fn a_copy_replaced_before_its_times_are_settled_keeps_its_source() -> Result<(),
         mount_type: Some(("fuse.rclone", "rw,user_id=1000,group_id=1000")),
         ..Quirks::sshfs()
     };
-    // Another client's file at the copy's name keeps the number the daemon
-    // gave it, so only the copy's written size tells them apart: an old
-    // source's times are set again (by name where its owner may neither read
-    // nor write it), a recent one's left as they are.
     let rows: [(&str, Preset, u64, u32); 3] = [
         ("times set again", Quirks::sshfs, 3600, 0o644),
         ("times set again by name", Quirks::sshfs, 3600, 0o044),
@@ -2732,14 +2728,13 @@ fn copies_a_mount_numbers_afresh_are_known_by_birth_time_or_else_by_inode_number
         /// Renamed away, with what the merge placed in it, and another folder
         /// made at its name.
         FolderReplaced,
-        /// Evicted alone, its entries still cached.
         FolderEvicted,
     }
-    // vfat, exFAT and FUSE daemons without `use_ino` number an entry afresh
-    // once the kernel evicts it, here right after the copy is published; on
-    // ext4, which keeps inode numbers, another number is another file. Only a
-    // birth time proves a renumbered entry, and merging into a folder on exFAT
-    // sets its birth time again. Whether the move deletes its source.
+    // exFAT and FUSE daemons without `use_ino` number an entry afresh once
+    // the kernel evicts it, here right after the copy is published; on ext4,
+    // which keeps inode numbers, another number is another file. Merging into
+    // a folder on exFAT sets its birth time again. Whether the move deletes
+    // its source.
     let (fail, merge) = (TransferConflict::FailIfExists, TransferConflict::Merge);
     let rows: [(Preset, &str, TransferConflict, Change, bool); 11] = [
         (Quirks::sshfs, "notes.txt", fail, Change::None, false),

@@ -368,7 +368,6 @@ mod probed {
 }
 use probed::{Folder, Item, Listing, Reading};
 
-/// A local folder whose open, like GLib's, runs to the end once started and ignores a cancel.
 pub(crate) fn probed_folder(probe: &Arc<Probe>) -> gio::File {
     use gtk::glib::subclass::prelude::ObjectSubclassIsExt;
     let folder: Folder = glib::Object::new();
@@ -376,8 +375,6 @@ pub(crate) fn probed_folder(probe: &Arc<Probe>) -> gio::File {
     folder.upcast()
 }
 
-/// A local file whose create and read, like GLib's, run to the end once started and ignore a
-/// cancel.
 pub(crate) fn probed_file(probe: &Arc<Probe>) -> gio::File {
     use gtk::glib::subclass::prelude::ObjectSubclassIsExt;
     let file: Item = glib::Object::new();
@@ -393,8 +390,6 @@ impl Wake for Answered {
     }
 }
 
-/// Lets a stream opened from a probed file answer, then drops the open before it is polled
-/// again, as an abort between the answer and the next poll does.
 pub(crate) fn closed_on_the_ui_thread_once_answered_and_let_go<F: Future>(
     open: impl FnOnce(gio::File) -> F,
 ) -> bool {

@@ -152,13 +152,12 @@ pub(super) fn start(
     operation_handle(cancellable)
 }
 
-/// Finishes closing the empty file before it is published for rename.
+/// Finish closing the empty file before publishing it for rename.
 pub(super) async fn create_empty_file(
     file: &gio::File,
     cancellable: &gio::Cancellable,
 ) -> Result<(), glib::Error> {
     if file.is_native() {
-        // A local create ignores a late cancel; GTask would then close the file on the UI thread.
         let file = file.clone();
         let cancellable = cancellable.clone();
         return run_blocking(move || {

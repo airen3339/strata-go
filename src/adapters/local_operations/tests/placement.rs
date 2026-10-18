@@ -770,7 +770,6 @@ fn set_aside_refuses_a_substituted_item_or_names_where_it_went() -> Result<(), B
         Swap::AsACaseOnlyRenameParksIt,
     ] {
         let root = tempfile::tempdir()?;
-        // The rename into the originals folder; a case-only rename tries the new spelling first.
         let (name, skip, mut quirks) = match swap {
             Swap::AsACaseOnlyRenameParksIt => ("report", 1, case_insensitive(Quirks::default())),
             _ => ("target", 0, Quirks::default()),
@@ -1153,7 +1152,6 @@ fn a_case_only_rename_is_not_refused_as_taken_where_each_spelling_has_its_own_nu
         alias_inodes: true,
         ..Quirks::exfat_fuse()
     };
-    // The lookup of a second spelling after cifs turned server numbers off gets a number of its own.
     let cifs_nocase = || Quirks {
         alias_inodes: true,
         ..Quirks::cifs_nocase()

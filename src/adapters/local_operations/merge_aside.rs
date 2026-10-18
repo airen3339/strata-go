@@ -285,7 +285,6 @@ impl MergeAside {
     }
 
     fn remove_folders(&mut self, deadline: &Deadline) -> Left {
-        // Their mirror handles would name Strata as the holder.
         self.moved.clear();
         let fs = fs();
         let mut held = HashSet::new();
@@ -324,8 +323,6 @@ impl MergeAside {
         })
     }
 
-    /// An original whose name holds anything but the merge's own copy, as `placed`
-    /// tells it, stays in the folder.
     fn put_back(&mut self, placed: &HashMap<PathBuf, Ownership>) -> Result<Option<KeptItem>, Kept> {
         let mut failure = None;
         for moved in std::mem::take(&mut self.moved).into_iter().rev() {

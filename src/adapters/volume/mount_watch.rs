@@ -204,7 +204,6 @@ impl Source for Mountinfo {
 
     fn settle(&mut self) {
         std::thread::sleep(SETTLE);
-        // Each poll that reports a change consumes it, so the read that follows covers the burst.
         let mut fds = [PollFd::new(&self.table, PollFlags::PRI)];
         let _ = poll(
             &mut fds,

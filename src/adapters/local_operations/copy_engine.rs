@@ -133,8 +133,7 @@ pub(super) struct Placing {
 
 impl Placing {
     /// Beneath `root`, `wanted` are the paths undo reverts; where the merge records all it
-    /// creates, `unwanted` are the overwritten paths undo leaves. `aside` are the paths of
-    /// originals set aside, for a stopped merge to tell its own copies there.
+    /// creates, `unwanted` are the overwritten paths undo leaves.
     pub(super) fn new(
         root: PathBuf,
         wanted: HashSet<PathBuf>,

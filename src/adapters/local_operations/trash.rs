@@ -97,7 +97,6 @@ pub(super) fn trash_verified(
     Ok(trashed)
 }
 
-/// GLib trashes whatever holds the name when it gets there.
 struct Held {
     stat: EntryStat,
     pin: Pinned,
@@ -108,7 +107,6 @@ impl Held {
     fn take(at: Entry<'_>, stat: EntryStat) -> Self {
         let (_, capabilities) = known_mount(fs(), at.dir);
         let traits = capabilities.identity;
-        // On NFS a held entry that another program unlinks stays behind under a hidden name.
         if capabilities.silly_names == Some(SillyNames::Renamed(ForeignLeftover::Nfs)) {
             let pin = Pinned::at(fs(), at, &stat, traits);
             return Self { stat, pin, traits };
@@ -168,7 +166,6 @@ fn in_trash(location: &Path) -> bool {
     })
 }
 
-/// GLib names an entry after the item, numbering later ones as `a.2.txt`.
 fn trashed_instead(path: &Path) -> Option<ItemIdentity> {
     let name = path.file_name()?;
     let uid = rustix::process::getuid().as_raw();

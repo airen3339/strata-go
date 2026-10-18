@@ -42,7 +42,6 @@ pub(crate) async fn refused_in(folder: &gio::File, name: &str, new_folder: bool)
     refused(name, &folder_name_rules(folder).await?, new_folder)
 }
 
-/// By placement's alias rule, which the rename applies a moment later.
 pub(crate) fn rename_taken(current: &Path, wanted: &Path) -> bool {
     let entry = |path: &Path| {
         let dir = open_local_parent_directory(path.parent()?).ok()?;

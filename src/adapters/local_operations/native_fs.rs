@@ -82,7 +82,6 @@ pub(super) fn unchanged(
     }
 }
 
-/// An `O_PATH` hold keeps the kernel from evicting an entry, so it keeps its number.
 #[derive(Default)]
 pub(super) struct Pinned {
     pin: Option<OffMain<OwnedFd>>,
@@ -139,7 +138,6 @@ impl Pinned {
         )
     }
 
-    /// A path-keyed FUSE daemon keeps a name's number for a file another writer puts there.
     pub(super) fn unchanged(
         &self,
         fs: &dyn FsOps,
@@ -157,7 +155,6 @@ impl Pinned {
     }
 }
 
-/// By device and type alone: only for sites that check the entries or remove it empty or hidden.
 pub(super) fn birth_reset_folder(
     traits: IdentityTraits,
     recorded: LocalFileIdentity,
@@ -172,7 +169,6 @@ pub(super) fn birth_reset_folder(
         && reported(current.identity.birth)
 }
 
-/// Without the change time, which a move to Trash changes.
 pub(super) fn trashed_identity(stat: &EntryStat, traits: IdentityTraits) -> ItemIdentity {
     ItemIdentity {
         evidence: stat.identity.evidence(stat.kept_attributes()),

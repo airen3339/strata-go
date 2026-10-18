@@ -15,8 +15,6 @@ thread_local! {
     static WAITING: RefCell<Vec<Box<dyn Closable>>> = const { RefCell::new(Vec::new()) };
 }
 
-/// GLib closes an enumerator or stream left open in place on its last unref, which on the UI
-/// thread can wait for a network server or a FUSE daemon.
 pub(crate) struct Closing<T: Closable>(Option<T>);
 
 impl<T: Closable> Closing<T> {
@@ -59,8 +57,6 @@ pub(crate) async fn enumerate_children(
     let cancellable = cancellable.cloned();
     let interrupt = cancellable.clone();
     let enumerator = gio::GioFuture::new(folder, move |folder, dropped, result| {
-        // A local open ignores a cancel once started, and GTask would then free its
-        // enumerator here, on the UI thread.
         let interrupt = (!native).then(|| interrupt.as_ref().unwrap_or(dropped));
         folder.enumerate_children_async(
             attributes,
@@ -112,7 +108,6 @@ fn recheck_after(delay: Duration) {
     });
 }
 
-/// Read side only: a written stream's close reports lost data, so its owner closes it.
 pub(crate) trait Closable: 'static {
     fn closed(&self) -> bool;
     fn pending(&self) -> bool;
