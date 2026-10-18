@@ -495,6 +495,7 @@
   "Missing verification stderr": "Отсутствует вывод ошибок проверки",
   "Missing verification stdout": "Отсутствует стандартный вывод проверки",
   "Missing: %{names}": "Отсутствуют: %{names}",
+  "More than one item in Trash could be “%{name}”, so they were left there": "В корзине несколько элементов, которые могут быть «%{name}», поэтому они оставлены там",
   "Move %{value1} to Trash?": "Переместить %{value1} в корзину?",
   "Move / copy to a typed folder": "Переместить / копировать в указанную папку",
   "Move / open an archive folder": "Перемещаться / открыть папку архива",

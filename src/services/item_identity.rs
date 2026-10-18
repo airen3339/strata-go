@@ -90,12 +90,10 @@ impl Evidence {
             };
         }
         let attributes = self.attributes.zip(current.attributes).filter(|_| !folder);
-        if births.is_some() && !(traits.made_up_births && attributes.is_some()) {
-            return Proof::Same;
-        }
         match attributes {
             Some((recorded, now)) if recorded.matches(&now, traits) => Proof::Same,
             Some(_) => Proof::Different,
+            None if births.is_some() => Proof::Same,
             None => Proof::Unproven,
         }
     }

@@ -495,6 +495,7 @@
   "Missing verification stderr": "검증 표준 오류 출력이 없습니다",
   "Missing verification stdout": "검증 표준 출력이 없습니다",
   "Missing: %{names}": "누락: %{names}",
+  "More than one item in Trash could be “%{name}”, so they were left there": "휴지통에 “%{name}”일 수 있는 항목이 여러 개 있어 그대로 두었습니다",
   "Move %{value1} to Trash?": "%{value1}를 휴지통으로 이동할까요?",
   "Move / copy to a typed folder": "입력한 폴더로 이동 / 복사",
   "Move / open an archive folder": "압축 파일 폴더 이동 / 열기",

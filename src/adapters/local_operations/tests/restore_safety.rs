@@ -889,7 +889,10 @@ fn home_trash_fallback_finds_broken_symlinks_the_virtual_backend_has_not_refresh
         &HashMap::new(),
     );
 
-    let entry = entries.get(&original).expect("fallback entry");
+    let entry = entries
+        .get(&original)
+        .and_then(|found| found.as_ref().ok())
+        .expect("fallback entry");
     assert_eq!(
         entry.source,
         Location::local(trash.join("files/report.txt"))

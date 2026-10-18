@@ -495,6 +495,7 @@
   "Missing verification stderr": "Sortie d’erreur de vérification manquante",
   "Missing verification stdout": "Sortie standard de vérification manquante",
   "Missing: %{names}": "Manquants : %{names}",
+  "More than one item in Trash could be “%{name}”, so they were left there": "Plusieurs éléments de la corbeille pourraient être « %{name} », ils y ont donc été laissés",
   "Move %{value1} to Trash?": "Mettre %{value1} à la corbeille ?",
   "Move / copy to a typed folder": "Déplacer / copier vers un dossier saisi",
   "Move / open an archive folder": "Déplacer / ouvrir un dossier d’archive",

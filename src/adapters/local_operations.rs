@@ -4052,13 +4052,15 @@ impl OperationProvider for LocalOperationProvider {
             let entries = match request.source {
                 RestoreSource::TrashEntries(items) => items
                     .into_iter()
-                    .map(|item| RestoreEntry {
-                        source: item.entry.location,
-                        display_name: item.entry.display_name,
-                        original_target: None,
-                        trash_info: None,
-                        confirmed_destination: Some(item.destination),
-                        physical_path: item.entry.thumbnail_path,
+                    .map(|item| {
+                        Ok(RestoreEntry {
+                            source: item.entry.location,
+                            display_name: item.entry.display_name,
+                            original_target: None,
+                            trash_info: None,
+                            confirmed_destination: Some(item.destination),
+                            physical_path: item.entry.thumbnail_path,
+                        })
                     })
                     .collect(),
                 RestoreSource::OriginalLocations {
@@ -4096,7 +4098,8 @@ impl OperationProvider for LocalOperationProvider {
                     }
                 },
             };
-            let _operation = restore::release_trashed(&entries, &operation_cancellable).await;
+            let found = entries.iter().flatten().cloned().collect::<Vec<_>>();
+            let _operation = restore::release_trashed(&found, &operation_cancellable).await;
             let total = entries.len();
             let mut errors = Vec::new();
             let mut restored_locations = Vec::new();
@@ -4105,19 +4108,20 @@ impl OperationProvider for LocalOperationProvider {
             let mut affected_locations = HashSet::from([Location::uri("trash:///")]);
             let context = RestoreContext::current().await;
             let unlinks = Arc::new(copy_engine::Unlinks::default());
-            let worker_count = restore_worker_count(&entries).await;
+            let worker_count = restore_worker_count(&found).await;
             let mut completed = 0;
             let mut cut_off = Vec::new();
+            let source = |entry: &Result<RestoreEntry, (Location, glib::Error)>| match entry {
+                Ok(entry) => entry.source.clone(),
+                Err((original, _)) => original.clone(),
+            };
             for chunk in entries.chunks(worker_count) {
                 if operation_cancellable.is_cancelled() {
                     emit(cancelled_event(
                         request.id,
                         restored,
                         failed_locations,
-                        entries[completed..]
-                            .iter()
-                            .map(|entry| entry.source.clone())
-                            .collect(),
+                        entries[completed..].iter().map(source).collect(),
                         affected_locations,
                     ));
                     return;
@@ -4131,14 +4135,20 @@ impl OperationProvider for LocalOperationProvider {
                         let cancellable = operation_cancellable.clone();
                         main_context.spawn_local(async move {
                             let mut affected = HashSet::new();
-                            let result = restore_trash_entry(
-                                &entry,
-                                &context,
-                                &mut affected,
-                                &unlinks,
-                                &cancellable,
-                            )
-                            .await;
+                            let result = match &entry {
+                                Ok(entry) => restore_trash_entry(
+                                    entry,
+                                    &context,
+                                    &mut affected,
+                                    &unlinks,
+                                    &cancellable,
+                                )
+                                .await
+                                .map(|(report, identity)| {
+                                    (report, identity, restored_destination(entry))
+                                }),
+                                Err((_, refused)) => Err(refused.clone()),
+                            };
                             (entry, result, affected)
                         })
                     })
@@ -4146,39 +4156,39 @@ impl OperationProvider for LocalOperationProvider {
                 for task in tasks {
                     let (entry, result, affected) = match task.await {
                         Ok(outcome) => outcome,
-                        Err(_) => {
-                            let entry = entries[completed].clone();
-                            (
-                                entry,
-                                Err(io_error("Restore worker failed")),
-                                HashSet::new(),
-                            )
-                        }
+                        Err(_) => (
+                            entries[completed].clone(),
+                            Err(io_error("Restore worker failed")),
+                            HashSet::new(),
+                        ),
+                    };
+                    let display_name = match &entry {
+                        Ok(entry) => entry.display_name.clone(),
+                        Err((original, _)) => original.display_name(),
                     };
                     affected_locations.extend(affected);
                     completed += 1;
                     let restored_location = match result {
                         Err(error) if was_cancelled(&error) => {
-                            cut_off.push(entry.source.clone());
+                            cut_off.push(source(&entry));
                             None
                         }
                         Err(error) => {
                             errors.push(item_error(
-                                &entry.display_name,
+                                &display_name,
                                 crate::services::gio_error_detail(&error),
                             ));
-                            failed_locations.push(entry.source.clone());
+                            failed_locations.push(source(&entry));
                             None
                         }
-                        Ok((report, identity)) => {
+                        Ok((report, identity, destination)) => {
                             if !report.is_empty() {
                                 emit(OperationEvent::ItemsReported {
                                     request_id: request.id,
                                     report,
                                 });
                             }
-                            restored_locations.push(entry.source.clone());
-                            let destination = restored_destination(&entry);
+                            restored_locations.push(source(&entry));
                             emit(OperationEvent::ItemRestored {
                                 request_id: request.id,
                                 location: destination.clone(),
@@ -4196,11 +4206,7 @@ impl OperationProvider for LocalOperationProvider {
                     });
                 }
                 if !cut_off.is_empty() || operation_cancellable.is_cancelled() {
-                    cut_off.extend(
-                        entries[completed..]
-                            .iter()
-                            .map(|entry| entry.source.clone()),
-                    );
+                    cut_off.extend(entries[completed..].iter().map(source));
                     emit(cancelled_event(
                         request.id,
                         restored,

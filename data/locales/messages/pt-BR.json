@@ -495,6 +495,7 @@
   "Missing verification stderr": "Saída de erro da verificação ausente",
   "Missing verification stdout": "Saída padrão da verificação ausente",
   "Missing: %{names}": "Ausentes: %{names}",
+  "More than one item in Trash could be “%{name}”, so they were left there": "Mais de um item na Lixeira pode ser “%{name}”, por isso eles foram mantidos lá",
   "Move %{value1} to Trash?": "Mover %{value1} para a Lixeira?",
   "Move / copy to a typed folder": "Mover / copiar para uma pasta digitada",
   "Move / open an archive folder": "Mover / abrir uma pasta do arquivo compactado",

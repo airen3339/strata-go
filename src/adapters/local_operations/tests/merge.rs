@@ -1790,12 +1790,12 @@ fn staged_lookup(entries: HashMap<PathBuf, RestoreEntry>) -> StagedOriginalLooku
 #[test]
 fn merge_undo_uses_recorded_identity_when_trash_dates_collide() -> Result<(), Box<dyn Error>> {
     let _serial = serial()?;
-    for chosen in ["older.zip", "current.zip", "removed.zip"] {
+    for chosen in ["older.zip", "current.zip", "purged.zip"] {
         let root = tempfile::tempdir()?;
         let target = root.path().join("archive.zip");
         fs::write(&target, b"incoming archive")?;
         let mut staged = HashMap::new();
-        for name in ["older.zip", "current.zip", "removed.zip"] {
+        for name in ["older.zip", "current.zip", "purged.zip"] {
             let entry = staged_trash_fixture(root.path(), name, &target, name.as_bytes())?;
             staged.insert(
                 name,
@@ -1803,7 +1803,7 @@ fn merge_undo_uses_recorded_identity_when_trash_dates_collide() -> Result<(), Bo
             );
         }
         let original = identity_off_main(&staged[chosen]).ok_or("identity")?;
-        if chosen == "removed.zip" {
+        if chosen == "purged.zip" {
             fs::remove_file(&staged[chosen])?;
         }
         let trash_root = staged[chosen]
@@ -1830,7 +1830,7 @@ fn merge_undo_uses_recorded_identity_when_trash_dates_collide() -> Result<(), Bo
                 .await
                 .ok()
                 .flatten()
-                .ok_or_else(|| io_error("Recorded original is missing"))
+                .unwrap_or_else(|| Err(io_error("Recorded original is missing")))
             })
         });
         let events = Rc::new(RefCell::new(Vec::new()));
@@ -1844,7 +1844,7 @@ fn merge_undo_uses_recorded_identity_when_trash_dates_collide() -> Result<(), Bo
             lookup,
         ));
 
-        if chosen == "removed.zip" {
+        if chosen == "purged.zip" {
             assert_eq!(fs::read(&target)?, b"incoming archive");
             assert!(matches!(
                 events.borrow().last(),
@@ -1871,11 +1871,20 @@ enum InTrash {
     Renumbered,
     NumberReused,
     TrashedAfter,
+    TrashedInTheSameTick(&'static [u8]),
+}
+
+#[derive(Clone, Copy, Debug)]
+enum Chosen {
+    Item(&'static str),
+    Nothing,
+    Refused,
 }
 
 #[test]
 fn a_trashed_original_is_passed_over_only_where_its_mount_proves_another()
 -> Result<(), Box<dyn Error>> {
+    use Chosen::{Item, Nothing, Refused};
     let _serial = serial()?;
     let reusing_ext4: Preset = || Quirks {
         reused_inodes: Some("report*"),
@@ -1885,13 +1894,29 @@ fn a_trashed_original_is_passed_over_only_where_its_mount_proves_another()
         reused_inodes: Some("report*"),
         ..Quirks::nfs3()
     };
-    let rows: [(Preset, bool, InTrash, Option<&str>); 6] = [
-        (Quirks::vfat, false, InTrash::Renumbered, Some("report")),
-        (Quirks::sshfs, false, InTrash::Renumbered, Some("report")),
-        (Quirks::sshfs, true, InTrash::Renumbered, Some("report")),
-        (Quirks::sshfs, true, InTrash::TrashedAfter, Some("report")),
-        (reusing_ext4, false, InTrash::NumberReused, None),
-        (reusing_nfs3, false, InTrash::NumberReused, None),
+    let exfat_in_one_tick: Preset = || Quirks {
+        coarse_clock: Some(SystemTime::now() - Duration::from_secs(1)),
+        ..Quirks::exfat()
+    };
+    let rows: [(Preset, bool, InTrash, Chosen); 8] = [
+        (Quirks::vfat, false, InTrash::Renumbered, Item("report")),
+        (Quirks::sshfs, false, InTrash::Renumbered, Item("report")),
+        (Quirks::sshfs, true, InTrash::Renumbered, Item("report")),
+        (Quirks::sshfs, true, InTrash::TrashedAfter, Item("report")),
+        (reusing_ext4, false, InTrash::NumberReused, Nothing),
+        (reusing_nfs3, false, InTrash::NumberReused, Nothing),
+        (
+            exfat_in_one_tick,
+            false,
+            InTrash::TrashedInTheSameTick(b"other"),
+            Item("report"),
+        ),
+        (
+            exfat_in_one_tick,
+            false,
+            InTrash::TrashedInTheSameTick(b"original"),
+            Refused,
+        ),
     ];
     for (preset, folder, change, chosen) in rows {
         let root = tempfile::tempdir()?;
@@ -1912,6 +1937,19 @@ fn a_trashed_original_is_passed_over_only_where_its_mount_proves_another()
             .join(format!(".Trash-{}", rustix::process::getuid().as_raw()));
         fs::create_dir_all(trash_root.join("files"))?;
         fs::create_dir_all(trash_root.join("info"))?;
+        let put_in_trash = |name: &str, contents: &[u8], date: &str| -> io::Result<()> {
+            make(&trash_root.join("files").join(name), contents)?;
+            fs::write(
+                trash_root.join("info").join(format!("{name}.trashinfo")),
+                format!(
+                    "[Trash Info]\nPath={}\nDeletionDate={date}T00:00:00\n",
+                    original.display()
+                ),
+            )
+        };
+        if let InTrash::TrashedInTheSameTick(contents) = change {
+            put_in_trash("report.1", contents, "2026-01-01")?;
+        }
         fs::write(
             trash_root.join("info/report.trashinfo"),
             format!(
@@ -1934,15 +1972,9 @@ fn a_trashed_original_is_passed_over_only_where_its_mount_proves_another()
                     .set_modified(modified)?;
                 super::fs_quirks::recreated(&trashed);
             }
-            InTrash::TrashedAfter => {
-                make(&trash_root.join("files/report.2"), b"later")?;
-                fs::write(
-                    trash_root.join("info/report.2.trashinfo"),
-                    format!(
-                        "[Trash Info]\nPath={}\nDeletionDate=2026-01-02T00:00:00\n",
-                        original.display()
-                    ),
-                )?;
+            InTrash::TrashedAfter => put_in_trash("report.2", b"later", "2026-01-02")?,
+            InTrash::TrashedInTheSameTick(contents) => {
+                put_in_trash("report.2", contents, "2026-01-01")?;
             }
         }
         let entries = trash_entries_at(
@@ -1951,9 +1983,19 @@ fn a_trashed_original_is_passed_over_only_where_its_mount_proves_another()
             &gio::Cancellable::new(),
             &HashMap::from([(Location::local(&original), recorded)]),
         );
+        let expected = match chosen {
+            Item(name) => Some(Ok(Location::local(trash_root.join("files").join(name)))),
+            Nothing => None,
+            Refused => Some(Err(
+                "More than one item in Trash could be “report”, so they were left there",
+            )),
+        };
         assert_eq!(
-            entries.get(&original).map(|entry| entry.source.clone()),
-            chosen.map(|name| Location::local(trash_root.join("files").join(name))),
+            entries.get(&original).map(|found| found
+                .as_ref()
+                .map(|entry| entry.source.clone())
+                .map_err(glib::Error::message)),
+            expected,
             "{:?}, folder {folder}, {change:?}",
             preset().mount_type
         );
@@ -1980,6 +2022,7 @@ enum Trashed {
     Nothing,
     OriginalBesideANewerOneBehindALink,
     OnlyAnotherFromTheSamePath,
+    TwoAlikeBeforeAnother,
 }
 
 #[test]
@@ -2004,9 +2047,23 @@ fn undo_finds_an_original_in_the_trash_of_its_own_mount() {
                     Undone::Delete,
                     Trashed::OnlyAnotherFromTheSamePath,
                 ),
+                (
+                    VolumeTrash::PerUser,
+                    Undone::Delete,
+                    Trashed::TwoAlikeBeforeAnother,
+                ),
             ] {
                 let row = format!("{layout:?} Trash, undo of a {undone:?}, {trashed:?}");
                 let volume = tempfile::tempdir().expect("volume");
+                let _quirks = matches!(trashed, Trashed::TwoAlikeBeforeAnother).then(|| {
+                    FsQuirks::install(
+                        volume.path(),
+                        Quirks {
+                            coarse_clock: Some(SystemTime::now() - Duration::from_secs(1)),
+                            ..Quirks::exfat()
+                        },
+                    )
+                });
                 crate::adapters::mount_watch::publish_for_isolated_test(Some(
                     crate::adapters::MountTable::parse(format!(
                         "1 0 8:1 / / rw - ext4 /dev/root rw\n\
@@ -2035,16 +2092,21 @@ fn undo_finds_an_original_in_the_trash_of_its_own_mount() {
                     fs::create_dir_all(folder).expect("fixture folder");
                 }
                 let original = volume.path().join("folder/report.txt");
+                let other = volume.path().join("folder/other.txt");
                 let info = trash.join("info/report.txt.trashinfo");
+                let trash_as =
+                    |trash: &Path, name: &str, from: &str, contents: &str, date: &str| {
+                        fs::write(trash.join("files").join(name), contents).expect("trashed item");
+                        fs::write(
+                            trash.join("info").join(format!("{name}.trashinfo")),
+                            format!(
+                                "[Trash Info]\nPath=folder/{from}\nDeletionDate={date}T00:00:00\n"
+                            ),
+                        )
+                        .expect("trash info");
+                    };
                 let put_in_trash = |trash: &Path, contents: &str, date: &str| {
-                    fs::write(trash.join("files/report.txt"), contents).expect("trashed item");
-                    fs::write(
-                        trash.join("info/report.txt.trashinfo"),
-                        format!(
-                            "[Trash Info]\nPath=folder/report.txt\nDeletionDate={date}T00:00:00\n"
-                        ),
-                    )
-                    .expect("trash info");
+                    trash_as(trash, "report.txt", "report.txt", contents, date);
                 };
                 let planted = volume.path().join("planted");
                 let mut originals = HashMap::new();
@@ -2073,8 +2135,31 @@ fn undo_finds_an_original_in_the_trash_of_its_own_mount() {
                         fs::remove_file(&original).expect("original purged");
                         originals.insert(Location::local(&original), recorded);
                     }
+                    Trashed::TwoAlikeBeforeAnother => {
+                        for (path, contents) in [(&original, "original"), (&other, "other")] {
+                            fs::write(path, contents).expect("trashed original");
+                            let recorded = identity_off_main(path).expect("recorded identity");
+                            originals.insert(Location::local(path), recorded);
+                            fs::remove_file(path).expect("original trashed");
+                        }
+                        put_in_trash(&trash, "original", "2026-01-01");
+                        trash_as(
+                            &trash,
+                            "report.2.txt",
+                            "report.txt",
+                            "original",
+                            "2026-01-01",
+                        );
+                        trash_as(&trash, "other.txt", "other.txt", "other", "2026-01-01");
+                    }
                 }
                 let location = Location::local(&original);
+                let locations = match trashed {
+                    Trashed::TwoAlikeBeforeAnother => {
+                        vec![location.clone(), Location::local(&other)]
+                    }
+                    _ => vec![location.clone()],
+                };
                 let events = Rc::new(RefCell::new(Vec::new()));
                 let emitted = events.clone();
                 let emit: Rc<dyn Fn(OperationEvent)> =
@@ -2098,7 +2183,7 @@ fn undo_finds_an_original_in_the_trash_of_its_own_mount() {
                         RestoreRequest {
                             id,
                             source: RestoreSource::OriginalLocations {
-                                locations: vec![location.clone()],
+                                locations,
                                 originals,
                             },
                         },
@@ -2131,6 +2216,48 @@ fn undo_finds_an_original_in_the_trash_of_its_own_mount() {
                         assert_eq!(
                             fs::read(trash.join("files/report.txt")).expect("left in Trash"),
                             b"another",
+                            "{row}"
+                        );
+                    }
+                    continue;
+                }
+                if let Trashed::TwoAlikeBeforeAnother = trashed {
+                    assert!(
+                        matches!(
+                            events.borrow().last(),
+                            Some(OperationEvent::RestoreCompletedWithErrors { restored, message, .. })
+                                if restored == &[Location::local(&other)]
+                                    && message.ends_with(
+                                        "• report.txt: More than one item in Trash could be \
+                                            “report.txt”, so they were left there"
+                                    )
+                        ),
+                        "{row}: {:?}",
+                        events.borrow().last()
+                    );
+                    let progress = events
+                        .borrow()
+                        .iter()
+                        .filter_map(|event| match event {
+                            OperationEvent::RestoreProgress {
+                                completed,
+                                restored_location,
+                                ..
+                            } => Some((*completed, restored_location.clone())),
+                            _ => None,
+                        })
+                        .collect::<Vec<_>>();
+                    assert_eq!(
+                        progress,
+                        [(1, None), (2, Some(Location::local(&other)))],
+                        "{row}"
+                    );
+                    assert_eq!(fs::read(&other).expect("restored"), b"other", "{row}");
+                    assert!(fs::symlink_metadata(&original).is_err(), "{row}");
+                    for name in ["report.txt", "report.2.txt"] {
+                        assert_eq!(
+                            fs::read(trash.join("files").join(name)).expect("left in Trash"),
+                            b"original",
                             "{row}"
                         );
                     }

@@ -495,6 +495,7 @@
   "Missing verification stderr": "缺少验证过程的标准错误输出",
   "Missing verification stdout": "缺少验证过程的标准输出",
   "Missing: %{names}": "缺少：%{names}",
+  "More than one item in Trash could be “%{name}”, so they were left there": "回收站中有多个项目可能是“%{name}”，因此均保留在回收站中",
   "Move %{value1} to Trash?": "要将 %{value1} 移到回收站吗？",
   "Move / copy to a typed folder": "移动 / 复制到输入的文件夹",
   "Move / open an archive folder": "在压缩文件中移动光标 / 打开文件夹",

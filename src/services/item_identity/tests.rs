@@ -104,6 +104,13 @@ fn an_item_is_known_again_only_by_what_its_mount_proves() {
         }),
         ..without_birth(renumbered(FILE))
     };
+    let resized = Evidence {
+        attributes: FILE.attributes.map(|attributes| Attributes {
+            size: 6,
+            ..attributes
+        }),
+        ..renumbered(FILE)
+    };
     let moved_away = Evidence {
         device: 8,
         ..FOLDER
@@ -242,6 +249,15 @@ fn an_item_is_known_again_only_by_what_its_mount_proves() {
             EXFAT,
             true,
             true,
+        ),
+        (
+            "exFAT file born in the same tick, another size",
+            EXFAT,
+            FILE,
+            resized,
+            EXFAT,
+            false,
+            false,
         ),
         (
             "unknown mount, renumbered",

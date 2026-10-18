@@ -495,6 +495,7 @@
   "Missing verification stderr": "検証の標準エラー出力がありません",
   "Missing verification stdout": "検証の標準出力がありません",
   "Missing: %{names}": "不足: %{names}",
+  "More than one item in Trash could be “%{name}”, so they were left there": "ゴミ箱に「%{name}」の可能性がある項目が複数あるため、そのまま残しました",
   "Move %{value1} to Trash?": "%{value1}をゴミ箱へ移動しますか？",
   "Move / copy to a typed folder": "入力したフォルダーへ移動 / コピー",
   "Move / open an archive folder": "アーカイブ内を移動 / フォルダーを開く",

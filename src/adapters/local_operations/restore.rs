@@ -404,7 +404,7 @@ pub(super) async fn trashed_entries_for_originals(
     original_locations: &[Location],
     cancellable: &gio::Cancellable,
     originals: &HashMap<Location, ItemIdentity>,
-) -> Result<Vec<RestoreEntry>, glib::Error> {
+) -> Result<Vec<Result<RestoreEntry, (Location, glib::Error)>>, glib::Error> {
     if cancellable.is_cancelled() {
         return Err(cancelled_local_operation());
     }
@@ -435,8 +435,10 @@ pub(super) async fn trashed_entries_for_originals(
     if fallback.len() == requested.len() && requested.len() == original_locations.len() {
         return Ok(original_locations
             .iter()
-            .filter_map(|location| location.native_path())
-            .filter_map(|path| fallback.remove(path))
+            .filter_map(|location| {
+                let found = fallback.remove(location.native_path()?)?;
+                Some(found.map_err(|error| (location.clone(), error)))
+            })
             .collect());
     }
 
@@ -457,7 +459,7 @@ pub(super) async fn trashed_entries_for_originals(
         }
         enumerator => enumerator?,
     };
-    let mut newest = HashMap::<PathBuf, ((bool, String), RestoreEntry)>::new();
+    let mut newest = HashMap::new();
     loop {
         if cancellable.is_cancelled() {
             return Err(cancelled_local_operation());
@@ -494,7 +496,8 @@ pub(super) async fn trashed_entries_for_originals(
                 continue;
             };
             let original = Location::local(&original_path);
-            let vouched = match originals.get(&original) {
+            let recorded = originals.get(&original);
+            let vouched = match recorded {
                 Some(&expected) => match plan_restore_for_location(
                     &location,
                     Some(&original),
@@ -512,16 +515,14 @@ pub(super) async fn trashed_entries_for_originals(
             let Some(vouched) = vouched else {
                 continue;
             };
-            let candidate = (
+            let entry = gvfs_trash_entry(location, &info, &original_path);
+            keep_newest(
+                &mut newest,
+                original_path,
                 (vouched, deletion_date),
-                gvfs_trash_entry(location, &info, &original_path),
+                recorded.is_some(),
+                entry,
             );
-            match newest.get(&original_path) {
-                Some(current) if current.0 >= candidate.0 => {}
-                _ => {
-                    newest.insert(original_path, candidate);
-                }
-            }
         }
     }
 
@@ -534,13 +535,57 @@ pub(super) async fn trashed_entries_for_originals(
     }
     Ok(original_locations
         .iter()
-        .filter_map(|location| location.native_path())
-        .filter_map(|path| {
-            fallback
+        .filter_map(|location| {
+            let path = location.native_path()?;
+            let found = fallback
                 .remove(path)
-                .or_else(|| newest.remove(path).map(|(_, entry)| entry))
+                .or_else(|| newest.remove(path).map(|newest| chosen(path, newest)))?;
+            Some(found.map_err(|error| (location.clone(), error)))
         })
         .collect())
+}
+
+struct Newest {
+    rank: (bool, String),
+    entry: RestoreEntry,
+    tied: bool,
+}
+
+fn keep_newest(
+    newest: &mut HashMap<PathBuf, Newest>,
+    original: PathBuf,
+    rank: (bool, String),
+    recorded: bool,
+    entry: RestoreEntry,
+) {
+    if let Some(kept) = newest.get_mut(&original)
+        && kept.rank >= rank
+    {
+        kept.tied |= recorded && rank.0 && kept.rank == rank;
+        return;
+    }
+    newest.insert(
+        original,
+        Newest {
+            rank,
+            entry,
+            tied: false,
+        },
+    );
+}
+
+fn chosen(original: &Path, newest: Newest) -> Result<RestoreEntry, glib::Error> {
+    if !newest.tied {
+        return Ok(newest.entry);
+    }
+    let name = Location::local(original).display_name();
+    Err(glib::Error::new(
+        gio::IOErrorEnum::Failed,
+        &rust_i18n::t!(
+            "More than one item in Trash could be “%{name}”, so they were left there",
+            name = name
+        ),
+    ))
 }
 
 fn trashed_items_unavailable() -> glib::Error {
@@ -693,12 +738,13 @@ pub(super) fn trashed_merge_original(
             &originals,
         )
         .await?;
-        entries.into_iter().next().ok_or_else(|| {
-            glib::Error::new(
+        match entries.into_iter().next() {
+            Some(found) => found.map_err(|(_, error)| error),
+            None => Err(glib::Error::new(
                 gio::IOErrorEnum::NotFound,
                 &crate::i18n::tr("The original is no longer in Trash"),
-            )
-        })
+            )),
+        }
     })
 }
 
@@ -1058,7 +1104,7 @@ fn trash_entries(
     requested: &HashSet<PathBuf>,
     cancellable: &gio::Cancellable,
     originals: &HashMap<Location, ItemIdentity>,
-) -> HashMap<PathBuf, RestoreEntry> {
+) -> HashMap<PathBuf, Result<RestoreEntry, glib::Error>> {
     let mut roots = requested
         .iter()
         .flat_map(|path| candidate_trash_roots(context, Some(path)))
@@ -1073,14 +1119,17 @@ pub(super) fn trash_entries_at(
     requested: &HashSet<PathBuf>,
     cancellable: &gio::Cancellable,
     originals: &HashMap<Location, ItemIdentity>,
-) -> HashMap<PathBuf, RestoreEntry> {
-    let mut newest = HashMap::<PathBuf, ((bool, String), RestoreEntry)>::new();
+) -> HashMap<PathBuf, Result<RestoreEntry, glib::Error>> {
+    let mut newest = HashMap::new();
     for trash_root in roots {
         newest_in_trash(trash_root, requested, cancellable, originals, &mut newest);
     }
     newest
         .into_iter()
-        .map(|(path, (_, entry))| (path, entry))
+        .map(|(path, newest)| {
+            let entry = chosen(&path, newest);
+            (path, entry)
+        })
         .collect()
 }
 
@@ -1089,7 +1138,7 @@ fn newest_in_trash(
     requested: &HashSet<PathBuf>,
     cancellable: &gio::Cancellable,
     originals: &HashMap<Location, ItemIdentity>,
-    newest: &mut HashMap<PathBuf, ((bool, String), RestoreEntry)>,
+    newest: &mut HashMap<PathBuf, Newest>,
 ) {
     let info_root = trash_root.join("info");
     let files_root = trash_root.join("files");
@@ -1126,7 +1175,8 @@ fn newest_in_trash(
             continue;
         }
         let source_path = files_root.join(OsString::from_vec(file_name.to_vec()));
-        let vouched = match originals.get(&Location::local(&original_path)) {
+        let recorded = originals.get(&Location::local(&original_path));
+        let vouched = match recorded {
             Some(expected) => vouched(expected, &source_path),
             None => std::fs::symlink_metadata(&source_path)
                 .is_ok()
@@ -1146,12 +1196,12 @@ fn newest_in_trash(
             confirmed_destination: None,
             physical_path: Some(source_path.clone()),
         };
-        let rank = (vouched, deletion_date.to_owned());
-        match newest.get(&original_path) {
-            Some((current, _)) if *current >= rank => {}
-            _ => {
-                newest.insert(original_path, (rank, entry));
-            }
-        }
+        keep_newest(
+            newest,
+            original_path,
+            (vouched, deletion_date.to_owned()),
+            recorded.is_some(),
+            entry,
+        );
     }
 }

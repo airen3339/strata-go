@@ -495,6 +495,7 @@
   "Missing verification stderr": "Fehlerausgabe der Überprüfung fehlt",
   "Missing verification stdout": "Standardausgabe der Überprüfung fehlt",
   "Missing: %{names}": "Fehlend: %{names}",
+  "More than one item in Trash could be “%{name}”, so they were left there": "Mehrere Elemente im Papierkorb könnten „%{name}“ sein, daher wurden sie dort belassen",
   "Move %{value1} to Trash?": "%{value1} in den Papierkorb verschieben?",
   "Move / copy to a typed folder": "In einen eingegebenen Ordner verschieben / kopieren",
   "Move / open an archive folder": "Archivordner verschieben / öffnen",
