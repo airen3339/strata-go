@@ -232,13 +232,13 @@ Undo restores it. Elsewhere, the original goes into a hidden
 atomically with the finished archive on filesystems known to support that, or
 moved there first, and it is deleted only after the new archive is in place and
 [flushed to the drive](filesystem-compatibility.md#durability). If it cannot be
-deleted then, the compression fails and names the folder that keeps it. Such a
-replacement has no Undo, because the original no longer exists. If none of these
-is safe at the location, or the existing archive is replaced by another item
-while the new one is encoded, nothing is replaced; the refusal comes before
-encoding when possible. The new archive is built in a hidden `.strata-copy-<id>`
-stage, which a crash can leave behind like any [incomplete
-copy](filesystem-compatibility.md#leftovers-after-a-crash-or-unplug).
+deleted then, the compression still completes and reports the folder that keeps
+it. Such a replacement has no Undo, because undoing it could only delete the
+remaining copy. If none of these is safe at the location, or the existing
+archive is replaced by another item while the new one is encoded, nothing is
+replaced; the refusal comes before encoding when possible. The new archive is
+built in a hidden `.strata-copy-<id>` stage, which a crash can leave behind like
+any [incomplete copy](filesystem-compatibility.md#leftovers-after-a-crash-or-unplug).
 
 On filesystems without no-replace renames where a file cannot be hard-linked,
 such as sshfs and vboxsf, the new archive, and an original put back after a

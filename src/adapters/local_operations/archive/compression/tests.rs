@@ -151,6 +151,7 @@ fn an_archive_replaced_immediately_after_publication_is_not_owned_for_undo()
             &archive,
             TransferConflict::ReplaceExisting,
             never_cancelled(),
+            None,
             |mut file| {
                 file.write_all(b"archive")
                     .map_err(|error| error.to_string())?;
@@ -199,6 +200,7 @@ fn compression_staging_stays_private_while_encoding() -> Result<(), Box<dyn Erro
             &worker_archive,
             TransferConflict::ReplaceExisting,
             never_cancelled(),
+            None,
             move |mut file| {
                 file.write_all(b"replacement")
                     .map_err(|error| error.to_string())?;
@@ -242,6 +244,7 @@ fn compression_new_archive_staging_stays_private_until_publish() -> Result<(), B
             &worker_archive,
             TransferConflict::ReplaceExisting,
             never_cancelled(),
+            None,
             move |mut file| {
                 file.write_all(b"created")
                     .map_err(|error| error.to_string())?;
@@ -284,6 +287,7 @@ fn compression_replacement_preserves_directory_destinations() -> Result<(), Box<
             &archive,
             TransferConflict::ReplaceExisting,
             never_cancelled(),
+            None,
             |mut file| {
                 file.write_all(b"replacement")
                     .map_err(|error| error.to_string())?;
@@ -326,6 +330,7 @@ fn keep_both_retries_publication_collisions_without_encoding_again() -> Result<(
                 &archive,
                 TransferConflict::KeepBoth,
                 never_cancelled(),
+                None,
                 move |mut file| {
                     worker_encoded.fetch_add(1, Ordering::Relaxed);
                     file.write_all(b"new archive")
@@ -372,6 +377,7 @@ fn keep_both_numbers_a_long_archive_name_within_the_limit() -> Result<(), Box<dy
             &archive,
             TransferConflict::KeepBoth,
             never_cancelled(),
+            None,
             |mut file| {
                 file.write_all(b"new archive")
                     .map_err(|error| error.to_string())?;
@@ -405,6 +411,7 @@ fn keep_both_tries_every_numbered_name_up_to_its_bound() -> Result<(), Box<dyn E
         &archive,
         TransferConflict::KeepBoth,
         never_cancelled(),
+        None,
         |mut file| {
             file.write_all(b"new archive")
                 .map_err(|error| error.to_string())?;
@@ -432,6 +439,7 @@ fn publish_replacement(destination: &Path, conflict: TransferConflict) -> (Compr
         &destination.join("existing.zip"),
         conflict,
         never_cancelled(),
+        None,
         move |mut file| {
             worker_encoded.store(true, Ordering::Relaxed);
             file.write_all(b"replacement")
@@ -709,6 +717,7 @@ fn an_archive_replaces_only_the_item_its_mount_still_knows() -> Result<(), Box<d
             &archive,
             TransferConflict::ReplaceExisting,
             never_cancelled(),
+            None,
             move |mut file| {
                 if swapped {
                     fs::remove_file(&changed).map_err(|error| error.to_string())?;
@@ -1096,6 +1105,7 @@ fn cancelling_staged_compression_waits_for_worker_exit_before_cleanup() -> Resul
             &worker_archive,
             TransferConflict::ReplaceExisting,
             task_cancelled,
+            None,
             move |mut file| {
                 file.write_all(b"partial")
                     .map_err(|error| error.to_string())?;
@@ -1165,6 +1175,7 @@ fn staged_archives_are_not_published_after_cancellation_or_close_failure()
                     TransferConflict::FailIfExists
                 },
                 cancelled,
+                None,
                 move |mut file| {
                     file.write_all(b"replacement")
                         .map_err(|error| error.to_string())?;

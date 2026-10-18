@@ -14,17 +14,18 @@ use super::{
 use crate::{
     adapters::local_operations::{
         LocalOperationProvider,
-        tests::fs_quirks::{FsQuirks, Op, Preset, Quirks},
+        tests::fs_quirks::{FsQuirks, Op, Preset, Quirks, Trash},
     },
     model::Location,
     services::{
-        ArchiveFormat, CompressRequest, ExtractRequest, LoadHandle, OperationEvent,
-        OperationProvider, OperationRequestId, PasswordFailure, RenameCause, RenamedItem,
-        SkippedItem, SpecialKind, TransferConflict, TransferReport,
+        ArchiveFormat, CompressRequest, ExtractRequest, KeptCause, KeptItem, LoadHandle,
+        OperationEvent, OperationProvider, OperationRequestId, PasswordFailure, RenameCause,
+        RenamedItem, ReplacedOriginal, SkippedItem, SpecialKind, TransferConflict, TransferReport,
     },
     test_support::ASYNC_MAIN_CONTEXT_DEFAULT,
 };
 use gtk::glib;
+use rustix::io::Errno;
 use std::{
     cell::RefCell,
     error::Error,
@@ -267,6 +268,87 @@ fn compression_failure_preserves_an_existing_archive() -> Result<(), Box<dyn Err
     );
     assert_eq!(fs::read(&archive)?, b"original");
     assert!(stages(&destination, COMPRESSION_STAGE)?.is_empty());
+    Ok(())
+}
+
+#[test]
+fn an_archive_that_replaced_an_original_it_cannot_remove_completes_and_reports_it()
+-> Result<(), Box<dyn Error>> {
+    let _serial = ASYNC_MAIN_CONTEXT_DEFAULT
+        .lock()
+        .map_err(|error| error.to_string())?;
+    let root = tempfile::tempdir()?;
+    let destination = root.path().join("destination");
+    let source = root.path().join("source.txt");
+    fs::create_dir(&destination)?;
+    fs::write(&source, b"replacement")?;
+    fs::write(destination.join("existing.zip"), b"original")?;
+    let _scope = FsQuirks::install(
+        &destination,
+        Quirks {
+            trash: Trash::Unsupported,
+            fail: vec![(Op::Unlink, "existing.zip", 0, Errno::ACCESS)],
+            ..Quirks::ext4()
+        },
+    );
+
+    let events = run_compression(CompressRequest {
+        id: OperationRequestId(4),
+        entries: vec![test_file_entry(&source)],
+        destination: Location::local(&destination),
+        archive_name: "existing".to_owned(),
+        conflict: TransferConflict::ReplaceExisting,
+        format: ArchiveFormat::Zip,
+        password: None,
+    });
+
+    assert!(
+        matches!(
+            events.last(),
+            Some(OperationEvent::Compressed {
+                archive_name,
+                original: Some(ReplacedOriginal::Deleted),
+                ..
+            }) if archive_name == "existing.zip"
+        ),
+        "{events:?}"
+    );
+    let names = entry_names(&destination)?;
+    let [originals, published] = names.as_slice() else {
+        return Err(format!("the kept original and the archive: {names:?}").into());
+    };
+    assert!(originals.starts_with(".strata-originals-"), "{names:?}");
+    assert_eq!(published, "existing.zip");
+    let kept_original = destination.join(originals).join("existing.zip");
+    assert_eq!(fs::read(&kept_original)?, b"original");
+    let extracted = root.path().join("extracted");
+    fs::create_dir(&extracted)?;
+    assert_eq!(
+        extract_zip(&destination.join("existing.zip"), &extracted)?,
+        Some("source.txt".to_owned())
+    );
+    let kept: Vec<_> = events
+        .iter()
+        .filter_map(|event| match event {
+            OperationEvent::ItemsReported {
+                request_id: OperationRequestId(4),
+                report,
+            } => Some(report.kept.clone()),
+            _ => None,
+        })
+        .flatten()
+        .collect();
+    let [
+        KeptItem {
+            location,
+            cause: KeptCause::OriginalNotRemoved(error),
+        },
+    ] = kept.as_slice()
+    else {
+        return Err(format!("the original is reported as kept: {kept:?}").into());
+    };
+    assert_eq!(location, &Location::local(&kept_original));
+    assert!(!error.contains(".strata-"), "{error}");
     Ok(())
 }
 

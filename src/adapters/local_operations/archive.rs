@@ -28,6 +28,7 @@ mod tests;
 
 use super::{
     fs_ops::{Entry, folder_stamp, fs},
+    progress::TransferProgressTracker,
     release::ActiveOperation,
 };
 use crate::{
@@ -70,7 +71,9 @@ use std::{
 /// cancels in-flight work when dropped.
 ///
 /// Emits [`ArchiveStarted`] immediately, [`ArchiveProgress`] while running,
-/// then [`Compressed`], [`Failed`], or [`Cancelled`] depending on the outcome.
+/// then [`Compressed`], preceded by an [`ItemsReported`] when a replaced
+/// original could not be removed, or [`Failed`] or [`Cancelled`], depending on
+/// the outcome.
 ///
 /// # Concurrency
 ///
@@ -79,6 +82,7 @@ use std::{
 ///
 /// [`ArchiveStarted`]: OperationEvent::ArchiveStarted
 /// [`ArchiveProgress`]: OperationEvent::ArchiveProgress
+/// [`ItemsReported`]: OperationEvent::ItemsReported
 /// [`Compressed`]: OperationEvent::Compressed
 /// [`Failed`]: OperationEvent::Failed
 /// [`Cancelled`]: OperationEvent::Cancelled
@@ -144,11 +148,13 @@ pub(super) fn compress(request: CompressRequest, emit: Rc<dyn Fn(OperationEvent)
         let password = request.password.clone();
         let work_progress = progress.clone();
         let work_total = total.clone();
+        let reports = TransferProgressTracker::new(request.id, None, None, emit.clone());
         let result = write_staged_archive(
             &dest_dir,
             &archive_path,
             request.conflict,
             task_cancelled.clone(),
+            Some(&reports),
             move |file| {
                 let sources = inspect_archive_sources(&entries, &work_cancelled)?;
                 work_total.store(sources.files, Ordering::Relaxed);

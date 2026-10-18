@@ -439,9 +439,9 @@ original is out of the way, so nothing is copied unless no step can place it. Wi
 replaced original is gone for good: the replacement is not added to Undo, because undoing it could
 only delete the remaining copy. A replacing move keeps its Undo, which moves the item back. Where
 the original cannot be removed once the new item is in place and flushed, as when another program
-holds a file in it, a paste or move completes with its Undo and reports "“%{name}” was replaced,
-but its original could not be removed from “%{kept}”: %{error}", naming the originals folder that
-keeps it; an archive that replaced its original fails instead, naming that folder.
+holds a file in it, a paste, move or compression completes with its Undo, if it has one, and
+reports "“%{name}” was replaced, but its original could not be removed from “%{kept}”: %{error}",
+naming the originals folder that keeps it.
 
 Merge moves the files it overwrites to Trash. Without Trash, it sets them aside, never by exchange:
 the originals go into one hidden `.strata-merge-<id>` folder inside the merge target, under their
@@ -927,13 +927,16 @@ the second puts the first back by a rename.
 
 ### The completion report
 
-After a transfer or an archive extraction, Strata reports what it could not do as asked:
+After a transfer, or an archive's compression or extraction, Strata reports what it could not do
+as asked:
 
 - names the destination doesn't allow or that are too long for it, names it took for another (case
   aliases), and names taken during a merge, an extraction or an undo, each with the name the item
   was saved as, and an item saved under several names in turn once, from its first name to its
   last;
 - special files and symbolic links left out of a copy, and symbolic links left out of an extraction;
+- originals a Replace could not remove once the new item was in place, with the originals folder
+  that keeps them;
 - source entries a move left behind, entries a restore left in the Trash, originals an undo left
   there because what replaced them may have changed, and names an undo could not give back, with
   the reason.

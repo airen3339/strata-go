@@ -21,6 +21,7 @@ use super::super::{
         remove_if_unchanged, reserve_hidden_name, set_aside, set_aside_if_safe,
     },
     placement_reason,
+    progress::TransferProgressTracker,
     replacement::{DisplacedOriginal, cannot_replace_safely, original_kept_aside},
     trash::trash_verified,
     typed_names,
@@ -66,6 +67,7 @@ pub(super) async fn write_staged_archive<F>(
     archive_path: &Path,
     conflict: TransferConflict,
     cancelled: Arc<AtomicBool>,
+    progress: Option<&TransferProgressTracker>,
     write_archive: F,
 ) -> Result<(String, Option<ReplacedOriginal>, Option<PlacedSnapshot>), ArchiveError>
 where
@@ -101,7 +103,7 @@ where
             let mut owed = Owed::default();
             owed.barrier = barrier;
             owed.owe(Deletion::Displaced(aside, destination.join(&name)));
-            owed.settle(None, &gio::Cancellable::new())
+            owed.settle(progress, &gio::Cancellable::new())
                 .await
                 .map_err(|error| archive_failed(error.message()))?;
             (Some(ReplacedOriginal::Deleted), None)
