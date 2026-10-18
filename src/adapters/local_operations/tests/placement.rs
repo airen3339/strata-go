@@ -13,7 +13,7 @@ use super::super::{
         place, probe, rename_in_place, set_aside,
     },
 };
-use super::fs_quirks::{Op, OverEmptyDirectory, Preset, Racer, Support, hold};
+use super::fs_quirks::{Op, OverEmptyDirectory, Preset, Racer, Support, handleless_base, hold};
 use super::*;
 use crate::{
     adapters::volume::{MountCapabilities, mount_capabilities},
@@ -1193,6 +1193,10 @@ fn a_file_handle_follows_the_item_and_not_its_name() -> Result<(), Box<dyn Error
     let root = tempfile::tempdir()?;
     let dir = open_local_parent_directory(root.path())?;
     let handle = |name: &str| super::super::native_fs::file_handle(dir.as_fd(), OsStr::new(name));
+    if handleless_base(dir.as_fd()).is_some() {
+        eprintln!("skipped on a base without file handles (exfat, cifs)");
+        return Ok(());
+    }
     fs::write(root.path().join("report"), b"first")?;
     let first = handle("report")?;
     fs::rename(root.path().join("report"), root.path().join("renamed"))?;
