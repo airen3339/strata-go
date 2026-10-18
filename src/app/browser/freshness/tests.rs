@@ -176,6 +176,15 @@ impl Folders {
         }
     }
 
+    fn run_queued_loads(&self) {
+        let queued = self.queued_loads.take();
+        for (request, emit) in queued {
+            if self.begin_load(&request, &emit) {
+                self.finish_load(&request, &emit);
+            }
+        }
+    }
+
     fn finish_held_loads(&self) {
         let held = self.held_loads.take();
         for (request, emit) in held {
@@ -1396,6 +1405,96 @@ fn a_refresh_kept_while_its_mount_was_not_answering_runs_again_once_it_answers()
                 "{row}: got (kept, (loads, following, spinner follows the load) once answering, \
                  names, reloads or failures) {got:?}, expected {expected:?}"
             ));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+fn shown_rows(events: &RefCell<Vec<BrowserEvent>>) -> usize {
+    events.borrow().iter().fold(0, |shown, event| match event {
+        BrowserEvent::EntriesReplaced { depth: 0, count } => *count,
+        BrowserEvent::EntriesPublished {
+            depth: 0, count, ..
+        } => shown + count,
+        BrowserEvent::ColumnReloaded { depth: 0 } => 0,
+        _ => shown,
+    })
+}
+
+#[derive(Clone, Copy)]
+enum KeptWhilePublishing {
+    Refused,
+    CutShort,
+    FailedRelist,
+}
+
+#[test]
+fn a_refresh_kept_while_rows_are_still_publishing_shows_every_row() {
+    let _serial = crate::test_support::ASYNC_MAIN_CONTEXT_DEFAULT
+        .lock()
+        .expect("the async test lock should not be poisoned");
+    let names: Vec<String> = (0..1000).map(|index| format!("entry {index:04}")).collect();
+    let names: Vec<&str> = names.iter().map(String::as_str).collect();
+    let mut failures = Vec::new();
+    for (row, refresh) in [
+        (
+            "F5 turned away while the mount is stalled",
+            KeptWhilePublishing::Refused,
+        ),
+        (
+            "F5 cut short while the mount is stalled",
+            KeptWhilePublishing::CutShort,
+        ),
+        (
+            "a check's re-list that fails",
+            KeptWhilePublishing::FailedRelist,
+        ),
+    ] {
+        let source = Rc::new(Folders::default());
+        let share = source.add("/net/share", network(1), Some(Watching::Live));
+        let (browser, clock) = browser_on(&source);
+        let events = recorded(&browser);
+        match refresh {
+            KeptWhilePublishing::Refused | KeptWhilePublishing::CutShort => {
+                source.change_names_only(&share, &names);
+                browser.navigate(share.clone());
+                source
+                    .probes_run_out_of_time
+                    .set(matches!(refresh, KeptWhilePublishing::CutShort));
+                source.responsiveness.set(Responsiveness::Stalled);
+                browser.reload_active();
+            }
+            KeptWhilePublishing::FailedRelist => {
+                browser.navigate(share.clone());
+                source.change(&share, &names);
+                source.queue_loads.set(true);
+                browser.reload_active();
+                source.queue_loads.set(false);
+                source.run_queued_loads();
+                source.fail_loads.set(true);
+                clock.tick_at(15);
+            }
+        }
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !browser.staged_publishes.borrow().is_empty() && Instant::now() < deadline {
+            glib::MainContext::default().iteration(false);
+        }
+
+        let got = (
+            shown_rows(&events),
+            browser.state.borrow().columns[0].entries.len(),
+            count(&events, |event| {
+                matches!(event, BrowserEvent::LoadFinished { depth: 0, .. })
+            }),
+            source.loads_of(&share),
+        );
+        let loads = match refresh {
+            KeptWhilePublishing::FailedRelist => 3,
+            _ => 2,
+        };
+        let expected = (names.len(), names.len(), loads, loads);
+        if got != expected {
+            failures.push(format!("{row}: got {got:?}, expected {expected:?}"));
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));

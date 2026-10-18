@@ -4818,6 +4818,7 @@ impl Browser {
     }
 
     pub(super) fn refresh_keeping_listing(self: &Rc<Self>, depth: usize, background: bool) {
+        self.drain_publish(depth);
         let shown = {
             let state = self.state.borrow();
             state
