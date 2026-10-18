@@ -20,6 +20,7 @@ use crate::ui::keys::{
     bindings::{COPY, DOWN, FIRST_ITEM, LAST_ITEM, LEFT, RIGHT, SELECT_ALL, UP},
 };
 
+mod line_numbers;
 mod scrollbar;
 mod selection;
 use selection::Motion;
@@ -46,7 +47,7 @@ impl PreviewUnit {
     fn display_text(&self) -> &str {
         match self {
             Self::Document(unit) => &unit.text,
-            Self::Source(unit) => &unit.display,
+            Self::Source(unit) => unit.display_text(),
         }
     }
 
@@ -74,11 +75,27 @@ impl PreviewUnit {
 
 #[derive(Clone)]
 struct SourceUnit {
-    display: String,
     source: String,
+    display_end: usize,
     first_line: usize,
     line_count: usize,
     continuation: bool,
+}
+
+impl SourceUnit {
+    fn new(source: String, first_line: usize, line_count: usize, continuation: bool) -> Self {
+        Self {
+            display_end: source.strip_suffix('\n').unwrap_or(&source).len(),
+            source,
+            first_line,
+            line_count,
+            continuation,
+        }
+    }
+
+    fn display_text(&self) -> &str {
+        &self.source[..self.display_end]
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -112,6 +129,13 @@ struct BoundRow {
     root: glib::WeakRef<gtk::Box>,
     view: glib::WeakRef<super::document_view::DocumentTextView>,
     table: glib::WeakRef<gtk::Box>,
+}
+
+impl BoundRow {
+    fn mapped_root(&self) -> Option<gtk::Box> {
+        // GTK keeps prefetched rows bound with stale allocations while hidden.
+        self.root.upgrade().filter(|row| row.is_mapped())
+    }
 }
 
 pub(super) struct VirtualPreviewState {
@@ -283,15 +307,7 @@ fn virtual_preview(
             }
             schedule_document_view_size(&view, rendered_width(row.width()));
         }
-        let mut bound_rows = state_for_bind.bound.borrow_mut();
-        bound_rows.retain(|_, bound| {
-            bound
-                .root
-                .upgrade()
-                .is_some_and(|bound_row| bound_row != row)
-        });
-        bound_rows.insert(index, bound);
-        drop(bound_rows);
+        state_for_bind.bound.borrow_mut().insert(index, bound);
         update_bound_selection(&state_for_bind, index);
         if let Some(hovered) = state_for_bind
             .hovered
@@ -307,14 +323,10 @@ fn virtual_preview(
         let Some(item) = item.downcast_ref::<gtk::ListItem>() else {
             return;
         };
-        if let Some(row) = item.child().and_downcast::<gtk::Box>() {
-            state_for_unbind.bound.borrow_mut().retain(|_, bound| {
-                bound
-                    .root
-                    .upgrade()
-                    .is_some_and(|bound_row| bound_row != row)
-            });
-        }
+        state_for_unbind
+            .bound
+            .borrow_mut()
+            .remove(&(item.position() as usize));
     });
 
     let list = gtk::ListView::new(Some(selection), Some(factory));
@@ -503,7 +515,11 @@ impl VirtualPreviewState {
                     });
                 }
                 Some(PreviewUnit::Source(unit)) => {
-                    apply_source_view_wrap(&view, &normalize_preview_text(&unit.display), wrapped);
+                    apply_source_view_wrap(
+                        &view,
+                        &normalize_preview_text(unit.display_text()),
+                        wrapped,
+                    );
                 }
                 None => {}
             }
@@ -695,13 +711,8 @@ fn document_uses_source_buffer(unit: &DocumentUnit) -> bool {
 
 fn bind_source_row(row: &gtk::Box, unit: &SourceUnit, wrapped: bool) -> BoundRow {
     let view = if let Some((numbers, view)) = source_row_views(row) {
-        let numbers_text = source_line_numbers(unit);
-        set_text_view_content(
-            &numbers,
-            &numbers_text,
-            numbers.left_margin() + numbers.right_margin(),
-        );
-        let text = normalize_preview_text(&unit.display);
+        numbers.set_text(source_line_numbers(unit));
+        let text = normalize_preview_text(unit.display_text());
         set_text_view_content(view.upcast_ref(), &text, view.right_margin());
         view.set_selection_range(None);
         apply_source_view_wrap(&view, &text, wrapped);
@@ -710,9 +721,9 @@ fn bind_source_row(row: &gtk::Box, unit: &SourceUnit, wrapped: bool) -> BoundRow
         clear_box(row);
         let line = gtk::Box::new(gtk::Orientation::Horizontal, 8);
         line.add_css_class("preview-source-row");
-        let numbers = source_line_numbers_view(unit);
-        let view = plain_text_view(&unit.display, true);
-        let text = normalize_preview_text(&unit.display);
+        let numbers = line_numbers::LineNumbers::new(source_line_numbers(unit));
+        let view = plain_text_view(unit.display_text(), true);
+        let text = normalize_preview_text(unit.display_text());
         apply_source_view_wrap(&view, &text, wrapped);
         line.append(&numbers);
         line.append(&view);
@@ -727,9 +738,15 @@ fn bind_source_row(row: &gtk::Box, unit: &SourceUnit, wrapped: bool) -> BoundRow
 
 fn source_row_views(
     row: &gtk::Box,
-) -> Option<(gtk::TextView, super::document_view::DocumentTextView)> {
+) -> Option<(
+    line_numbers::LineNumbers,
+    super::document_view::DocumentTextView,
+)> {
     let line = row.first_child()?.downcast::<gtk::Box>().ok()?;
-    let numbers = line.first_child()?.downcast::<gtk::TextView>().ok()?;
+    let numbers = line
+        .first_child()?
+        .downcast::<line_numbers::LineNumbers>()
+        .ok()?;
     let view = numbers
         .next_sibling()?
         .downcast::<super::document_view::DocumentTextView>()
@@ -742,7 +759,7 @@ fn rendered_width(width: i32) -> i32 {
 }
 
 fn size_document_row(bound: &BoundRow, width: i32) {
-    if !bound.root.upgrade().is_some_and(|row| row.is_mapped()) {
+    if bound.mapped_root().is_none() {
         return;
     }
     let Some(view) = bound.view.upgrade() else {
@@ -755,6 +772,10 @@ pub(super) fn schedule_document_view_size(
     view: &super::document_view::DocumentTextView,
     fallback_width: i32,
 ) {
+    // Mapping schedules the first measurement; prefetched rows need no idle work.
+    if !view.is_mapped() {
+        return;
+    }
     let view = view.downgrade();
     glib::idle_add_local_once(move || {
         let Some(view) = view.upgrade().filter(|view| view.is_mapped()) else {
@@ -803,24 +824,6 @@ fn unwrapped_document_width(view: &super::document_view::DocumentTextView) -> i3
         }
     }
     widest + view.right_margin()
-}
-
-fn source_line_numbers_view(unit: &SourceUnit) -> gtk::TextView {
-    let text = source_line_numbers(unit);
-    let buffer = gtk::TextBuffer::new(None);
-    let view = gtk::TextView::with_buffer(&buffer);
-    view.set_editable(false);
-    view.set_cursor_visible(false);
-    view.set_accepts_tab(false);
-    view.set_wrap_mode(gtk::WrapMode::None);
-    view.set_can_target(false);
-    view.set_focusable(false);
-    view.set_accessible_role(gtk::AccessibleRole::Presentation);
-    view.add_css_class("preview-source-lines");
-    view.set_left_margin(2);
-    view.set_right_margin(6);
-    set_text_view_content(&view, &text, view.left_margin() + view.right_margin());
-    view
 }
 
 fn set_text_view_content(view: &gtk::TextView, text: &str, padding: i32) {
@@ -1752,7 +1755,7 @@ fn point_at(
     let mut rows = bound
         .iter()
         .filter_map(|(index, bound)| {
-            bound.root.upgrade().and_then(|root| {
+            bound.mapped_root().and_then(|root| {
                 root.compute_bounds(list)
                     .map(|bounds| (*index, bound, bounds))
             })
@@ -1868,7 +1871,7 @@ fn link_point_at(
     let point = gtk::graphene::Point::new(x as f32, y as f32);
     let bound = state.bound.borrow();
     let (index, row, _) = bound.iter().find_map(|(index, row)| {
-        let root = row.root.upgrade()?;
+        let root = row.mapped_root()?;
         let bounds = root.compute_bounds(list)?;
         (bounds.x() <= point.x()
             && point.x() < bounds.x() + bounds.width()
@@ -1876,6 +1879,16 @@ fn link_point_at(
             && point.y() < bounds.y() + bounds.height())
         .then_some((*index, row, bounds))
     })?;
+    let PreviewUnit::Document(unit) = state.units.get(index)? else {
+        return None;
+    };
+    if !unit
+        .spans
+        .iter()
+        .any(|span| matches!(span.style, DocumentSpanStyle::Link(_)))
+    {
+        return None;
+    }
     let view = row.view.upgrade()?;
     let local = list.compute_point(&view, &point)?;
     if local.x() < 0.0
@@ -2100,13 +2113,7 @@ fn source_units(content: &str) -> (Vec<SourceUnit>, bool) {
     }
     push_source_group(&mut units, &mut group, group_line, group_lines);
     if units.is_empty() {
-        units.push(SourceUnit {
-            display: String::new(),
-            source: String::new(),
-            first_line: 1,
-            line_count: 1,
-            continuation: false,
-        });
+        units.push(SourceUnit::new(String::new(), 1, 1, false));
     }
     (units, split_lines)
 }
@@ -2120,15 +2127,12 @@ fn push_source_group(
     if group.is_empty() {
         return;
     }
-    let source = std::mem::take(group);
-    let display = source.strip_suffix('\n').unwrap_or(&source).to_owned();
-    units.push(SourceUnit {
-        display,
-        source,
+    units.push(SourceUnit::new(
+        std::mem::take(group),
         first_line,
         line_count,
-        continuation: false,
-    });
+        false,
+    ));
 }
 
 fn push_source_line_chunks(units: &mut Vec<SourceUnit>, line: &str, first_line: usize) {
@@ -2146,26 +2150,21 @@ fn push_source_line_chunks(units: &mut Vec<SourceUnit>, line: &str, first_line: 
         while !line.is_char_boundary(end) {
             end -= 1;
         }
-        units.push(SourceUnit {
-            display: line[start..end].to_owned(),
-            source: line[start..end].to_owned(),
+        units.push(SourceUnit::new(
+            line[start..end].to_owned(),
             first_line,
-            line_count: usize::from(!continuation),
+            usize::from(!continuation),
             continuation,
-        });
+        ));
         start = end;
         continuation = true;
     }
-    units.push(SourceUnit {
-        display: line[start..]
-            .strip_suffix('\n')
-            .unwrap_or(&line[start..])
-            .to_owned(),
-        source: line[start..].to_owned(),
+    units.push(SourceUnit::new(
+        line[start..].to_owned(),
         first_line,
-        line_count: usize::from(!continuation),
+        usize::from(!continuation),
         continuation,
-    });
+    ));
 }
 
 fn source_line_numbers(unit: &SourceUnit) -> String {

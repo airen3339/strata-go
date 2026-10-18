@@ -2707,8 +2707,7 @@ paned > separator {
   padding: 0 14px;
 }
 
-.preview-source-lines,
-.preview-source-lines text {
+.preview-source-lines {
   background: @strata_surface;
   color: @strata_dim_text;
   font-family: "JetBrains Mono", "JetBrainsMono Nerd Font", monospace;
