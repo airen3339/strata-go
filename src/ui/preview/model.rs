@@ -16,16 +16,13 @@ pub(super) struct ModelPreview {
     pub(super) previous: gtk::Button,
     pub(super) next: gtk::Button,
     pub(super) camera: gtk::DrawingArea,
-    pub(super) loading_overlay: gtk::Box,
-    pub(super) progress: gtk::Label,
-    frame: gtk::Overlay,
+    spinner: gtk::Spinner,
     root: gtk::Box,
     layout: PlayerLayout,
     eyebrow: gtk::Label,
     title: gtk::Label,
     badges: gtk::Box,
     camera_motion: Rc<CameraMotion>,
-    spinner: gtk::Spinner,
     error: gtk::Label,
     view: Cell<ModelView>,
     loading: Cell<bool>,
@@ -210,29 +207,14 @@ fn draw_camera_position(
 }
 
 impl ModelPreview {
-    fn new(texture: &gdk::Texture, mesh: ModelMesh, navigate: Rc<dyn Fn(i32)>) -> Self {
+    fn new(
+        texture: &gdk::Texture,
+        mesh: ModelMesh,
+        spinner: gtk::Spinner,
+        navigate: Rc<dyn Fn(i32)>,
+    ) -> Self {
         let view = mesh.view;
         let picture = picture(texture);
-        let frame = gtk::Overlay::new();
-        frame.set_child(Some(&picture));
-        let spinner = gtk::Spinner::new();
-        spinner.add_css_class("preview-model-spinner");
-        spinner.set_halign(gtk::Align::Center);
-        let progress = gtk::Label::new(None);
-        progress.add_css_class("preview-model-progress");
-        progress.set_wrap(true);
-        progress.set_justify(gtk::Justification::Center);
-        crate::ui::controls::keep_words_whole(&progress);
-        let loading_overlay = gtk::Box::new(gtk::Orientation::Vertical, 12);
-        loading_overlay.add_css_class("preview-model-loading");
-        loading_overlay.set_halign(gtk::Align::Center);
-        loading_overlay.set_valign(gtk::Align::Center);
-        loading_overlay.set_can_target(false);
-        loading_overlay.set_accessible_role(gtk::AccessibleRole::Status);
-        loading_overlay.set_visible(false);
-        loading_overlay.append(&spinner);
-        loading_overlay.append(&progress);
-        frame.add_overlay(&loading_overlay);
         let root = gtk::Box::new(gtk::Orientation::Vertical, 0);
         root.add_css_class("preview-model");
         root.set_hexpand(true);
@@ -240,7 +222,7 @@ impl ModelPreview {
         let layout = PlayerLayout::new();
         layout.set_paintable(Some(texture.upcast_ref()));
         root.set_layout_manager(Some(layout.clone()));
-        root.append(&frame);
+        root.append(&picture);
         let eyebrow = gtk::Label::new(None);
         eyebrow.add_css_class("preview-video-eyebrow");
         let title = gtk::Label::new(None);
@@ -285,16 +267,13 @@ impl ModelPreview {
             previous,
             next,
             camera,
-            loading_overlay,
-            progress,
-            frame,
+            spinner,
             root,
             layout,
             eyebrow,
             title,
             badges,
             camera_motion,
-            spinner,
             error,
             view: Cell::new(view),
             loading: Cell::new(false),
@@ -343,18 +322,17 @@ impl ModelPreview {
         self.previous.set_sensitive(false);
         self.next.set_sensitive(false);
         self.picture.set_opacity(0.3);
-        self.frame.set_cursor_from_name(Some("wait"));
         self.picture.set_cursor_from_name(Some("wait"));
         self.picture
             .update_state(&[gtk::accessible::State::Busy(true)]);
-        self.progress.set_text(&crate::i18n::tr("Loading preview…"));
-        self.loading_overlay.set_visible(true);
+        crate::ui::accessibility::set_label(&self.spinner, &crate::i18n::tr("Loading preview…"));
+        self.spinner.set_visible(true);
         self.spinner.start();
     }
 
     pub(super) fn set_progress(&self, stage: ModelPreviewStage) {
         if self.loading.get() {
-            self.progress.set_text(&stage.label());
+            crate::ui::accessibility::set_label(&self.spinner, &stage.label());
         }
     }
 
@@ -363,9 +341,8 @@ impl ModelPreview {
         self.previous.set_sensitive(true);
         self.next.set_sensitive(true);
         self.spinner.stop();
-        self.loading_overlay.set_visible(false);
+        self.spinner.set_visible(false);
         self.picture.set_opacity(1.0);
-        self.frame.set_cursor_from_name(None);
         self.picture.set_cursor_from_name(Some("grab"));
         self.picture
             .update_state(&[gtk::accessible::State::Busy(false)]);
@@ -387,6 +364,14 @@ impl ModelPreview {
         self.finish_loading();
         self.error.set_text(detail);
         self.error.set_visible(true);
+    }
+}
+
+// The header spinner outlives this preview; a file switch mid-render must stop it.
+impl Drop for ModelPreview {
+    fn drop(&mut self) {
+        self.spinner.stop();
+        self.spinner.set_visible(false);
     }
 }
 
@@ -432,6 +417,7 @@ impl PreviewState {
         let model = ModelPreview::new(
             &texture,
             mesh,
+            self.model_spinner.clone(),
             Rc::new(move |step| {
                 if let Some(state) = weak.upgrade() {
                     state.change_model_view(step);

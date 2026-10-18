@@ -3222,23 +3222,10 @@ paned > separator {
   padding: 0;
 }
 
-.preview-model-loading {
-  background: alpha(@strata_surface, 0.94);
-  border: 1px solid alpha(@strata_border, 0.45);
-  border-radius: 10px;
-  padding: 18px 24px;
-}
-
-.preview-model-spinner {
-  color: @strata_accent;
-  min-width: 32px;
-  min-height: 32px;
-}
-
-.preview-model-progress {
-  color: @strata_text;
-  font-size: 0.9em;
-  font-weight: 600;
+.preview-header-spinner {
+  margin: 0 4px;
+  min-width: 16px;
+  min-height: 16px;
 }
 
 .preview-model-controls .preview-media-button:disabled {

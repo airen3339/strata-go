@@ -139,8 +139,8 @@ Above the camera controls, media-style badges show the mesh encoding (binary STL
 ASCII STL or 3MF) and the rendered triangle count. These details come from the
 existing parse/render pass and remain part of the cached preview. Thumbnail-only
 previews do not parse geometry for badges. Dimensions and units are not shown.
-While another view renders, the last image dims behind a central spinner and live
-render progress. Failed view changes
+While another view renders, the last image dims and a spinner appears in the
+preview header beside the open button. Failed view changes
 retain that image with a visible error so the controls can retry. Embedded images
 have no camera controls and are never replaced with geometry for view selection.
 A 3MF package with exactly one usable embedded PNG uses that image, even if other

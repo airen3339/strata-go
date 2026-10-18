@@ -208,6 +208,7 @@ struct PreviewState {
     audio: RefCell<Option<AudioPreview>>,
     video: RefCell<Option<VideoPreview>>,
     model: RefCell<Option<model::ModelPreview>>,
+    model_spinner: gtk::Spinner,
     model_view: Cell<crate::services::ModelView>,
     handed_off: RefCell<Option<crate::model::Location>>,
     continue_playback: RefCell<Option<PlaybackContinuation>>,
@@ -278,6 +279,12 @@ impl PreviewDrawer {
         )));
         open.add_css_class("preview-header-action");
         open.set_visible(allow_external_open);
+        let model_spinner = gtk::Spinner::builder()
+            .valign(gtk::Align::Center)
+            .visible(false)
+            .build();
+        model_spinner.add_css_class("preview-spinner");
+        model_spinner.add_css_class("preview-header-spinner");
         let document_view_icon = crate::assets::primary_icon(crate::assets::icons::FILE_CODE, 16);
         let document_view_button = gtk::Button::builder()
             .tooltip_text(crate::i18n::tr("View source"))
@@ -351,6 +358,7 @@ impl PreviewDrawer {
         find_button.set_visible(false);
         header.append(&document_view_button);
         header.append(&find_button);
+        header.append(&model_spinner);
         header.append(&open);
         header.append(&print);
         header.append(&wrap);
@@ -469,6 +477,7 @@ impl PreviewDrawer {
             audio: RefCell::new(None),
             video: RefCell::new(None),
             model: RefCell::new(None),
+            model_spinner,
             model_view: Cell::default(),
             handed_off: RefCell::new(None),
             continue_playback: RefCell::new(None),

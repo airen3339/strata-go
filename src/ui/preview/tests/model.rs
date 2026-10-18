@@ -49,32 +49,9 @@ fn camera_buttons_cycle_views_keep_the_image_while_loading_and_reset_for_another
                 next.emit_clicked();
                 assert_eq!(provider.0.borrow().len(), index + 2);
                 assert_eq!(provider.0.borrow()[index + 1].request.model_view, view);
-                {
-                    let model = drawer.state.model.borrow();
-                    let model = model.as_ref().expect("rendering mesh");
-                    assert!(
-                        model.loading_overlay.is_visible(),
-                        "the main view must show loading feedback"
-                    );
-                    assert_eq!(model.progress.text(), "Loading preview…");
-                }
-                {
-                    let pending = provider.0.borrow();
-                    (pending[index + 1].emit)(PreviewEvent::Progress {
-                        request_id: pending[index + 1].request.id,
-                        stage: crate::services::ModelPreviewStage::Rendering { triangles: 23 },
-                    });
-                }
-                assert_eq!(
-                    drawer
-                        .state
-                        .model
-                        .borrow()
-                        .as_ref()
-                        .expect("rendering mesh")
-                        .progress
-                        .text(),
-                    "Rendering 23 triangles…"
+                assert!(
+                    drawer.state.model_spinner.is_visible(),
+                    "the header must show loading feedback"
                 );
                 next.emit_clicked();
                 assert_eq!(
@@ -104,16 +81,7 @@ fn camera_buttons_cycle_views_keep_the_image_while_loading_and_reset_for_another
                         .view(),
                     view
                 );
-                assert!(
-                    !drawer
-                        .state
-                        .model
-                        .borrow()
-                        .as_ref()
-                        .expect("rendered mesh")
-                        .loading_overlay
-                        .is_visible()
-                );
+                assert!(!drawer.state.model_spinner.is_visible());
             }
             let previous = drawer
                 .state
@@ -134,7 +102,12 @@ fn camera_buttons_cycle_views_keep_the_image_while_loading_and_reset_for_another
                     .model_view,
                 ModelView::BackLeft
             );
+            assert!(drawer.state.model_spinner.is_visible());
             drawer.show(entry("another.stl"), None);
+            assert!(
+                !drawer.state.model_spinner.is_visible(),
+                "switching files mid-render must clear the header spinner"
+            );
             assert_eq!(
                 provider
                     .0
@@ -196,16 +169,8 @@ fn camera_reload_failures_keep_the_last_view_and_allow_retry() {
             });
             drop(pending);
             assert_eq!(drawer.state.model_view.get(), ModelView::FrontLeft);
-            assert!(
-                !drawer
-                    .state
-                    .model
-                    .borrow()
-                    .as_ref()
-                    .expect("last rendered view")
-                    .loading_overlay
-                    .is_visible()
-            );
+            assert!(drawer.state.model.borrow().is_some(), "last rendered view");
+            assert!(!drawer.state.model_spinner.is_visible());
             assert!(next.is_sensitive());
             next.emit_clicked();
             assert_eq!(provider.0.borrow().len(), 3);
@@ -236,7 +201,7 @@ fn camera_reload_failures_keep_the_last_view_and_allow_retry() {
                 let model = model.as_ref().expect("last decodable view");
                 assert_eq!(model.picture.paintable(), image);
                 assert_eq!(model.view(), ModelView::FrontLeft);
-                assert!(!model.loading_overlay.is_visible());
+                assert!(!drawer.state.model_spinner.is_visible());
             }
             assert_eq!(drawer.state.model_view.get(), ModelView::FrontLeft);
             assert!(next.is_sensitive());
