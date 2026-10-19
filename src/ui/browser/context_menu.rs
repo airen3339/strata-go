@@ -857,6 +857,11 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
         "Open file location",
         ContextHint::None,
     );
+    let open_full_path = item_context_option(
+        crate::assets::icons::COLUMNS,
+        "Open full path",
+        ContextHint::None,
+    );
     let run = item_context_option(crate::assets::icons::PLAY, "Run", ContextHint::None);
     let open_terminal = item_context_option(
         crate::assets::icons::TERMINAL,
@@ -983,6 +988,7 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
     single_open.append(&open_with);
     single_open.append(&preview);
     single_open.append(&open_file_location);
+    single_open.append(&open_full_path);
     single_open.append(&run);
     single_open.append(&open_terminal);
     single_open.append(&open_in_submenu);
@@ -1224,6 +1230,26 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
         };
         if let Some(state) = open_file_location_state.upgrade() {
             state.reveal_locations(parent, vec![entry.location], false);
+        }
+    });
+    let open_full_path_target = target.clone();
+    let open_full_path_state = Rc::downgrade(state);
+    let open_full_path_popover = popover.downgrade();
+    open_full_path.connect_clicked(move |_| {
+        if let Some(popover) = open_full_path_popover.upgrade() {
+            popover.popdown();
+        }
+        let Some((_, entry)) = open_full_path_target.borrow().clone() else {
+            return;
+        };
+        if entry.is_directory() {
+            return;
+        }
+        let Some(parent) = entry.location.parent() else {
+            return;
+        };
+        if let Some(state) = open_full_path_state.upgrade() {
+            state.reveal_full_path(parent, entry.location);
         }
     });
     let run_target = target.clone();
@@ -1696,12 +1722,12 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
             let search_or_filter = context_filter_or_search_active(&state, depth);
             let in_different_folder =
                 state.browser.location_at(depth).as_ref() != entry.location.parent().as_ref();
-            open_file_location.set_visible(
-                !in_trash
-                    && !entry.is_directory()
-                    && entry.location.parent().is_some()
-                    && (search_or_filter || in_different_folder),
-            );
+            let reveal_location = !in_trash
+                && !entry.is_directory()
+                && entry.location.parent().is_some()
+                && (search_or_filter || in_different_folder);
+            open_file_location.set_visible(reveal_location);
+            open_full_path.set_visible(reveal_location);
             let trash_visible =
                 removable && move_to_trash_is_visible(in_trash, state.browser.can_trash_at(depth));
             move_to_trash.set_visible(trash_visible);

@@ -649,6 +649,7 @@
   "Open and Save dialogs": "Диалоги открытия и сохранения",
   "Open containing folder": "Открыть содержащую папку",
   "Open file location": "Открыть расположение файла",
+  "Open full path": "Open full path",
   "Open files read-only": "Открывать файлы только для чтения",
   "Open folder after dropping files": "Открыть папку после перетаскивания файлов",
   "Open in Terminal": "Открыть в терминале",

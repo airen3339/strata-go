@@ -263,6 +263,65 @@ fn reveal_locations_survives_a_mount_round_trip() {
 }
 
 #[test]
+fn reveal_full_path_opens_ancestor_columns_and_selects_each_step() {
+    let (browser, ..) = reveal_browser(listings(vec![
+        ("/", vec![file("/home"), file("/tmp")]),
+        ("/home", vec![file("/home/user"), file("/home/other")]),
+        (
+            "/home/user",
+            vec![file("/home/user/docs"), file("/home/user/downloads")],
+        ),
+        (
+            "/home/user/docs",
+            vec![
+                file("/home/user/docs/a.txt"),
+                file("/home/user/docs/report.pdf"),
+            ],
+        ),
+    ]));
+    browser.navigate(location("/start"));
+
+    browser.reveal_full_path(
+        location("/home/user/docs"),
+        location("/home/user/docs/report.pdf"),
+    );
+
+    assert_eq!(browser.location_at(0), Some(location("/")));
+    assert_eq!(browser.location_at(1), Some(location("/home")));
+    assert_eq!(browser.location_at(2), Some(location("/home/user")));
+    assert_eq!(browser.location_at(3), Some(location("/home/user/docs")));
+    assert_eq!(browser.active_location(), Some(location("/home/user/docs")));
+    assert_eq!(
+        selected_locations(&browser),
+        vec![location("/home/user/docs/report.pdf")]
+    );
+    assert_eq!(
+        browser
+            .selected_positions(0)
+            .into_iter()
+            .filter_map(|position| browser.entry_at(0, position).map(|entry| entry.location))
+            .collect::<Vec<_>>(),
+        vec![location("/home")]
+    );
+    assert_eq!(
+        browser
+            .selected_positions(1)
+            .into_iter()
+            .filter_map(|position| browser.entry_at(1, position).map(|entry| entry.location))
+            .collect::<Vec<_>>(),
+        vec![location("/home/user")]
+    );
+    assert_eq!(
+        browser
+            .selected_positions(2)
+            .into_iter()
+            .filter_map(|position| browser.entry_at(2, position).map(|entry| entry.location))
+            .collect::<Vec<_>>(),
+        vec![location("/home/user/docs")]
+    );
+}
+
+#[test]
 fn descend_revealing_selects_the_target_in_a_new_column_after_the_parent() {
     for root in ["/fixture", "sftp://host/fixture"] {
         let (browser, ..) = reveal_browser(listings(vec![

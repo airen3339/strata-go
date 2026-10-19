@@ -649,6 +649,7 @@
   "Open and Save dialogs": "“打开”和“保存”对话框",
   "Open containing folder": "打开所在文件夹",
   "Open file location": "打开文件所在的位置",
+  "Open full path": "Open full path",
   "Open files read-only": "以只读方式打开文件",
   "Open folder after dropping files": "拖放文件后打开文件夹",
   "Open in Terminal": "在终端中打开",

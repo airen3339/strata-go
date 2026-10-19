@@ -1516,6 +1516,66 @@ impl Browser {
         }
     }
 
+    /// Opens every ancestor column from the root down to `directory`, selects the
+    /// next path segment in each, and selects `target` in the last column.
+    pub fn reveal_full_path(self: &Rc<Self>, directory: Location, target: Location) {
+        let locations = directory.breadcrumbs();
+        if locations.is_empty() {
+            self.reveal_locations(directory, vec![target]);
+            return;
+        }
+        if locations
+            .iter()
+            .any(|location| !self.source.allows_navigation(location))
+        {
+            return;
+        }
+        let path = NavigationPath::from_locations(locations.clone());
+        let _update = self.navigation_update();
+        self.deferred_reveal.take();
+        self.bump_navigation_generation();
+        self.emit(BrowserEvent::NavigationStarting { history: false });
+        self.close_peek();
+        self.loads.borrow_mut().clear();
+        self.monitors.borrow_mut().clear();
+        self.cancel_deferred_work();
+        let loads: Vec<_> = locations
+            .iter()
+            .cloned()
+            .map(|location| {
+                let request_id = self.new_request_id();
+                (location, request_id)
+            })
+            .collect();
+        self.state
+            .borrow_mut()
+            .restore(path, loads.iter().map(|(_, request_id)| *request_id));
+        {
+            let mut state = self.state.borrow_mut();
+            for depth in 0..locations.len().saturating_sub(1) {
+                state.select_locations_on_load(depth, vec![locations[depth + 1].clone()]);
+            }
+            if let Some(last) = locations.len().checked_sub(1) {
+                state.select_locations_on_load(last, vec![target]);
+            }
+        }
+        self.emit(BrowserEvent::Reset);
+        for (depth, (location, request_id)) in loads.into_iter().enumerate() {
+            self.emit(BrowserEvent::ColumnAdded {
+                depth,
+                location: location.clone(),
+            });
+            self.start_load(depth, location, request_id);
+        }
+        if let Some(depth) = locations.len().checked_sub(1) {
+            self.emit(BrowserEvent::FocusChanged {
+                depth,
+                position: None,
+                triggered_by_removal: false,
+            });
+        }
+    }
+
     pub(crate) fn open_depth(&self, directory: &Location) -> Option<usize> {
         let state = self.state.borrow();
         state

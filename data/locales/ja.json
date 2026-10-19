@@ -649,6 +649,7 @@
   "Open and Save dialogs": "「開く」と「保存」のダイアログ",
   "Open containing folder": "ファイルの場所を開く",
   "Open file location": "ファイルの場所を開く",
+  "Open full path": "Open full path",
   "Open files read-only": "ファイルを読み取り専用で開く",
   "Open folder after dropping files": "ファイルのドロップ後にフォルダーを開く",
   "Open in Terminal": "ターミナルで開く",

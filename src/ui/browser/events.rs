@@ -1379,6 +1379,11 @@ impl ViewState {
         }
     }
 
+    pub(super) fn reveal_full_path(self: &Rc<Self>, directory: Location, target: Location) {
+        self.prepare_reveal(&directory);
+        self.browser.reveal_full_path(directory, target);
+    }
+
     pub(super) fn abandon_deferred_reveal(&self) {
         self.browser.cancel_deferred_reveal();
         self.pending_properties.take();

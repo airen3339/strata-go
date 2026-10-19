@@ -630,6 +630,7 @@
   "Open and Save dialogs": "開啟與儲存對話框",
   "Open containing folder": "開啟所在資料夾",
   "Open file location": "開啟檔案位置",
+  "Open full path": "Open full path",
   "Open files read-only": "以唯讀方式開啟檔案",
   "Open folder after dropping files": "拖放檔案後開啟資料夾",
   "Open in Terminal": "在終端機中開啟",
