@@ -2912,6 +2912,13 @@ impl FsOps for Scoped {
             Some(scope) => scope.run(Op::OpenTmpfile, &[], |scope| {
                 match scope.quirk(|quirks| quirks.tmpfile) {
                     Support::Rejected(error) => Err(error),
+                    Support::Supported
+                        if System
+                            .current_mount_type(dir)
+                            .is_some_and(|base| family(&base.fs_type) == Family::Smb) =>
+                    {
+                        Err(Errno::OPNOTSUPP)
+                    }
                     Support::Supported => System.open_tmpfile(dir, mode),
                 }
             }),
