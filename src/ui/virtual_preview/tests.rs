@@ -22,9 +22,9 @@ use crate::{
 };
 
 #[test]
-fn smooth_scroll_hit_testing_tracks_visible_text_after_rows_recycle() {
+fn smooth_content_scrolling_keeps_thumb_and_hit_testing_in_document_order() {
     gtk_test(
-        "ui::virtual_preview::tests::smooth_scroll_hit_testing_tracks_visible_text_after_rows_recycle",
+        "ui::virtual_preview::tests::smooth_content_scrolling_keeps_thumb_and_hit_testing_in_document_order",
         || {
             let context = gtk::glib::MainContext::default();
             let advance_frames = |duration| {
@@ -102,8 +102,39 @@ fn smooth_scroll_hit_testing_tracks_visible_text_after_rows_recycle() {
                     .iter()
                     .find(|controller| {
                         controller.propagation_phase() == gtk::PropagationPhase::Capture
+                            && controller
+                                .flags()
+                                .contains(gtk::EventControllerScrollFlags::KINETIC)
                     })
                     .expect("GTK smooth scrolling controller");
+                let phase = |signal| {
+                    for controller in &controllers {
+                        controller.emit_by_name::<()>(signal, &[]);
+                    }
+                };
+                let scroll_by = |dy: f64| {
+                    if !controllers
+                        .iter()
+                        .filter(|controller| {
+                            controller.propagation_phase() == gtk::PropagationPhase::Capture
+                        })
+                        .any(|controller| {
+                            controller.emit_by_name::<bool>("scroll", &[&0.0_f64, &dy])
+                        })
+                    {
+                        bubble.emit_by_name::<bool>("scroll", &[&0.0_f64, &dy]);
+                    }
+                };
+                let thumb = scroll
+                    .parent()
+                    .and_then(|parent| parent.last_child())
+                    .and_downcast::<gtk::Scrollbar>()
+                    .expect("document scrollbar")
+                    .adjustment();
+                let thumb_progress = || {
+                    (thumb.value() - thumb.lower())
+                        / (thumb.upper() - thumb.lower() - thumb.page_size()).max(1.0)
+                };
                 let point = || {
                     let x = f64::from(list.width()) / 4.0;
                     let y = f64::from(list.height()) / 2.0;
@@ -113,16 +144,33 @@ fn smooth_scroll_hit_testing_tracks_visible_text_after_rows_recycle() {
                         super::point_at(&list, &state, x, y)
                     }
                 };
-                bubble.emit_by_name::<()>("scroll-begin", &[]);
-                capture.emit_by_name::<()>("scroll-begin", &[]);
+                phase("scroll-begin");
+                scroll_by(0.25);
+                advance_frames(std::time::Duration::from_millis(300));
+                let before_momentum = scroll.vadjustment().value();
+                capture.emit_by_name::<()>("decelerate", &[&0.0_f64, &0.35_f64]);
+                phase("scroll-end");
+                advance_frames(std::time::Duration::from_millis(400));
+                assert!(
+                    scroll.vadjustment().value() > before_momentum,
+                    "native momentum must still advance a settled viewport in mode {mode}"
+                );
+                phase("scroll-begin");
+                let mut previous_progress = thumb_progress();
                 let mut previous = point().expect("initial document text");
                 let initial = previous;
                 let mut samples = 0;
                 for _ in 0..240 {
-                    if !capture.emit_by_name::<bool>("scroll", &[&0.0_f64, &0.75_f64]) {
-                        bubble.emit_by_name::<bool>("scroll", &[&0.0_f64, &0.75_f64]);
-                    }
+                    scroll_by(0.75);
                     advance_frames(std::time::Duration::from_millis(20));
+                    let progress = thumb_progress();
+                    assert!(
+                        progress + 1e-6 >= previous_progress,
+                        "forward content scrolling moved the scrollbar backwards in mode {mode}: {previous_progress} -> {progress}; document value={} upper={}",
+                        scroll.vadjustment().value(),
+                        scroll.vadjustment().upper(),
+                    );
+                    previous_progress = progress;
                     let current = point();
                     let picked = list
                         .pick(
@@ -159,8 +207,17 @@ fn smooth_scroll_hit_testing_tracks_visible_text_after_rows_recycle() {
                         samples += 1;
                     }
                 }
-                bubble.emit_by_name::<()>("scroll-end", &[]);
-                capture.emit_by_name::<()>("scroll-end", &[]);
+                capture.emit_by_name::<()>("decelerate", &[&0.0_f64, &0.35_f64]);
+                phase("scroll-end");
+                for _ in 0..60 {
+                    advance_frames(std::time::Duration::from_millis(20));
+                    let progress = thumb_progress();
+                    assert!(
+                        progress + 1e-6 >= previous_progress,
+                        "forward momentum moved the scrollbar backwards: {previous_progress} -> {progress}"
+                    );
+                    previous_progress = progress;
+                }
                 advance_frames(std::time::Duration::from_millis(300));
                 assert!(
                     samples > 100,
@@ -177,6 +234,19 @@ fn smooth_scroll_hit_testing_tracks_visible_text_after_rows_recycle() {
                     stopped,
                     "stopping input must leave the document still"
                 );
+                phase("scroll-begin");
+                previous_progress = thumb_progress();
+                for _ in 0..120 {
+                    scroll_by(-0.75);
+                    advance_frames(std::time::Duration::from_millis(20));
+                    let progress = thumb_progress();
+                    assert!(
+                        progress <= previous_progress + 1e-6,
+                        "backward input moved the scrollbar forward in mode {mode}: {previous_progress} -> {progress}"
+                    );
+                    previous_progress = progress;
+                }
+                phase("scroll-end");
                 window.close();
             }
         },

@@ -4,8 +4,15 @@ use std::{cell::Cell, rc::Rc};
 
 use gtk::{gdk, glib, prelude::*};
 
-pub(super) fn wrap(scroll: &gtk::ScrolledWindow) -> gtk::Box {
-    let (_, bar) = StableScrollbar::new(scroll);
+mod position;
+
+pub(super) fn wrap(
+    scroll: &gtk::ScrolledWindow,
+    preview: &Rc<super::VirtualPreviewState>,
+) -> gtk::Box {
+    let position = position::DocumentPosition::new(scroll, preview);
+    let (_, bar) = StableScrollbar::new(&scroll.vadjustment(), position.adjustment());
+    bar.connect_unmap(move |_| position.cancel());
     scroll.set_policy(scroll.hscrollbar_policy(), gtk::PolicyType::External);
     let container = gtk::Box::new(gtk::Orientation::Horizontal, 0);
     container.set_vexpand(true);
@@ -16,25 +23,32 @@ pub(super) fn wrap(scroll: &gtk::ScrolledWindow) -> gtk::Box {
 
 struct StableScrollbar {
     document: gtk::Adjustment,
+    presentation: gtk::Adjustment,
     thumb: gtk::Adjustment,
     bar: glib::WeakRef<gtk::Scrollbar>,
     dragging: Cell<bool>,
     previous_thumb_value: Cell<f64>,
+    drag_offset: Cell<f64>,
     drag_generation: Cell<u64>,
     pending_edge: Cell<Option<u64>>,
     syncing: Cell<bool>,
 }
 
 impl StableScrollbar {
-    fn new(scroll: &gtk::ScrolledWindow) -> (Rc<Self>, gtk::Scrollbar) {
+    fn new(
+        document: &gtk::Adjustment,
+        presentation: &gtk::Adjustment,
+    ) -> (Rc<Self>, gtk::Scrollbar) {
         let thumb = gtk::Adjustment::default();
         let bar = gtk::Scrollbar::new(gtk::Orientation::Vertical, Some(&thumb));
         let state = Rc::new(Self {
-            document: scroll.vadjustment(),
+            document: document.clone(),
+            presentation: presentation.clone(),
             bar: bar.downgrade(),
             thumb,
             dragging: Cell::new(false),
             previous_thumb_value: Cell::new(0.0),
+            drag_offset: Cell::new(0.0),
             drag_generation: Cell::new(0),
             pending_edge: Cell::new(None),
             syncing: Cell::new(false),
@@ -51,6 +65,20 @@ impl StableScrollbar {
                 state.document_changed();
             }
         });
+        if presentation != document {
+            let weak = Rc::downgrade(&state);
+            presentation.connect_changed(move |_| {
+                if let Some(state) = weak.upgrade() {
+                    state.sync();
+                }
+            });
+            let weak = Rc::downgrade(&state);
+            presentation.connect_value_changed(move |_| {
+                if let Some(state) = weak.upgrade() {
+                    state.sync();
+                }
+            });
+        }
         let weak = Rc::downgrade(&state);
         state.thumb.connect_value_changed(move |_| {
             if let Some(state) = weak.upgrade() {
@@ -94,16 +122,17 @@ impl StableScrollbar {
             return;
         }
         self.thumb.configure(
-            self.document.value(),
-            self.document.lower(),
-            self.document.upper(),
-            self.document.step_increment(),
-            self.document.page_increment(),
-            self.document.page_size(),
+            self.presentation.value(),
+            self.presentation.lower(),
+            self.presentation.upper(),
+            self.presentation.step_increment(),
+            self.presentation.page_increment(),
+            self.presentation.page_size(),
         );
         self.syncing.set(false);
+        self.previous_thumb_value.set(self.thumb.value());
         if let Some(bar) = self.bar.upgrade() {
-            bar.set_visible(scrollable_range(&self.document) > 0.0);
+            bar.set_visible(scrollable_range(&self.presentation) > 0.0);
         }
     }
 
@@ -155,14 +184,17 @@ impl StableScrollbar {
             return;
         }
         let previous = self.previous_thumb_value.replace(self.thumb.value());
-        let value = if self.dragging.get() {
+        let value = if let Some(target) = self.edge_target() {
+            target
+        } else if self.dragging.get() {
             let range = scrollable_range(&self.thumb);
             let fraction = if range > 0.0 {
                 (self.thumb.value() - self.thumb.lower()) / range
             } else {
                 0.0
             };
-            let target = self.document.lower() + fraction * scrollable_range(&self.document);
+            let target = self.document.lower()
+                + (fraction + self.drag_offset.get()) * scrollable_range(&self.document);
             // A height re-estimate can put the target behind GTK's visible-row
             // anchor. Never scroll against the user's actual thumb movement.
             if self.thumb.value() > previous {
@@ -170,13 +202,23 @@ impl StableScrollbar {
             } else {
                 target.min(self.document.value())
             }
-        } else {
+        } else if self.presentation == self.document {
             self.thumb.value()
+        } else {
+            self.document.value()
+                + (self.thumb.value() - previous) / scrollable_range(&self.thumb).max(f64::EPSILON)
+                    * scrollable_range(&self.document)
         };
         self.document.set_value(value);
     }
 
     fn begin_drag(&self) {
+        self.drag_offset.set(
+            (self.document.value() - self.document.lower())
+                / scrollable_range(&self.document).max(f64::EPSILON)
+                - (self.thumb.value() - self.thumb.lower())
+                    / scrollable_range(&self.thumb).max(f64::EPSILON),
+        );
         self.previous_thumb_value.set(self.thumb.value());
         self.drag_generation
             .set(self.drag_generation.get().wrapping_add(1));

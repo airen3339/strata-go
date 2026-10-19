@@ -374,7 +374,7 @@ fn virtual_preview(
     for warning in warnings {
         container.append(&super::preview::document_notice(&warning));
     }
-    container.append(&scrollbar::wrap(&scroll));
+    container.append(&scrollbar::wrap(&scroll, &state));
     (container, state)
 }
 

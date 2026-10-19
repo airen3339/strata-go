@@ -6,6 +6,32 @@ use super::StableScrollbar;
 use crate::test_support::gtk_test;
 
 #[test]
+fn logical_thumb_commands_reach_both_document_edges() {
+    gtk_test(
+        "ui::virtual_preview::scrollbar::tests::logical_thumb_commands_reach_both_document_edges",
+        || {
+            let document = gtk::Adjustment::new(400.0, 10.0, 1_010.0, 10.0, 90.0, 100.0);
+            let presentation = gtk::Adjustment::new(2.0, 0.0, 10.0, 0.1, 1.0, 1.0);
+            let (state, _bar) = StableScrollbar::new(&document, &presentation);
+            state.thumb.set_value(state.thumb.lower());
+            assert_eq!(
+                document.value(),
+                10.0,
+                "logical Home reaches the document start"
+            );
+            state
+                .thumb
+                .set_value(state.thumb.upper() - state.thumb.page_size());
+            assert_eq!(
+                document.value(),
+                910.0,
+                "logical End reaches the document end"
+            );
+        },
+    );
+}
+
+#[test]
 fn held_endpoints_remain_reachable_after_gtk_reanchors_the_document() {
     gtk_test(
         "ui::virtual_preview::scrollbar::tests::held_endpoints_remain_reachable_after_gtk_reanchors_the_document",
@@ -13,7 +39,7 @@ fn held_endpoints_remain_reachable_after_gtk_reanchors_the_document() {
             let scroll = gtk::ScrolledWindow::new();
             let document = scroll.vadjustment();
             document.configure(10.0, 10.0, 1_010.0, 10.0, 90.0, 100.0);
-            let (state, _bar) = StableScrollbar::new(&scroll);
+            let (state, _bar) = StableScrollbar::new(&document, &document);
             state.begin_drag();
             state.thumb.set_value(910.0);
             document.configure(650.0, 10.0, 2_010.0, 10.0, 90.0, 100.0);
@@ -61,7 +87,7 @@ fn queued_release_does_not_thaw_a_new_drag() {
             let scroll = gtk::ScrolledWindow::new();
             let document = scroll.vadjustment();
             document.configure(0.0, 0.0, 1_000.0, 10.0, 90.0, 100.0);
-            let (state, _bar) = StableScrollbar::new(&scroll);
+            let (state, _bar) = StableScrollbar::new(&document, &document);
             state.begin_drag();
             state.finish_after_event();
             state.begin_drag();
@@ -88,7 +114,7 @@ fn unmapping_a_held_scrollbar_restores_live_updates_before_reopening() {
             let scroll = gtk::ScrolledWindow::new();
             let document = scroll.vadjustment();
             document.configure(0.0, 0.0, 1_000.0, 10.0, 90.0, 100.0);
-            let (state, bar) = StableScrollbar::new(&scroll);
+            let (state, bar) = StableScrollbar::new(&document, &document);
             let window = gtk::Window::builder().child(&bar).build();
             window.present();
             while gtk::glib::MainContext::default().pending() {
@@ -123,7 +149,7 @@ fn held_thumb_ignores_reestimates_and_resynchronizes_without_scrolling_on_releas
             let scroll = gtk::ScrolledWindow::new();
             let document = scroll.vadjustment();
             document.configure(10.0, 10.0, 1_010.0, 10.0, 90.0, 100.0);
-            let (state, bar) = StableScrollbar::new(&scroll);
+            let (state, bar) = StableScrollbar::new(&document, &document);
             state.begin_drag();
             state.thumb.set_value(460.0);
             assert_eq!(document.value(), 460.0);
