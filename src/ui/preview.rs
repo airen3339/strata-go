@@ -36,6 +36,7 @@ use super::{
 
 mod archive;
 pub(super) mod audio;
+mod components;
 mod ease_in;
 mod find;
 mod keyboard;
@@ -46,6 +47,7 @@ mod model;
 #[cfg(test)]
 mod pdf_ranges_tests;
 mod pdf_text;
+mod player_layout;
 mod session;
 pub(super) mod video;
 mod waveform;

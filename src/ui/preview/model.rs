@@ -9,7 +9,12 @@ use gtk::{gdk, glib, prelude::*};
 
 use crate::services::{ModelEncoding, ModelMesh, ModelPreviewStage, ModelView};
 
-use super::{ListingPosition, PreviewState, media_layout, video::PlayerLayout};
+use super::{
+    ListingPosition, PreviewState,
+    components::{self, DetailsHeader, navigation_button, navigation_row},
+    media_layout,
+    player_layout::{self, PlayerLayout},
+};
 
 pub(super) struct ModelPreview {
     pub(super) picture: gtk::Picture,
@@ -49,17 +54,6 @@ fn picture(texture: &gdk::Texture) -> gtk::Picture {
     picture.set_cursor_from_name(Some("grab"));
     crate::ui::accessibility::set_label(&picture, &crate::i18n::tr("Model preview"));
     picture
-}
-
-fn camera_button(icon: &str, name: &str) -> gtk::Button {
-    let button = gtk::Button::new();
-    button.add_css_class("preview-media-button");
-    button.set_valign(gtk::Align::Center);
-    button.set_child(Some(&crate::assets::primary_icon(icon, 18)));
-    let name = crate::i18n::tr(name);
-    button.set_tooltip_text(Some(&name));
-    crate::ui::accessibility::set_label(&button, &name);
-    button
 }
 
 struct CameraMotion {
@@ -149,7 +143,6 @@ fn camera_position(motion: Rc<CameraMotion>) -> gtk::DrawingArea {
         .accessible_role(gtk::AccessibleRole::Img)
         .build();
     camera.add_css_class("preview-media-center");
-    camera.add_css_class("preview-video-play");
     camera.add_css_class("preview-model-camera");
     camera.set_can_target(false);
     crate::ui::accessibility::set_label(&camera, &crate::i18n::tr("Camera position"));
@@ -217,52 +210,50 @@ impl ModelPreview {
     ) -> Self {
         let view = mesh.view;
         let picture = picture(texture);
-        let root = gtk::Box::new(gtk::Orientation::Vertical, 0);
-        root.add_css_class("preview-model");
-        root.set_hexpand(true);
-        root.set_vexpand(true);
-        let layout = PlayerLayout::new();
-        layout.set_paintable(Some(texture.upcast_ref()));
-        root.set_layout_manager(Some(layout.clone()));
-        root.append(&picture);
-        let eyebrow = gtk::Label::new(None);
-        eyebrow.add_css_class("preview-video-eyebrow");
-        let title = gtk::Label::new(None);
-        title.add_css_class("preview-video-title");
-        for label in [&eyebrow, &title] {
-            label.set_xalign(0.0);
-            label.set_ellipsize(gtk::pango::EllipsizeMode::End);
-        }
-        let header = gtk::Box::new(gtk::Orientation::Vertical, 2);
-        header.append(&eyebrow);
-        header.append(&title);
-        root.append(&header);
-        let previous = camera_button(crate::assets::icons::SKIP_BACK, "Previous model view");
-        let next = camera_button(crate::assets::icons::SKIP_FORWARD, "Next model view");
+        let DetailsHeader {
+            root: header,
+            eyebrow,
+            title,
+        } = DetailsHeader::new(None);
+        let previous = navigation_button(
+            crate::assets::icons::SKIP_BACK,
+            "Previous model view",
+            "Previous model view",
+            None,
+        );
+        let next = navigation_button(
+            crate::assets::icons::SKIP_FORWARD,
+            "Next model view",
+            "Next model view",
+            None,
+        );
         for (button, step) in [(&previous, -1), (&next, 1)] {
+            button.set_valign(gtk::Align::Center);
             let navigate = navigate.clone();
             button.connect_clicked(move |_| navigate(step));
         }
         let camera_motion = Rc::new(CameraMotion::new(view));
         let camera = camera_position(camera_motion.clone());
-        let row = gtk::Box::new(gtk::Orientation::Horizontal, 16);
-        row.set_halign(gtk::Align::Center);
-        row.append(&previous);
-        row.append(&camera);
-        row.append(&next);
+        let row = navigation_row(&previous, &camera, &next, 16);
         let error = gtk::Label::new(None);
         error.add_css_class("preview-feedback-detail");
         error.set_wrap(true);
         error.set_justify(gtk::Justification::Center);
         error.set_visible(false);
-        let badges = gtk::Box::new(gtk::Orientation::Horizontal, 6);
-        badges.add_css_class("preview-video-badges");
+        let badges = components::badge_row();
         badges.set_halign(gtk::Align::Start);
-        root.append(&badges);
         let controls = gtk::Box::new(gtk::Orientation::Vertical, 12);
         controls.append(&row);
         controls.append(&error);
-        root.append(&controls);
+        let (root, layout) = player_layout::section(player_layout::Areas {
+            content: picture.upcast_ref(),
+            details: header.upcast_ref(),
+            badges: Some(badges.upcast_ref()),
+            timeline: None,
+            controls: controls.upcast_ref(),
+        });
+        root.add_css_class("preview-model");
+        layout.set_paintable(Some(texture.upcast_ref()));
         let model = Self {
             picture,
             #[cfg(test)]
@@ -305,8 +296,7 @@ impl ModelPreview {
             ModelEncoding::ThreeMf => "3MF".to_owned(),
         };
         for text in [format, crate::i18n::count("triangles", mesh.triangles)] {
-            let label = gtk::Label::new(Some(&text));
-            label.add_css_class("preview-video-badge");
+            let label = components::badge(&text);
             self.badges.append(&label);
         }
     }
