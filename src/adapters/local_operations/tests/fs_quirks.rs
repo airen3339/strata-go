@@ -318,6 +318,10 @@ pub(crate) struct Quirks {
     /// Closing a written file sets its times to the close time, as NFSv4.2
     /// write delegations and FUSE writeback caches do.
     pub times_reset_at_close: bool,
+    /// A file opened for writing reports the modification time it had then through any stat
+    /// that does not force revalidation, until a forced stat or a time set revalidates it, as
+    /// the SMB client leaves a written file's times to the server.
+    pub stale_written_times: bool,
     pub chown: Support,
     /// Entries report a group the user is not in.
     pub foreign_group: bool,
@@ -549,6 +553,7 @@ impl Quirks {
             symlinks: Support::Rejected(Errno::OPNOTSUPP),
             case_insensitive: true,
             cached_change_times: Some(Duration::from_secs(1)),
+            stale_written_times: true,
             silly_rename: Some(Silly {
                 aside: Aside::Smb,
                 lingers: Duration::from_millis(4),
@@ -875,6 +880,12 @@ pub(crate) struct Call {
 }
 
 #[derive(Clone, Copy)]
+struct WrittenTime {
+    birth: Option<(i64, u32)>,
+    modified: (i64, u32),
+}
+
+#[derive(Clone, Copy)]
 struct Seen {
     modified: (i64, u32),
     changed: (i64, u32),
@@ -922,6 +933,9 @@ struct State {
     links_made: u64,
     stale: HashMap<PathBuf, EntryStat>,
     written: HashSet<(u64, u64)>,
+    /// The birth and the modification time last revalidated of each file open for writing, by
+    /// device and inode.
+    written_times: HashMap<(u64, u64), WrittenTime>,
     renumbered: HashSet<PathBuf>,
     /// Writebacks lost so far, and how many each open folder has reported.
     writebacks_lost: u64,
@@ -1014,6 +1028,7 @@ impl FsQuirks {
                 links_made: 0,
                 stale: HashMap::new(),
                 written: HashSet::new(),
+                written_times: HashMap::new(),
                 renumbered: HashSet::new(),
                 writebacks_lost: 0,
                 reported_losses: HashMap::new(),
@@ -1482,11 +1497,45 @@ impl Scope {
         }
     }
 
+    fn opened_for_writing(&self, fd: BorrowedFd<'_>) {
+        if self.quirk(|quirks| quirks.stale_written_times)
+            && let Ok(stat) = System.stat_fd(fd)
+        {
+            self.state().written_times.insert(
+                (stat.identity.device, stat.identity.inode),
+                WrittenTime {
+                    birth: stat.identity.birth,
+                    modified: stat.mtime,
+                },
+            );
+        }
+    }
+
+    fn with_written_time(&self, mut stat: EntryStat) -> EntryStat {
+        let key = (stat.identity.device, stat.identity.inode);
+        if let Some(written) = self.state().written_times.get(&key)
+            && written.birth == stat.identity.birth
+        {
+            stat.mtime = written.modified;
+        }
+        stat
+    }
+
+    fn revalidate_written_time(&self, stat: &EntryStat) {
+        let key = (stat.identity.device, stat.identity.inode);
+        if let Some(written) = self.state().written_times.get_mut(&key)
+            && written.birth == stat.identity.birth
+        {
+            written.modified = stat.mtime;
+        }
+    }
+
     fn closing(&self, fd: BorrowedFd<'_>) {
         let written = System.stat_fd(fd).is_ok_and(|stat| {
-            self.state()
-                .written
-                .remove(&(stat.identity.device, stat.identity.inode))
+            let key = (stat.identity.device, stat.identity.inode);
+            let mut state = self.state();
+            state.written_times.remove(&key);
+            state.written.remove(&key)
         });
         if written {
             let now = rustix::fs::Timespec {
@@ -2731,7 +2780,15 @@ impl FsOps for Scoped {
                     .run_logged(Op::Stat, &[at.name], force_sync, |scope| {
                         scope.stat(at, path.as_deref(), force_sync)
                     })
-                    .map(|stat| scope.reported(path, scope.cached(stat, force_sync)))
+                    .map(|stat| {
+                        let stat = if force_sync {
+                            scope.revalidate_written_time(&stat);
+                            stat
+                        } else {
+                            scope.with_written_time(stat)
+                        };
+                        scope.reported(path, scope.cached(stat, force_sync))
+                    })
             }
             None => System.stat(at, force_sync),
         }
@@ -2742,7 +2799,10 @@ impl FsOps for Scoped {
         match scope_for(fd) {
             Some(scope) => scope
                 .run(Op::StatFd, &[&fd_name(fd)], |_| System.stat_fd(fd))
-                .map(|stat| scope.reported(path_of(fd), scope.cached(stat, false))),
+                .map(|stat| {
+                    let stat = scope.with_written_time(stat);
+                    scope.reported(path_of(fd), scope.cached(stat, false))
+                }),
             None => System.stat_fd(fd),
         }
     }
@@ -2759,7 +2819,9 @@ impl FsOps for Scoped {
         assert_off_main_thread();
         match scope_for(at.dir) {
             Some(scope) => scope.run(Op::Create, &[at.name], |scope| {
-                scope.creating(at, |at| System.create_exclusive(at, mode))
+                scope
+                    .creating(at, |at| System.create_exclusive(at, mode))
+                    .inspect(|opened| scope.opened_for_writing(opened.as_fd()))
             }),
             None => System.create_exclusive(at, mode),
         }
@@ -3045,8 +3107,12 @@ impl FsOps for Scoped {
         mtime: (i64, u32),
     ) -> Result<(), Errno> {
         assert_off_main_thread();
-        on_fd(fd, Op::SetTimes, None, |_| {
-            System.set_times_fd(fd, atime, mtime)
+        on_fd(fd, Op::SetTimes, None, |scope| {
+            System.set_times_fd(fd, atime, mtime)?;
+            if let (Some(scope), Ok(stat)) = (scope, System.stat_fd(fd)) {
+                scope.revalidate_written_time(&stat);
+            }
+            Ok(())
         })
     }
 
@@ -3215,7 +3281,9 @@ impl FsOps for Scoped {
         assert_off_main_thread();
         match scope_for(at.dir) {
             Some(scope) => scope.run(Op::OpenWrite, &[at.name], |scope| {
-                scope.resolved(at, |at| System.open_write(at))
+                scope
+                    .resolved(at, |at| System.open_write(at))
+                    .inspect(|opened| scope.opened_for_writing(opened.as_fd()))
             }),
             None => System.open_write(at),
         }
@@ -3235,7 +3303,13 @@ impl FsOps for Scoped {
         assert_off_main_thread();
         match scope_for(at.dir) {
             Some(scope) => scope.run(Op::SetLinkTimes, &[at.name], |scope| {
-                scope.resolved(at, |at| System.set_link_times(at, atime, mtime))
+                scope.resolved(at, |at| {
+                    System.set_link_times(at, atime, mtime)?;
+                    if let Ok(stat) = System.stat(at, false) {
+                        scope.revalidate_written_time(&stat);
+                    }
+                    Ok(())
+                })
             }),
             None => System.set_link_times(at, atime, mtime),
         }

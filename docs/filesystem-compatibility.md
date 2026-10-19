@@ -2021,7 +2021,8 @@ reset (exFAT), times stamped within one tick of a coarse clock (kernels without 
 timestamps), single link counts (sshfs), entries renumbered after eviction (never one a descriptor
 holds), SMB's refusal to open two names of one file at once or, during its deferred close, another
 name of a file just written, its stale read-only folders, change times answered from its attribute
-cache, server inode numbers turned off after a collision (entries the client cached keep their
+cache, the time a file opened for writing had then, which its stats show until a forced stat,
+server inode numbers turned off after a collision (entries the client cached keep their
 numbers and creation times, also across a replacement made elsewhere, until evicted; with POSIX
 extensions new lookups keep the server's numbers), creation times Samba makes up for entries it did
 not create, or for all of them, which the client keeps as it first saw them, folder stamps that
