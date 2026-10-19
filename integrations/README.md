@@ -36,7 +36,7 @@ id = "kdeconnect"                 # the directory name, a slug
 name = "KDE Connect"              # at most 64 bytes
 description = "Send files to paired phones and computers from the Send to… menu."
 category = "devices"              # cloud | devices | version-control | other
-maintainer = "github-username"
+maintainer = "github-username"    # answers issues; not shown in Strata
 runtime = "python3"               # interpreter basename, resolved on install
 entry = "provider.py"             # started as [runtime, entry]
 icon = "logo"                     # optional; drawn beside the menu heading
@@ -51,7 +51,19 @@ packages = { pacman = "kdeconnect", apt = "kdeconnect", dnf = "kdeconnect", zypp
 [[requirements]]
 module = "gi"                     # top-level; asked of the interpreter, never imported
 packages = { pacman = "python-gobject", apt = "python3-gi", dnf = "python3-gobject", zypper = "python3-gobject" }
+
+[[requirements]]
+command = "localsend"
+alternatives = ["localsend_app"]  # up to four other names for the same program
 ```
+
+A command is found when one of its names sits in a trusted system directory
+(`/usr/bin`, `/bin` and the NixOS profile directories). Its real path must lie
+under one of those directories or a Nix or Guix store, or be owned by root, with
+every directory above it, none writable by group or others, as with programs
+that packages install under `/opt` or `/usr/lib` and link into `/usr/bin`. A
+provider that runs the command should resolve it the same way; the LocalSend
+provider shows how.
 
 `name` and `description` are Strata interface text: add them to every catalog
 under `data/locales/` in all twelve languages (see
@@ -60,8 +72,8 @@ itself returns stay with the provider; follow the system locale as the protocol
 documentation describes.
 
 The Settings page shows each requirement with the install command for the
-detected distribution, so list the packages for all four managers when they
-exist. The runtime is checked automatically; declare it only to attach
+detected distribution, which the user can copy or run in a terminal, so list
+the packages for all four managers when they exist. The runtime is checked automatically; declare it only to attach
 packages.
 
 Strata records a content hash of the installed files. When the bundled files

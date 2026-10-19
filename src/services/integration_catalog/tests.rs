@@ -125,6 +125,27 @@ fn parse_rejects_invalid_manifests() {
         ),
         (
             "example",
+            files(&MANIFEST.replace("module = \"gi\"", "module = \"gi\"\nalternatives = [\"x\"]")),
+            "belong to a command requirement",
+        ),
+        (
+            "example",
+            files(&MANIFEST.replace(
+                "command = \"example-daemon\"",
+                "command = \"example-daemon\"\nalternatives = [\"bin/example\"]",
+            )),
+            "executable basename",
+        ),
+        (
+            "example",
+            files(&MANIFEST.replace(
+                "command = \"example-daemon\"",
+                "command = \"example-daemon\"\nalternatives = [\"a\", \"b\", \"c\", \"d\", \"e\"]",
+            )),
+            "at most 4 alternatives",
+        ),
+        (
+            "example",
             files(&MANIFEST.replace("apt = \"example-client\"", "brew = \"example\"")),
             "unknown package manager",
         ),
@@ -185,6 +206,14 @@ fn install_registers_a_resolved_command_and_tracks_updates_and_edits() {
     );
     assert_eq!(manifest["name"], "Example Cloud");
     assert_eq!(manifest["icons"]["logo"], "logo.png");
+    assert_eq!(
+        file_providers::load(&directory)
+            .and_then(|registration| registration.manifest.category)
+            .as_deref()
+            .and_then(Category::from_id),
+        Some(entry.category),
+        "the registration carries the category for its fallback icon"
+    );
     assert_eq!(
         fs::read(directory.join("logo.png")).expect("icon"),
         png(),
@@ -316,12 +345,20 @@ fn requirement_checks_cover_the_runtime_commands_and_modules() {
     entry.runtime = "python3".into();
     entry.requirements.push(Requirement {
         command: None,
+        alternatives: Vec::new(),
         module: Some("no_such_module_xyz".into()),
         packages: BTreeMap::new(),
     });
     entry.requirements.push(Requirement {
         command: None,
+        alternatives: Vec::new(),
         module: Some("json".into()),
+        packages: BTreeMap::new(),
+    });
+    entry.requirements.push(Requirement {
+        command: Some("strata-missing-command".into()),
+        alternatives: vec!["strata-also-missing".into(), "sh".into()],
+        module: None,
         packages: BTreeMap::new(),
     });
     let results = check_requirements(&entry);
@@ -340,6 +377,10 @@ fn requirement_checks_cover_the_runtime_commands_and_modules() {
             ),
             ("no_such_module_xyz", false),
             ("json", true),
+            (
+                "strata-missing-command",
+                crate::trusted_command::resolve("sh").is_ok()
+            ),
         ]
     );
 }

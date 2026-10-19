@@ -39,6 +39,7 @@ const MANIFEST_FILE: &str = "provider.json";
 const FILE_LIMIT: usize = 32;
 const FILE_SIZE_LIMIT: usize = 1024 * 1024;
 const REQUIREMENT_LIMIT: usize = 8;
+const ALTERNATIVE_LIMIT: usize = 4;
 const MODULE_CHECK_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
@@ -57,6 +58,20 @@ impl Category {
         Self::VersionControl,
         Self::Other,
     ];
+
+    /// The manifest spelling, also written to installed registrations.
+    pub(crate) fn id(self) -> &'static str {
+        match self {
+            Self::Cloud => "cloud",
+            Self::Devices => "devices",
+            Self::VersionControl => "version-control",
+            Self::Other => "other",
+        }
+    }
+
+    pub(crate) fn from_id(id: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|category| category.id() == id)
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
@@ -65,6 +80,10 @@ pub(crate) struct Requirement {
     /// Executable expected in a trusted system directory.
     #[serde(default)]
     pub command: Option<String>,
+    /// Other executable names that satisfy a command requirement, for packages
+    /// that install the same program under different names.
+    #[serde(default)]
+    pub alternatives: Vec<String>,
     /// Module importable with the provider's interpreter.
     #[serde(default)]
     pub module: Option<String>,
@@ -100,6 +119,16 @@ impl Requirement {
                 return Err("module must be a top-level module name".into());
             }
             _ => return Err("each requirement names exactly one command or module".into()),
+        }
+        if !self.alternatives.is_empty() && self.command.is_none() {
+            return Err("alternatives belong to a command requirement".into());
+        }
+        if self.alternatives.len() > ALTERNATIVE_LIMIT
+            || !self.alternatives.iter().all(|name| single_basename(name))
+        {
+            return Err(format!(
+                "at most {ALTERNATIVE_LIMIT} alternatives, each an executable basename"
+            ));
         }
         for (manager, package) in &self.packages {
             if !["pacman", "apt", "dnf", "zypper"].contains(&manager.as_str()) {
@@ -169,6 +198,7 @@ impl Entry {
                 0,
                 Requirement {
                     command: Some(self.runtime.clone()),
+                    alternatives: Vec::new(),
                     module: None,
                     packages: BTreeMap::new(),
                 },
@@ -584,6 +614,7 @@ pub(crate) fn install(entry: &Entry, root: &Path) -> Result<PathBuf, String> {
         "command": [interpreter, directory.join(&entry.entry)],
         "icon": entry.icon,
         "icons": entry.icons,
+        "category": entry.category.id(),
     });
     let mut files: Vec<(&str, Vec<u8>)> = entry
         .files
@@ -646,7 +677,9 @@ pub(crate) fn check_requirements(entry: &Entry) -> Vec<RequirementResult> {
         .into_iter()
         .map(|requirement| {
             let satisfied = match (&requirement.command, &requirement.module) {
-                (Some(command), _) => crate::trusted_command::resolve(command).is_ok(),
+                (Some(command), _) => std::iter::once(command)
+                    .chain(&requirement.alternatives)
+                    .any(|name| crate::trusted_command::resolve_installed(name).is_ok()),
                 (None, Some(module)) => interpreter
                     .as_ref()
                     .is_some_and(|interpreter| module_available(interpreter, module)),
