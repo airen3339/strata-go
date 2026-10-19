@@ -21,6 +21,8 @@ pub(super) struct DocumentPosition {
     pixels: gtk::Adjustment,
     adjustment: gtk::Adjustment,
     coasting: Cell<bool>,
+    momentum_pixels: Cell<f64>,
+    momentum_update: RefCell<Option<(gdk::FrameClock, glib::SignalHandlerId)>>,
     gesture: Cell<bool>,
     direction: Cell<Option<std::cmp::Ordering>>,
     published: Cell<Option<PublishedPosition>>,
@@ -35,6 +37,8 @@ impl DocumentPosition {
             pixels: scroll.vadjustment(),
             adjustment: gtk::Adjustment::new(0.0, 0.0, preview.units.len() as f64, 0.1, 1.0, 0.0),
             coasting: Cell::new(false),
+            momentum_pixels: Cell::new(scroll.vadjustment().value()),
+            momentum_update: RefCell::new(None),
             gesture: Cell::new(false),
             direction: Cell::new(None),
             published: Cell::new(None),
@@ -43,15 +47,7 @@ impl DocumentPosition {
         let weak = Rc::downgrade(&state);
         state.pixels.connect_changed(move |_| {
             if let Some(state) = weak.upgrade() {
-                if state.coasting.replace(false)
-                    && let Some(scroll) = state.scroll.upgrade()
-                {
-                    // GTK's kinetic trajectory uses the old absolute pixel origin.
-                    // A ListView range re-estimate invalidates that trajectory.
-                    let kinetic = scroll.is_kinetic_scrolling();
-                    scroll.set_kinetic_scrolling(!kinetic);
-                    scroll.set_kinetic_scrolling(kinetic);
-                }
+                state.stop_momentum();
                 state.schedule();
             }
         });
@@ -72,13 +68,14 @@ impl DocumentPosition {
             let weak = Rc::downgrade(&state);
             controller.connect_decelerate(move |_, _, _| {
                 if let Some(state) = weak.upgrade() {
-                    state.coasting.set(true);
+                    state.track_momentum();
                 }
             });
             let weak = Rc::downgrade(&state);
             controller.connect_scroll_begin(move |_| {
                 if let Some(state) = weak.upgrade() {
                     state.coasting.set(false);
+                    state.disconnect_momentum_update();
                 }
             });
         }
@@ -126,11 +123,58 @@ impl DocumentPosition {
 
     pub(super) fn cancel(&self) {
         self.coasting.set(false);
+        self.disconnect_momentum_update();
         self.gesture.set(false);
         self.direction.set(None);
         self.published.set(None);
         if let Some((clock, handler)) = self.pending.borrow_mut().take() {
             clock.disconnect(handler);
+        }
+    }
+
+    fn track_momentum(self: &Rc<Self>) {
+        self.coasting.set(true);
+        if self.momentum_update.borrow().is_some() {
+            return;
+        }
+        let Some(clock) = self
+            .scroll
+            .upgrade()
+            .and_then(|scroll| scroll.frame_clock())
+        else {
+            return;
+        };
+        self.momentum_pixels.set(self.pixels.value());
+        let weak = Rc::downgrade(self);
+        // Observe after GTK's native kinetic ticks but before layout can re-anchor
+        // the ListView. Connecting a signal does not request additional frames.
+        let handler = clock.connect_local("update", true, move |_| {
+            if let Some(state) = weak.upgrade() {
+                state.momentum_pixels.set(state.pixels.value());
+            }
+            None
+        });
+        self.momentum_update.replace(Some((clock, handler)));
+    }
+
+    fn disconnect_momentum_update(&self) {
+        if let Some((clock, handler)) = self.momentum_update.borrow_mut().take() {
+            clock.disconnect(handler);
+        }
+    }
+
+    fn stop_momentum(&self) {
+        if !self.coasting.replace(false) {
+            return;
+        }
+        self.disconnect_momentum_update();
+        if let Some(scroll) = self.scroll.upgrade() {
+            let kinetic = scroll.is_kinetic_scrolling();
+            scroll.set_kinetic_scrolling(false);
+            scroll.set_kinetic_scrolling(kinetic);
+            // GTK ignores anchor corrections while decelerating. Synchronize its
+            // unclamped origin before the next input, without moving the document.
+            self.pixels.emit_by_name::<()>("value-changed", &[]);
         }
     }
 
@@ -166,6 +210,9 @@ impl DocumentPosition {
     }
 
     fn publish(&self) {
+        if self.coasting.get() && self.pixels.value() != self.momentum_pixels.get() {
+            self.stop_momentum();
+        }
         let Some(preview) = self.preview.upgrade() else {
             return;
         };
@@ -217,6 +264,9 @@ impl DocumentPosition {
         let point = super::super::point_at(list, preview, 0.0, y)?;
         let bound = preview.bound.borrow();
         let row = bound.get(&point.unit)?;
+        if !row.materialized {
+            return None;
+        }
         let fraction = if let Some(view) = row
             .view
             .upgrade()
@@ -257,6 +307,9 @@ impl DocumentPosition {
 
 impl Drop for DocumentPosition {
     fn drop(&mut self) {
+        if let Some((clock, handler)) = self.momentum_update.get_mut().take() {
+            clock.disconnect(handler);
+        }
         if let Some((clock, handler)) = self.pending.get_mut().take() {
             clock.disconnect(handler);
         }

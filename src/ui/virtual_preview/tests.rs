@@ -160,8 +160,10 @@ fn smooth_content_scrolling_keeps_thumb_and_hit_testing_in_document_order() {
                 let mut previous = point().expect("initial document text");
                 let initial = previous;
                 let mut samples = 0;
-                for _ in 0..240 {
-                    scroll_by(0.75);
+                for step in 0..240 {
+                    for _ in 0..if step % 40 == 0 { 16 } else { 1 } {
+                        scroll_by(0.75);
+                    }
                     advance_frames(std::time::Duration::from_millis(20));
                     let progress = thumb_progress();
                     assert!(
@@ -214,7 +216,7 @@ fn smooth_content_scrolling_keeps_thumb_and_hit_testing_in_document_order() {
                     let progress = thumb_progress();
                     assert!(
                         progress + 1e-6 >= previous_progress,
-                        "forward momentum moved the scrollbar backwards: {previous_progress} -> {progress}"
+                        "forward momentum moved the scrollbar backwards in mode {mode}: {previous_progress} -> {progress}"
                     );
                     previous_progress = progress;
                 }

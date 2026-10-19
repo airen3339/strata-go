@@ -126,6 +126,7 @@ impl DocumentSelection {
 
 #[derive(Default)]
 struct BoundRow {
+    materialized: bool,
     root: glib::WeakRef<gtk::Box>,
     view: glib::WeakRef<super::document_view::DocumentTextView>,
     table: glib::WeakRef<gtk::Box>,
@@ -247,6 +248,8 @@ fn virtual_preview(
     let selection = gtk::NoSelection::new(Some(model.clone()));
     let document_tags = (!source).then(document_tag_table);
     let factory = gtk::SignalListItemFactory::new();
+    let state_for_map = Rc::downgrade(&state);
+    let document_tags_for_map = document_tags.clone();
     factory.connect_setup(move |_, item| {
         let Some(item) = item.downcast_ref::<gtk::ListItem>() else {
             return;
@@ -257,6 +260,19 @@ fn virtual_preview(
         row.set_hexpand(true);
         if !source {
             row.set_layout_manager(Some(super::preview::media_layout::ContentColumn::new()));
+            let weak_item = item.downgrade();
+            let state_for_map = state_for_map.clone();
+            let document_tags = document_tags_for_map.clone();
+            row.connect_map(move |row| {
+                if let (Some(item), Some(state)) = (weak_item.upgrade(), state_for_map.upgrade()) {
+                    materialize_row(
+                        row,
+                        item.position() as usize,
+                        &state,
+                        document_tags.as_ref(),
+                    );
+                }
+            });
         }
         item.set_child(Some(&row));
     });
@@ -271,50 +287,26 @@ fn virtual_preview(
             return;
         };
         let index = item.position() as usize;
-        let Some(unit) = state_for_bind.units.get(index) else {
-            return;
-        };
-        let bound = if let PreviewUnit::Document(DocumentUnit {
-            kind: DocumentUnitKind::Media { source, list_depth },
-            text,
-            ..
-        }) = unit
-        {
-            clear_box(&row);
-            row.set_margin_start(16 + list_indent(*list_depth));
-            row.set_margin_end(16);
-            row.set_margin_top(8);
-            row.set_margin_bottom(12);
-            state_for_bind
-                .media_cache
-                .bind((index, None), source, text, &row);
-            let bound = BoundRow::default();
-            bound.root.set(Some(&row));
-            bound
-        } else {
-            bind_unit(
-                &row,
-                unit,
-                index,
-                &state_for_bind,
-                document_tags_for_bind.as_ref(),
-            )
-        };
-        align_document_row(&row, state_for_bind.wrapped.get());
-        if !source && let Some(view) = bound.view.upgrade() {
-            if let PreviewUnit::Document(unit) = unit {
-                bind_inline_math(&view, unit, index, &state_for_bind.media_cache);
-            }
-            schedule_document_view_size(&view, rendered_width(row.width()));
-        }
+        let bound = BoundRow::default();
+        bound.root.set(Some(&row));
         state_for_bind.bound.borrow_mut().insert(index, bound);
-        update_bound_selection(&state_for_bind, index);
-        if let Some(hovered) = state_for_bind
-            .hovered
-            .get()
-            .filter(|(unit, _)| *unit == index)
-        {
-            set_link_hover(&state_for_bind, hovered, true);
+        if source {
+            materialize_row(&row, index, &state_for_bind, None);
+        } else if row.is_mapped() {
+            // GTK rebinds rows before unmapping its old prefetch window. Discard
+            // intermediate bindings before building their widget trees.
+            let weak_state = Rc::downgrade(&state_for_bind);
+            let weak_item = item.downgrade();
+            let document_tags = document_tags_for_bind.clone();
+            row.add_tick_callback(move |row, _| {
+                if let (Some(state), Some(item)) = (weak_state.upgrade(), weak_item.upgrade())
+                    && row.is_mapped()
+                    && item.position() as usize == index
+                {
+                    materialize_row(row, index, &state, document_tags.as_ref());
+                }
+                glib::ControlFlow::Break
+            });
         }
     });
 
@@ -561,6 +553,58 @@ fn apply_source_view_wrap(
         view.set_hexpand(true);
         view.set_wrap_mode(gtk::WrapMode::None);
         set_text_view_content(view.upcast_ref(), text, view.right_margin());
+    }
+}
+
+fn materialize_row(
+    row: &gtk::Box,
+    index: usize,
+    state: &VirtualPreviewState,
+    document_tags: Option<&gtk::TextTagTable>,
+) {
+    if state
+        .bound
+        .borrow()
+        .get(&index)
+        .is_some_and(|bound| bound.materialized)
+    {
+        return;
+    }
+    let Some(unit) = state.units.get(index) else {
+        return;
+    };
+    let mut bound = if let PreviewUnit::Document(DocumentUnit {
+        kind: DocumentUnitKind::Media { source, list_depth },
+        text,
+        ..
+    }) = unit
+    {
+        clear_box(row);
+        row.set_margin_start(16 + list_indent(*list_depth));
+        row.set_margin_end(16);
+        row.set_margin_top(8);
+        row.set_margin_bottom(12);
+        state.media_cache.bind((index, None), source, text, row);
+        let bound = BoundRow::default();
+        bound.root.set(Some(row));
+        bound
+    } else {
+        bind_unit(row, unit, index, state, document_tags)
+    };
+    align_document_row(row, state.wrapped.get());
+    if document_tags.is_some()
+        && let Some(view) = bound.view.upgrade()
+    {
+        if let PreviewUnit::Document(unit) = unit {
+            bind_inline_math(&view, unit, index, &state.media_cache);
+        }
+        schedule_document_view_size(&view, rendered_width(row.width()));
+    }
+    bound.materialized = true;
+    state.bound.borrow_mut().insert(index, bound);
+    update_bound_selection(state, index);
+    if let Some(hovered) = state.hovered.get().filter(|(unit, _)| *unit == index) {
+        set_link_hover(state, hovered, true);
     }
 }
 
