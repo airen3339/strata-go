@@ -31,7 +31,7 @@ use std::{
         Arc,
         atomic::{AtomicBool, Ordering},
     },
-    time::{Duration, Instant},
+    time::{Duration, Instant, UNIX_EPOCH},
 };
 
 const HOLD_LIMIT: Duration = Duration::from_secs(30);
@@ -1149,24 +1149,38 @@ fn staged_archives_are_not_published_after_cancellation_or_close_failure()
         .lock()
         .map_err(|error| error.to_string())?;
     for replacing in [false, true] {
-        for boundary in ["encoding", "close", "close, then evicted", "close error"] {
+        for (boundary, preset) in [
+            ("encoding", Quirks::default as Preset),
+            ("close", Quirks::default),
+            ("close, then evicted", Quirks::vfat),
+            ("close on SMB without serverino", Quirks::cifs_noserverino),
+            (
+                "close on SMB without serverino, actimeo=0",
+                cifs_noserverino_without_attribute_cache,
+            ),
+            ("close error", Quirks::default),
+        ] {
             let root = tempfile::tempdir()?;
+            let evicted = boundary == "close, then evicted";
+            if evicted && !base_keeps_written_times(root.path())? {
+                eprintln!(
+                    "skipped on a base that moves a written file's time after its descriptor \
+                     showed it: {boundary}"
+                );
+                continue;
+            }
             let archive = root.path().join("archive.zip");
             if replacing {
                 fs::write(&archive, b"original")?;
             }
             let cancelled = Arc::new(AtomicBool::new(false));
             let on_close = cancelled.clone();
-            let evicted = boundary == "close, then evicted";
+            let server_stamped = boundary.starts_with("close on SMB");
             let mut quirks = Quirks {
                 trash: Trash::Unsupported,
-                ..if evicted {
-                    Quirks::vfat()
-                } else {
-                    Quirks::default()
-                }
+                ..preset()
             };
-            if boundary == "close" || evicted {
+            if boundary == "close" || evicted || server_stamped {
                 let folder = root.path().to_path_buf();
                 quirks.after.push((
                     Op::Close,
@@ -1203,6 +1217,10 @@ fn staged_archives_are_not_published_after_cancellation_or_close_failure()
                 move |mut file| {
                     file.write_all(b"replacement")
                         .map_err(|error| error.to_string())?;
+                    if server_stamped {
+                        file.set_modified(UNIX_EPOCH + Duration::from_secs(1_600_000_000))
+                            .map_err(|error| error.to_string())?;
+                    }
                     if boundary == "encoding" {
                         on_write.store(true, Ordering::Release);
                     }
@@ -1232,6 +1250,35 @@ fn staged_archives_are_not_published_after_cancellation_or_close_failure()
         }
     }
     Ok(())
+}
+
+fn cifs_noserverino_without_attribute_cache() -> Quirks {
+    Quirks {
+        mount_type: Some((
+            "cifs",
+            concat!(
+                "rw,vers=3.1.1,cache=strict,uid=1000,forceuid,gid=1000,forcegid,soft,nounix,",
+                "mapposix,reparse=nfs,nativesocket,symlink=native,actimeo=0,closetimeo=1"
+            ),
+        )),
+        ..Quirks::cifs_noserverino()
+    }
+}
+
+/// SMB shows a written file's server time only once it revalidates; NFSv4.2 sets it at close.
+fn base_keeps_written_times(folder: &Path) -> Result<bool, Box<dyn Error>> {
+    use rustix::fs::{AtFlags, CWD, StatxFlags, statx};
+    use std::os::unix::fs::MetadataExt;
+    let probe = folder.join("written-times-probe");
+    let mut file = fs::File::create_new(&probe)?;
+    file.write_all(b"probe")?;
+    file.set_permissions(fs::Permissions::from_mode(0o644))?;
+    let held = file.metadata()?;
+    drop(file);
+    let closed = statx(CWD, &probe, AtFlags::STATX_FORCE_SYNC, StatxFlags::MTIME)?;
+    fs::remove_file(&probe)?;
+    Ok((held.mtime(), held.mtime_nsec())
+        == (closed.stx_mtime.tv_sec, i64::from(closed.stx_mtime.tv_nsec)))
 }
 
 #[test]

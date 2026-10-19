@@ -329,7 +329,9 @@ The rule weighs what both readings carry, in this order:
   of the change time. An original put back is matched by size and modification time, as setting it
   aside changes its change time, and so are Trash items, as moving to Trash changes it. What an
   operation made or set aside is removed by the birth time with the size and modification time it
-  recorded.
+  recorded. While the client holds a lease on a file, it shows the file's modification time from
+  the server only to a forced stat, whatever `actimeo` says, so an archive stage is recorded by a
+  forced stat by name before it is closed.
   A birth of exactly 0 s 0 ns, as SMB and NFSv4 report for a server without births, counts as none.
 - **Records kept after an operation.** `ItemIdentity` carries the traits of the mount it was read
   on, and a comparison uses the weaker of two. It identifies Trash items for restore and Undo, the

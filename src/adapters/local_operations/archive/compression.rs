@@ -31,6 +31,7 @@ use super::{
     decoders::FILE_ATTRIBUTE_UNIX_EXTENSION, destination::process_umask,
 };
 use crate::{
+    adapters::volume::Family,
     model::hidden_names::HiddenName,
     services::{ItemIdentity, PlacedSnapshot, ReplacedOriginal, TransferConflict, error_detail},
 };
@@ -144,6 +145,7 @@ struct Published {
 
 struct Stage {
     ownership: OnceLock<copy_engine::Ownership>,
+    stale_written_times: bool,
     parent: Arc<OwnedFd>,
     name: OsString,
     identity: LocalFileIdentity,
@@ -233,10 +235,16 @@ impl Publication {
         .map_err(|error| self.creation_failed(placement_reason(error)))?;
         let (stage, _pinned) = match fs().stat_fd(file.as_fd()) {
             Ok(stat) => {
-                let traits = known_mount(fs(), parent.as_fd()).1.identity;
-                let pinned = Pinned::at(fs(), Entry::new(&*parent, &name), &stat, traits);
+                let capabilities = known_mount(fs(), parent.as_fd()).1;
+                let pinned = Pinned::at(
+                    fs(),
+                    Entry::new(&*parent, &name),
+                    &stat,
+                    capabilities.identity,
+                );
                 let stage = Stage {
                     ownership: OnceLock::new(),
+                    stale_written_times: capabilities.family == Some(Family::Smb),
                     parent,
                     name,
                     identity: stat.identity,
@@ -289,6 +297,13 @@ impl Publication {
         let stat = fs()
             .stat_fd(handle.as_fd())
             .map_err(|error| self.creation_failed(errno_text(error)))?;
+        // While it holds a lease, the SMB client shows the server's time only to a forced stat.
+        let stat = stage
+            .stale_written_times
+            .then(|| fs().stat(stage.entry(), true))
+            .and_then(Result::ok)
+            .filter(|named| named.identity == stat.identity)
+            .unwrap_or(stat);
         let _ = stage.ownership.set(copy_engine::file_ownership(&stat));
         // Close before publication so NFS cannot silly-rename a failed stage.
         fs().close(handle)
