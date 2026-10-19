@@ -123,6 +123,7 @@ at the model; FreeCAD uses its saved image. Rendered
 meshes show media-style previous/next controls around a circular camera-position
 indicator, with stable centring and scale. Its dot sweeps around the circle to the
 selected corner, respecting the reduced-motion and system animation settings.
+Next moves clockwise; Previous moves anticlockwise.
 The indicator is a top-down map: a hollow circle marks the model at the centre,
 and the camera dot sits on the outer circumference. Camera directions are shared
 with the renderer: +X is right, −Y is front, and +Z is up. The initial front-left

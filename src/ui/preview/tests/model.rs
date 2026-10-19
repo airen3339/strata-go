@@ -85,9 +85,9 @@ fn camera_buttons_cycle_views_keep_the_image_while_loading_and_reset_for_another
             drawer.show(entry("mesh.stl"), None);
             ready(&provider, 0, Some(ModelView::FrontLeft));
             for (index, view) in [
-                ModelView::FrontRight,
-                ModelView::BackRight,
                 ModelView::BackLeft,
+                ModelView::BackRight,
+                ModelView::FrontRight,
                 ModelView::FrontLeft,
             ]
             .into_iter()
@@ -173,7 +173,7 @@ fn camera_buttons_cycle_views_keep_the_image_while_loading_and_reset_for_another
                     .expect("camera request")
                     .request
                     .model_view,
-                ModelView::BackLeft
+                ModelView::FrontRight
             );
             assert!(drawer.state.model_spinner.is_visible());
             drawer.show(entry("another.stl"), None);
@@ -191,7 +191,7 @@ fn camera_buttons_cycle_views_keep_the_image_while_loading_and_reset_for_another
                     .model_view,
                 ModelView::FrontLeft
             );
-            ready(&provider, 5, Some(ModelView::BackLeft));
+            ready(&provider, 5, Some(ModelView::FrontRight));
             assert!(
                 drawer
                     .state
@@ -256,7 +256,7 @@ fn camera_reload_failures_keep_the_last_view_and_allow_retry() {
             assert_eq!(provider.0.borrow().len(), 3);
             assert_eq!(
                 provider.0.borrow()[2].request.model_view,
-                ModelView::FrontRight
+                ModelView::BackLeft
             );
             let mut png = b"\x89PNG\r\n\x1a\n\x00\x00\x00\x0dIHDR".to_vec();
             png.extend(16u32.to_be_bytes());
@@ -269,7 +269,7 @@ fn camera_reload_failures_keep_the_last_view_and_allow_retry() {
                 content: PreviewContent::Model {
                     png,
                     mesh: Some(ModelMesh {
-                        view: ModelView::FrontRight,
+                        view: ModelView::BackLeft,
                         encoding: ModelEncoding::BinaryStl,
                         triangles: 23,
                     }),
@@ -289,10 +289,10 @@ fn camera_reload_failures_keep_the_last_view_and_allow_retry() {
             assert_eq!(provider.0.borrow().len(), 4);
             assert_eq!(
                 provider.0.borrow()[3].request.model_view,
-                ModelView::FrontRight
+                ModelView::BackLeft
             );
-            ready(&provider, 3, Some(ModelView::FrontRight));
-            assert_eq!(drawer.state.model_view.get(), ModelView::FrontRight);
+            ready(&provider, 3, Some(ModelView::BackLeft));
+            assert_eq!(drawer.state.model_view.get(), ModelView::BackLeft);
             drawer.close();
         },
     );
@@ -331,7 +331,7 @@ fn camera_buttons_keep_the_keys_in_the_drawer_while_a_view_renders() {
             );
             assert!(owns_keys());
 
-            ready(&provider, 1, Some(ModelView::FrontRight));
+            ready(&provider, 1, Some(ModelView::BackLeft));
             while glib::MainContext::default().iteration(false) {}
             assert!(next.has_focus());
             assert!(owns_keys());

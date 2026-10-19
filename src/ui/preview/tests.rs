@@ -122,7 +122,7 @@ fn model_progress_and_theme_reloads_follow_the_current_request_in_each_drawer() 
                 .next
                 .clone();
             next.emit_clicked();
-            model::ready(&provider, 3, Some(crate::services::ModelView::FrontRight));
+            model::ready(&provider, 3, Some(crate::services::ModelView::BackLeft));
             let old_palette = manager.active_model_palette();
             let mut tokens = manager.appearance_tokens();
             tokens.accent = if old_palette.accent == 0xff0000 {
@@ -138,7 +138,7 @@ fn model_progress_and_theme_reloads_follow_the_current_request_in_each_drawer() 
                 assert_eq!(pending[4].request.entry.native_name, "new.stl");
                 assert_eq!(
                     pending[4].request.model_view,
-                    crate::services::ModelView::FrontRight
+                    crate::services::ModelView::BackLeft
                 );
                 assert_eq!(pending[5].request.entry.native_name, "second.stl");
                 assert_eq!(

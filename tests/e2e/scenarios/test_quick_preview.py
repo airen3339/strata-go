@@ -68,7 +68,7 @@ def test_model_preview_renders_stl_prefers_thumbnails_and_reports_limits(strata)
     strata.keyboard.press("space")
     strata.wait(lambda: _model_image_ready(strata), "rendered STL preview")
     assert strata.preview_shows("4 of 4 in folder")
-    for name in ["Front right", "Back right", "Back left", "Front left"]:
+    for name in ["Back left", "Back right", "Front right", "Front left"]:
         next_view = strata.preview().find(role="button", name="Next model view")
         assert next_view is not None
         strata.pointer.click(next_view)
@@ -108,7 +108,7 @@ def test_model_preview_renders_stl_prefers_thumbnails_and_reports_limits(strata)
     strata.wait(lambda: _model_image_ready(strata) and strata.preview().find(role="button", name="Previous model view"), "rendered 3MF camera controls")
     strata.pointer.click(strata.preview().find(role="button", name="Previous model view"))
     strata.wait(
-        lambda: strata.preview().find(role="image", name="Camera position").description == "Back left"
+        lambda: strata.preview().find(role="image", name="Camera position").description == "Front right"
         and not strata.preview().find(role="image", name="Model preview").has_state("busy"),
         "3MF camera to wrap to the previous view",
     )
