@@ -2586,6 +2586,12 @@ impl FsEnvironment for Scoped {
     }
 }
 
+pub(crate) fn smb_base(fd: BorrowedFd<'_>) -> bool {
+    System
+        .current_mount_type(fd)
+        .is_some_and(|base| family(&base.fs_type) == Family::Smb)
+}
+
 pub(crate) fn handleless_base(fd: BorrowedFd<'_>) -> Option<MountType> {
     System.current_mount_type(fd).filter(gives_no_handles)
 }
@@ -2932,13 +2938,7 @@ impl FsOps for Scoped {
             Some(scope) => scope.run(Op::OpenTmpfile, &[], |scope| {
                 match scope.quirk(|quirks| quirks.tmpfile) {
                     Support::Rejected(error) => Err(error),
-                    Support::Supported
-                        if System
-                            .current_mount_type(dir)
-                            .is_some_and(|base| family(&base.fs_type) == Family::Smb) =>
-                    {
-                        Err(Errno::OPNOTSUPP)
-                    }
+                    Support::Supported if smb_base(dir) => Err(Errno::OPNOTSUPP),
                     Support::Supported => System.open_tmpfile(dir, mode),
                 }
             }),

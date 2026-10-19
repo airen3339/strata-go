@@ -1249,6 +1249,12 @@ fn a_name_of_a_linked_file_changed_after_its_other_name_went_stays() -> Result<(
             eprintln!("skipped on a base without hard links: {row}");
             continue;
         }
+        if !numbers_go && super::fs_quirks::smb_base(fs::File::open(&folder)?.as_fd()) {
+            eprintln!(
+                "skipped on an SMB base, which refuses to open a link's second name while the first is open: {row}"
+            );
+            continue;
+        }
         let hour_before = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)?
             .as_secs()
