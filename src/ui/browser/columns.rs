@@ -626,6 +626,7 @@ pub(super) fn refresh_source_filter(column: &ColumnView, browser: &crate::app::B
         &column.selection,
         &column.syncing_selection,
         items,
+        search::SelectionPolicy::Retain,
     );
     column
         .search_session
@@ -653,6 +654,7 @@ pub(super) fn prune_missing_search_results(column: &ColumnView) -> bool {
         &column.selection,
         &column.syncing_selection,
         items,
+        search::SelectionPolicy::Retain,
     )
 }
 
@@ -1506,18 +1508,24 @@ impl ViewState {
         let syncing_for_search = syncing_selection.clone();
         let filter_query_for_search = filter_query.clone();
         let hits_for_search = hits.clone();
+        let rendered_query = Rc::new(RefCell::new(String::new()));
+        let rendered_query_for_restart = rendered_query.clone();
+        let rendered_query_for_clear = rendered_query.clone();
+        let rendered_query_for_batch = rendered_query.clone();
         let query_binding = bind_filter_query(
             &filter_entry,
             &search_session,
             move |text, scope, restart| {
                 if restart {
                     session_for_changed.cancel();
+                    rendered_query_for_restart.borrow_mut().clear();
                     let changed = search::update_results(
                         &search_model_for_changed,
                         &search_results_for_changed,
                         &selection_for_search,
                         &syncing_for_search,
                         Vec::new(),
+                        search::SelectionPolicy::Retain,
                     );
                     if changed && let Some(state) = weak_state_for_search.upgrade() {
                         state.notify_search_selection_changed();
@@ -1526,6 +1534,7 @@ impl ViewState {
                 let query = text.trim().to_string();
                 if query.is_empty() {
                     session_for_changed.cancel();
+                    rendered_query_for_clear.borrow_mut().clear();
                     // Keep the hidden-file filter installed while swapping back to the directory
                     // model; GTK's synchronous model notifications otherwise leave a stale row.
                     apply_filter_query(
@@ -1592,6 +1601,7 @@ impl ViewState {
                 let browser = Rc::downgrade(&state.browser);
                 let weak_state = weak_state_for_search.clone();
                 let hits = hits_for_search.clone();
+                let rendered_query = rendered_query_for_batch.clone();
                 let root = path.clone();
                 session_for_changed.update(
                     crate::ui::search_session::SearchInput {
@@ -1631,7 +1641,33 @@ impl ViewState {
                             },
                             recursive: scope.recursive(),
                         });
-                        if search::update_results(&sm, &results, &selection, &syncing, items) {
+                        let fresh = rendered_query.borrow().as_str() != batch.query;
+                        let policy = if fresh {
+                            search::SelectionPolicy::First
+                        } else {
+                            search::SelectionPolicy::Retain
+                        };
+                        let has_hits = !items.is_empty();
+                        let changed = search::update_results(
+                            &sm, &results, &selection, &syncing, items, policy,
+                        );
+                        if fresh {
+                            if has_hits
+                                && let Some(column) = state.columns.borrow().get(depth_for_search)
+                            {
+                                super::scroll_results_to(
+                                    column.list.upcast_ref(),
+                                    0,
+                                    gtk::ListScrollFlags::NONE,
+                                );
+                            }
+                            if has_hits {
+                                rendered_query.replace(batch.query.clone());
+                            } else {
+                                rendered_query.borrow_mut().clear();
+                            }
+                        }
+                        if changed {
                             state.notify_search_selection_changed();
                         }
                         state.refresh_name_highlights();

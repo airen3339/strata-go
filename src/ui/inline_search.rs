@@ -57,7 +57,7 @@ pub(super) struct SearchCollectionOptions {
 }
 
 enum Publication {
-    Results(Vec<SearchItem>, bool),
+    Results(String, Vec<SearchItem>, bool),
     Directory,
 }
 
@@ -72,6 +72,8 @@ struct State {
     publishing: Cell<bool>,
     selection_dirty: Cell<bool>,
     published_selection: RefCell<Vec<FileEntry>>,
+    /// The query whose hits are showing; a change pre-selects the first hit.
+    rendered_query: RefCell<String>,
     pending_update: RefCell<Option<Publication>>,
     detached: Cell<bool>,
     recursive: Cell<bool>,
@@ -124,7 +126,9 @@ impl State {
         self.publishing.set(false);
         if let Some(publication) = self.pending_update.take() {
             match publication {
-                Publication::Results(items, recursive) => update_results(self, items, recursive),
+                Publication::Results(query, items, recursive) => {
+                    publish_query_results(self, &query, items, recursive)
+                }
                 Publication::Directory => show_directory_listing(self),
             }
         }
@@ -554,6 +558,7 @@ fn show_directory_listing(state: &State) {
     }
     state.updating.set(true);
     state.collection.clear();
+    state.rendered_query.borrow_mut().clear();
     state.set_empty_state(false);
     state.stack.set_visible_child_name("files");
     state.updating.set(false);
@@ -670,6 +675,7 @@ pub(super) fn wrap(
         publishing: Cell::new(false),
         selection_dirty: Cell::new(false),
         published_selection: RefCell::new(Vec::new()),
+        rendered_query: RefCell::new(String::new()),
         pending_update: RefCell::new(None),
         detached: Cell::new(false),
         recursive: Cell::new(false),
@@ -820,7 +826,7 @@ pub(super) fn wrap(
                     } else {
                         Default::default()
                     };
-                    update_results(&state, items, state.recursive.get());
+                    publish_query_results(&state, &batch.query, items, state.recursive.get());
                 }),
             );
         });
@@ -829,20 +835,40 @@ pub(super) fn wrap(
 }
 
 fn update_results(state: &State, items: Vec<SearchItem>, recursive: bool) {
-    if state.detached.get() {
-        return;
-    }
-    if state.updating.get() || state.publishing.get() {
-        state
-            .pending_update
-            .replace(Some(Publication::Results(items, recursive)));
-        return;
+    if items.is_empty() {
+        state.rendered_query.borrow_mut().clear();
     }
     state.updating.set(true);
     state.collection.update(&items, recursive);
     state.updating.set(false);
     state.emit_selection_changed();
     (state.results_changed)();
+}
+
+/// Results for a changed query select their first hit, so Enter opens what the
+/// listing shows as selected. Batches of the same query keep the user's selection.
+fn publish_query_results(state: &State, query: &str, items: Vec<SearchItem>, recursive: bool) {
+    if state.detached.get() {
+        return;
+    }
+    if state.updating.get() || state.publishing.get() {
+        state.pending_update.replace(Some(Publication::Results(
+            query.to_owned(),
+            items,
+            recursive,
+        )));
+        return;
+    }
+    let fresh = state.rendered_query.borrow().as_str() != query;
+    let rendered = !items.is_empty();
+    update_results(state, items, recursive);
+    if !rendered {
+        return;
+    }
+    if fresh && state.collection.select(0, true) {
+        super::browser::scroll_results_to(&state.collection.view, 0, gtk::ListScrollFlags::NONE);
+    }
+    state.rendered_query.replace(query.to_owned());
 }
 
 pub(super) fn eligible_results(

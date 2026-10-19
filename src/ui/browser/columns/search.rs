@@ -8,12 +8,21 @@ use std::{
     collections::HashSet,
 };
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum SelectionPolicy {
+    /// Keep selected rows that still appear in the new result set.
+    Retain,
+    /// Select the first hit, used when the query itself changed.
+    First,
+}
+
 pub(super) fn update_results(
     model: &gtk::StringList,
     results: &RefCell<Vec<SearchItem>>,
     selection: &gtk::MultiSelection,
     syncing: &Cell<bool>,
     items: Vec<SearchItem>,
+    policy: SelectionPolicy,
 ) -> bool {
     let selected_paths: HashSet<_> = bitset_positions(&selection.selection())
         .into_iter()
@@ -48,17 +57,30 @@ pub(super) fn update_results(
         model.splice(items.len() as u32, removed as u32, &[]);
     }
     let selected = gtk::Bitset::new_empty();
-    for (position, item) in items.iter().enumerate() {
-        if selected_paths.contains(&item.path) {
-            selected.add(position as u32);
+    match policy {
+        SelectionPolicy::First if !items.is_empty() => {
+            selected.add(0);
+        }
+        SelectionPolicy::First => {}
+        SelectionPolicy::Retain => {
+            for (position, item) in items.iter().enumerate() {
+                if selected_paths.contains(&item.path) {
+                    selected.add(position as u32);
+                }
+            }
         }
     }
     selection.set_selection(&selected, &gtk::Bitset::new_range(0, items.len() as u32));
     syncing.set(was_syncing);
-    let retained: HashSet<_> = items
-        .iter()
-        .filter(|item| selected_paths.contains(&item.path))
-        .map(|item| item.path.clone())
-        .collect();
-    retained != selected_paths
+    match policy {
+        SelectionPolicy::First => !selected_paths.is_empty() || !items.is_empty(),
+        SelectionPolicy::Retain => {
+            let retained: HashSet<_> = items
+                .iter()
+                .filter(|item| selected_paths.contains(&item.path))
+                .map(|item| item.path.clone())
+                .collect();
+            retained != selected_paths
+        }
+    }
 }
