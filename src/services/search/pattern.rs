@@ -3,7 +3,22 @@
 /// Inputs must be Unicode-folded.
 pub(crate) fn filter_name_matches(name: &str, query: &str) -> bool {
     let Some((prefix, rest)) = query.split_once('*') else {
-        return name.contains(query) || typo_matches_word(name, query);
+        if name.contains(query) || typo_matches_word(name, query) {
+            return true;
+        }
+        // Space-separated words: require every word, so "duck txt" also finds
+        // ducks_in_the_pool.txt after any exact-phrase hit.
+        let mut words = query.split_whitespace().filter(|word| !word.is_empty());
+        let Some(first) = words.next() else {
+            return true;
+        };
+        let Some(second) = words.next() else {
+            return false;
+        };
+        return [first, second]
+            .into_iter()
+            .chain(words)
+            .all(|word| name.contains(word) || typo_matches_word(name, word));
     };
     let Some(name) = name.strip_prefix(prefix) else {
         return false;
