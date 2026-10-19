@@ -131,7 +131,7 @@ back-right upper right and back-left upper left. These names follow the model's
 coordinate axes.
 View names are exposed to assistive technology; the visible controls use the
 orbit diagram without a text caption.
-The model and controls form one vertically centred block using the video player's
+The model and controls form one vertically centred block using the shared media
 layout. Geometry renders on a square canvas, avoiding unused space from the pane's
 aspect ratio. Above the badges, the filename and its position among model files
 in the current sorted or filtered listing use the same styling as video previews.
@@ -139,10 +139,15 @@ Above the camera controls, media-style badges show the mesh encoding (binary STL
 ASCII STL or 3MF) and the rendered triangle count. These details come from the
 existing parse/render pass and remain part of the cached preview. Thumbnail-only
 previews do not parse geometry for badges. Dimensions and units are not shown.
-While another view renders, the last image dims and a spinner appears in the
-preview header beside the open button. Failed view changes
-retain that image with a visible error so the controls can retry. Embedded images
-have no camera controls and are never replaced with geometry for view selection.
+The first loading view already shows the filename, listing position and file
+format. The triangle count appears once parsing reports it, and the camera
+controls become active when the first mesh image is ready. A centred progress
+card shows the current loading stage over the image area. While another view
+renders, that card overlays the dimmed last image, and a spinner also appears in
+the preview header beside the open button. Failed view changes
+retain that image with a visible error so the controls can retry. Completed
+embedded-image previews have no camera controls and are never replaced with
+geometry for view selection.
 A 3MF package with exactly one usable embedded PNG uses that image, even if other
 candidates are corrupt or its geometry spans multiple model parts. Two usable
 images are ambiguous: Quick Preview tries geometry, while browser thumbnailing

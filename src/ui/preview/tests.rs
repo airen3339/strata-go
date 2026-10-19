@@ -84,10 +84,11 @@ fn model_progress_and_theme_reloads_follow_the_current_request_in_each_drawer() 
             );
             let label = first
                 .state
-                .loading_label
+                .model
                 .borrow()
                 .as_ref()
-                .expect("loading feedback")
+                .expect("loading model UI")
+                .progress_label
                 .clone();
             assert_eq!(label.text(), "Rendering 23 triangles…");
             emit_progress(0, crate::services::ModelPreviewStage::Finishing);
@@ -100,7 +101,16 @@ fn model_progress_and_theme_reloads_follow_the_current_request_in_each_drawer() 
                     message: "stale failure".into(),
                 });
             }
-            assert!(first.state.loading_label.borrow().is_some());
+            assert!(
+                first
+                    .state
+                    .model
+                    .borrow()
+                    .as_ref()
+                    .expect("current model")
+                    .progress
+                    .is_visible()
+            );
             model::ready(&provider, 2, Some(crate::services::ModelView::FrontLeft));
             model::ready(&provider, 1, Some(crate::services::ModelView::FrontLeft));
             let next = first
@@ -146,7 +156,7 @@ fn model_progress_and_theme_reloads_follow_the_current_request_in_each_drawer() 
             first.close();
             emit_progress(4, crate::services::ModelPreviewStage::Finishing);
             assert!(first.state.current_request.get().is_none());
-            assert!(first.state.loading_label.borrow().is_none());
+            assert!(first.state.model.borrow().is_none());
             tokens.surface = "#102030".into();
             manager.preview(&tokens);
             assert_eq!(

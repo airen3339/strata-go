@@ -18,17 +18,19 @@ use super::{
 
 pub(super) struct ModelPreview {
     pub(super) picture: gtk::Picture,
-    #[cfg(test)]
     pub(super) previous: gtk::Button,
-    #[cfg(test)]
     pub(super) next: gtk::Button,
     pub(super) camera: gtk::DrawingArea,
     spinner: gtk::Spinner,
     root: gtk::Box,
     layout: PlayerLayout,
     eyebrow: gtk::Label,
-    title: gtk::Label,
-    badges: gtk::Box,
+    pub(super) title: gtk::Label,
+    pub(super) format: gtk::Label,
+    pub(super) triangles: gtk::Label,
+    pub(super) progress: gtk::Box,
+    pub(super) progress_label: gtk::Label,
+    progress_spinner: gtk::Spinner,
     camera_motion: Rc<CameraMotion>,
     error: gtk::Label,
     view: Cell<ModelView>,
@@ -44,8 +46,9 @@ fn view_name(view: ModelView) -> String {
     })
 }
 
-fn picture(texture: &gdk::Texture) -> gtk::Picture {
-    let picture = gtk::Picture::for_paintable(texture);
+fn picture(texture: Option<&gdk::Texture>) -> gtk::Picture {
+    let picture = gtk::Picture::new();
+    picture.set_paintable(texture);
     picture.add_css_class("preview-image");
     picture.set_can_shrink(true);
     picture.set_content_fit(gtk::ContentFit::Contain);
@@ -202,14 +205,26 @@ fn draw_camera_position(
 }
 
 impl ModelPreview {
-    fn new(
-        texture: &gdk::Texture,
-        mesh: ModelMesh,
-        spinner: gtk::Spinner,
-        navigate: Rc<dyn Fn(i32)>,
-    ) -> Self {
-        let view = mesh.view;
-        let picture = picture(texture);
+    fn new(view: ModelView, spinner: gtk::Spinner, navigate: Rc<dyn Fn(i32)>) -> Self {
+        let picture = picture(None);
+        let frame = gtk::Overlay::new();
+        frame.set_child(Some(&picture));
+        let progress_spinner = gtk::Spinner::new();
+        progress_spinner.add_css_class("preview-spinner");
+        progress_spinner.set_halign(gtk::Align::Center);
+        let progress_label = gtk::Label::new(None);
+        progress_label.add_css_class("preview-feedback-detail");
+        progress_label.set_wrap(true);
+        progress_label.set_justify(gtk::Justification::Center);
+        let progress = gtk::Box::new(gtk::Orientation::Vertical, 12);
+        progress.add_css_class("preview-model-loading");
+        progress.set_halign(gtk::Align::Center);
+        progress.set_valign(gtk::Align::Center);
+        progress.set_can_target(false);
+        progress.set_visible(false);
+        progress.append(&progress_spinner);
+        progress.append(&progress_label);
+        frame.add_overlay(&progress);
         let DetailsHeader {
             root: header,
             eyebrow,
@@ -242,23 +257,26 @@ impl ModelPreview {
         error.set_visible(false);
         let badges = components::badge_row();
         badges.set_halign(gtk::Align::Start);
+        let format = components::badge("");
+        let triangles = components::badge("");
+        triangles.set_visible(false);
+        badges.append(&format);
+        badges.append(&triangles);
         let controls = gtk::Box::new(gtk::Orientation::Vertical, 12);
         controls.append(&row);
         controls.append(&error);
         let (root, layout) = player_layout::section(player_layout::Areas {
-            content: picture.upcast_ref(),
+            content: frame.upcast_ref(),
             details: header.upcast_ref(),
             badges: Some(badges.upcast_ref()),
             timeline: None,
             controls: controls.upcast_ref(),
         });
         root.add_css_class("preview-model");
-        layout.set_paintable(Some(texture.upcast_ref()));
+        layout.set_aspect(Some(1.0));
         let model = Self {
             picture,
-            #[cfg(test)]
             previous,
-            #[cfg(test)]
             next,
             camera,
             spinner,
@@ -266,14 +284,17 @@ impl ModelPreview {
             layout,
             eyebrow,
             title,
-            badges,
+            format,
+            triangles,
+            progress,
+            progress_label,
+            progress_spinner,
             camera_motion,
             error,
             view: Cell::new(view),
             loading: Cell::new(false),
         };
         model.set_camera_position(view);
-        model.set_badges(mesh);
         model
     }
 
@@ -289,16 +310,19 @@ impl ModelPreview {
     }
 
     fn set_badges(&self, mesh: ModelMesh) {
-        super::clear_box(&self.badges);
         let format = match mesh.encoding {
             ModelEncoding::BinaryStl => crate::i18n::tr("Binary STL"),
             ModelEncoding::AsciiStl => crate::i18n::tr("ASCII STL"),
             ModelEncoding::ThreeMf => "3MF".to_owned(),
         };
-        for text in [format, crate::i18n::count("triangles", mesh.triangles)] {
-            let label = components::badge(&text);
-            self.badges.append(&label);
-        }
+        self.format.set_text(&format);
+        self.set_triangles(mesh.triangles);
+    }
+
+    fn set_triangles(&self, triangles: usize) {
+        self.triangles
+            .set_text(&crate::i18n::count("triangles", triangles));
+        self.triangles.set_visible(true);
     }
 
     fn set_camera_position(&self, view: ModelView) {
@@ -312,6 +336,13 @@ impl ModelPreview {
         self.loading.set(true);
         self.set_camera_position(view);
         self.error.set_visible(false);
+        let has_image = self.picture.paintable().is_some();
+        self.previous.set_sensitive(has_image);
+        self.next.set_sensitive(has_image);
+        self.progress_label
+            .set_text(&crate::i18n::tr("Waiting for preview…"));
+        self.progress.set_visible(true);
+        self.progress_spinner.start();
         self.picture.set_opacity(0.3);
         self.picture.set_cursor_from_name(Some("wait"));
         self.picture
@@ -323,7 +354,12 @@ impl ModelPreview {
 
     pub(super) fn set_progress(&self, stage: ModelPreviewStage) {
         if self.loading.get() {
-            crate::ui::accessibility::set_label(&self.spinner, &stage.label());
+            let label = stage.label();
+            self.progress_label.set_text(&label);
+            crate::ui::accessibility::set_label(&self.spinner, &label);
+            if let ModelPreviewStage::Rendering { triangles } = stage {
+                self.set_triangles(triangles);
+            }
         }
     }
 
@@ -331,6 +367,11 @@ impl ModelPreview {
         self.loading.set(false);
         self.spinner.stop();
         self.spinner.set_visible(false);
+        self.progress_spinner.stop();
+        self.progress.set_visible(false);
+        let has_image = self.picture.paintable().is_some();
+        self.previous.set_sensitive(has_image);
+        self.next.set_sensitive(has_image);
         self.picture.set_opacity(1.0);
         self.picture.set_cursor_from_name(Some("grab"));
         self.picture
@@ -361,6 +402,7 @@ impl Drop for ModelPreview {
     fn drop(&mut self) {
         self.spinner.stop();
         self.spinner.set_visible(false);
+        self.progress_spinner.stop();
     }
 }
 
@@ -373,7 +415,12 @@ impl PreviewState {
         let texture = match gdk::Texture::from_bytes(&bytes) {
             Ok(texture) => texture,
             Err(error) => {
-                if let Some(model) = self.model.borrow().as_ref() {
+                if let Some(model) = self
+                    .model
+                    .borrow()
+                    .as_ref()
+                    .filter(|model| model.picture.paintable().is_some())
+                {
                     self.model_view.set(model.view());
                     model.show_error(&error.to_string());
                     return;
@@ -383,7 +430,7 @@ impl PreviewState {
             }
         };
         let Some(mesh) = mesh else {
-            let picture = picture(&texture);
+            let picture = picture(Some(&texture));
             super::install_preview_drag(&picture, self);
             self.content
                 .append(&media_layout::section(&picture, &texture));
@@ -402,10 +449,30 @@ impl PreviewState {
             model.set_header(&filename, position);
             return;
         }
+        let model = self.create_model();
+        model.update(&texture, mesh);
+        self.model.replace(Some(model));
+    }
+
+    pub(super) fn show_model_loading(self: &Rc<Self>) -> bool {
+        if !self
+            .current
+            .borrow()
+            .as_ref()
+            .is_some_and(|entry| crate::services::is_model(&entry.native_name))
+        {
+            return false;
+        }
+        let model = self.create_model();
+        model.set_loading(self.model_view.get());
+        self.model.replace(Some(model));
+        true
+    }
+
+    fn create_model(self: &Rc<Self>) -> ModelPreview {
         let weak = Rc::downgrade(self);
         let model = ModelPreview::new(
-            &texture,
-            mesh,
+            self.model_view.get(),
             self.model_spinner.clone(),
             Rc::new(move |step| {
                 if let Some(state) = weak.upgrade() {
@@ -413,10 +480,18 @@ impl PreviewState {
                 }
             }),
         );
-        model.set_header(&filename, position);
+        if let Some(entry) = self.current.borrow().as_ref() {
+            model.set_header(&entry.display_name, self.model_listing_position());
+            let format = std::path::Path::new(&entry.native_name)
+                .extension()
+                .and_then(|extension| extension.to_str())
+                .unwrap_or_default()
+                .to_ascii_uppercase();
+            model.format.set_text(&format);
+        }
         super::install_preview_drag(&model.picture, self);
         self.content.append(&model.root);
-        self.model.replace(Some(model));
+        model
     }
 
     fn model_listing_position(&self) -> Option<ListingPosition> {
