@@ -2119,8 +2119,10 @@ mount does, whatever the preset's type: exfat-fuse overwrites the target instead
 The presets of real filesystems, and rows that need one's rules (`on_ext4`), name both. On an SMB
 base the seam refuses `O_TMPFILE` with `EOPNOTSUPP`, as Strata never opens one there: with POSIX
 extensions the client reports the unnamed file with inode number 1<<32, no links and a wrong size
-until it revalidates. The Replace row that substitutes the target Strata holds for its Trash check
-skips on NFS, where nothing is held ("skipped on an NFS base").
+until it revalidates. On a kernel exFAT base, which stamps a folder's birth time at each rename into
+it, a preset whose rule keeps folder birth times sees the first one the seam read for each folder.
+The Replace row that substitutes the target Strata holds for its Trash check skips on NFS, where
+nothing is held ("skipped on an NFS base").
 
 Unit tests layer quirks on a fully featured filesystem, so on a limited mount some of them fail by
 design: a test expecting a plain rename sees the ladder link instead on NFS, fixtures with

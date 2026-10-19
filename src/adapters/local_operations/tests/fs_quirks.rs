@@ -7,7 +7,7 @@
 
 use std::{
     borrow::Cow,
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     ffi::{OsStr, OsString},
     ops::ControlFlow,
     os::{
@@ -992,9 +992,16 @@ impl State {
 
 static SCOPES: Mutex<Vec<Arc<Scope>>> = Mutex::new(Vec::new());
 static NEXT_SCOPE: AtomicU64 = AtomicU64::new(1);
+static FIRST_FOLDER_BIRTHS: Mutex<BTreeMap<(u64, u64), (i64, u32)>> = Mutex::new(BTreeMap::new());
 
 fn scopes() -> MutexGuard<'static, Vec<Arc<Scope>>> {
     SCOPES.lock().unwrap_or_else(|error| error.into_inner())
+}
+
+fn first_folder_births() -> MutexGuard<'static, BTreeMap<(u64, u64), (i64, u32)>> {
+    FIRST_FOLDER_BIRTHS
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
 }
 
 pub(crate) struct FsQuirks {
@@ -1366,6 +1373,11 @@ impl Scope {
         if let Some(device) = path.as_deref().and_then(own_device) {
             stat.identity.device = device;
         }
+        if let Some(birth) = stat.identity.birth.filter(|_| stat.is_directory())
+            && self.keeps_folder_births_its_base_restamps()
+        {
+            stat.identity.birth = Some(*first_folder_births().entry(key).or_insert(birth));
+        }
         let mut state = self.state();
         let cached = path
             .as_ref()
@@ -1558,6 +1570,15 @@ impl Scope {
 
     fn mount_type(&self) -> Option<MountType> {
         self.emulated_or(|| self.host.clone())
+    }
+
+    fn keeps_folder_births_its_base_restamps(&self) -> bool {
+        self.host
+            .as_ref()
+            .is_some_and(|base| !base.identity().folder_births)
+            && self
+                .mount_type()
+                .is_some_and(|mount| mount.identity().folder_births)
     }
 
     fn current_mount_type(&self) -> Option<MountType> {
@@ -2257,10 +2278,9 @@ pub(crate) fn recreated(path: &Path) {
         *scope.state().births.entry(parent.join(name)).or_default() += 1;
     }
     if let Ok(stat) = rustix::fs::lstat(path) {
-        scope
-            .state()
-            .recorded_births
-            .remove(&(stat.st_dev, stat.st_ino));
+        let key = (stat.st_dev, stat.st_ino);
+        scope.state().recorded_births.remove(&key);
+        first_folder_births().remove(&key);
     }
 }
 
