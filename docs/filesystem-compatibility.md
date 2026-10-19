@@ -2133,10 +2133,15 @@ time as the change time, so tests that land the SMB client's deferred closes fai
 seconds, and Replace and move rows whose replacement or rewrite only its change time tells apart
 skip there ("skipped on a base that reports the modification time as the change time"). Move rows
 whose fixture links a file skip where the base refuses hard links, as vfat, exFAT and exfat-fuse
-do ("skipped on a base without hard links"). A fixture's name can be one the mount refuses (`a:b`
-on vfat), and a preset can expect a name stored that the real mount refuses, folds or lists as
-another (Samba's 8.3 aliases, long SMB folder names). On NFS a file renamed over while open reads as
-`.nfsXXXX`, and on casefolded folders `/proc` shows files the test process created as
+do ("skipped on a base without hard links"). The merge row that leaves a Unix socket out skips where
+the base refuses the socket, as vfat, exFAT, exfat-fuse and sshfs do ("skipped on a base that
+refuses Unix sockets"). Replace and Compress rows that make unlinking the original fail skip where
+the base refuses `RENAME_NOREPLACE` and keeps one number for a hard link, as NFS and ntfs-3g do:
+placement there links a file to its name and unlinks the other, which takes the injected failure
+first ("skipped on a base that places files by linking them"). A fixture's name can be one the mount
+refuses (`a:b` on vfat), and a preset can expect a name stored that the real mount refuses, folds or
+lists as another (Samba's 8.3 aliases, long SMB folder names). On NFS a file renamed over while open
+reads as `.nfsXXXX`, and on casefolded folders `/proc` shows files the test process created as
 `name (deleted)`, so quirk patterns by name miss them. Tests that emulate NFSv3, or ext without
 birth times, read the base's real file handles, or on exfat, cifs and FUSE bases the seam's, made up
 from the inode number, which sshfs and exfat-fuse renew after an eviction (ntfs-3g keeps it); the

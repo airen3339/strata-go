@@ -324,19 +324,32 @@ fn set_times(path: &Path, seconds: u64, nanoseconds: u32) -> io::Result<()> {
     Ok(())
 }
 
-fn base_takes_rename_flags(folder: &Path) -> io::Result<bool> {
+fn base_takes_noreplace(folder: &Path) -> io::Result<bool> {
     use rustix::fs::{CWD, RenameFlags, renameat_with};
     let (one, other) = (folder.join("rename-probe"), folder.join("rename-probe-2"));
     fs::write(&one, b"one")?;
     let renamed = renameat_with(CWD, &one, CWD, &other, RenameFlags::NOREPLACE).is_ok();
+    for probe in [&one, &other] {
+        let _ = fs::remove_file(probe);
+    }
+    Ok(renamed)
+}
+
+fn base_takes_rename_flags(folder: &Path) -> io::Result<bool> {
+    use rustix::fs::{CWD, RenameFlags, renameat_with};
+    if !base_takes_noreplace(folder)? {
+        return Ok(false);
+    }
+    let (one, other) = (folder.join("rename-probe"), folder.join("rename-probe-2"));
     fs::write(&one, b"one")?;
+    fs::write(&other, b"other")?;
     let exchanged = renameat_with(CWD, &one, CWD, &other, RenameFlags::EXCHANGE).is_ok();
     // exfat-fuse accepts RENAME_EXCHANGE and overwrites instead of swapping.
     let overwrote = exchanged && fs::symlink_metadata(&one).is_err();
     for probe in [&one, &other] {
         let _ = fs::remove_file(probe);
     }
-    Ok(renamed && !overwrote)
+    Ok(!overwrote)
 }
 
 fn hard_linked(original: &Path, link: &Path) -> io::Result<bool> {
@@ -359,6 +372,10 @@ fn base_links_keep_their_number(folder: &Path) -> io::Result<bool> {
         let _ = fs::remove_file(probe);
     }
     Ok(kept)
+}
+
+pub(super) fn base_places_files_by_linking(folder: &Path) -> io::Result<bool> {
+    Ok(!base_takes_noreplace(folder)? && base_links_keep_their_number(folder)?)
 }
 
 fn forced_mode(path: &Path) -> io::Result<u32> {

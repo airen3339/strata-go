@@ -4566,9 +4566,18 @@ fn a_merge_without_trash_reports_its_folder_kept_by_an_original_still_open()
         fs::create_dir_all(source.join(original).parent().ok_or("no parent")?)?;
         let mut source_quirks = Quirks::default();
         let _socket = if row == "left out" {
-            Some(std::os::unix::net::UnixListener::bind(
-                source.join(original),
-            )?)
+            match std::os::unix::net::UnixListener::bind(source.join(original)) {
+                Ok(socket) => Some(socket),
+                Err(error)
+                    if matches!(Errno::from_io_error(&error), Some(Errno::PERM | Errno::IO)) =>
+                {
+                    eprintln!(
+                        "skipped on a base that refuses Unix sockets: {row} {original}, moving: {move_sources}"
+                    );
+                    continue;
+                }
+                Err(error) => return Err(error.into()),
+            }
         } else {
             fs::write(source.join(original), b"incoming")?;
             None

@@ -279,6 +279,10 @@ fn a_move_that_cannot_remove_the_original_it_replaced_keeps_it_and_its_undo()
         let row = format!("{original:?}, {transfer:?}");
         let _clock = ClockGuard::set(SystemTime::now());
         let root = tempfile::tempdir()?;
+        if original == Original::Undeletable && base_places_files_by_linking(root.path())? {
+            eprintln!("skipped on a base that places files by linking them: {row}");
+            continue;
+        }
         let sources = root.path().join("sources");
         let destination = root.path().join("destination");
         fs::create_dir(&sources)?;

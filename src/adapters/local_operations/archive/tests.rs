@@ -14,7 +14,10 @@ use super::{
 use crate::{
     adapters::local_operations::{
         LocalOperationProvider,
-        tests::fs_quirks::{FsQuirks, Op, Preset, Quirks, Trash},
+        tests::{
+            base_places_files_by_linking,
+            fs_quirks::{FsQuirks, Op, Preset, Quirks, Trash},
+        },
     },
     model::Location,
     services::{
@@ -278,6 +281,10 @@ fn an_archive_that_replaced_an_original_it_cannot_remove_completes_and_reports_i
         .lock()
         .map_err(|error| error.to_string())?;
     let root = tempfile::tempdir()?;
+    if base_places_files_by_linking(root.path())? {
+        eprintln!("skipped on a base that places files by linking them");
+        return Ok(());
+    }
     let destination = root.path().join("destination");
     let source = root.path().join("source.txt");
     fs::create_dir(&destination)?;
