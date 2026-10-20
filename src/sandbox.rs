@@ -657,6 +657,7 @@ const NAMESPACE_WAIT: Duration = Duration::from_secs(1);
 pub(crate) struct Renderer {
     child: Child,
     init: Option<rustix::fd::OwnedFd>,
+    /// Held open so bubblewrap's closing write to the info pipe cannot raise SIGPIPE.
     _info: Option<rustix::fd::OwnedFd>,
 }
 
@@ -704,6 +705,7 @@ fn spawn_renderer(command: &mut Command) -> io::Result<Renderer> {
     let (info, info_end) = rustix::pipe::pipe_with(rustix::pipe::PipeFlags::CLOEXEC)?;
     command.stderr(Stdio::from(info_end));
     let spawned = command.process_group(0).spawn();
+    // Drops the parent's write end, or the pipe never reports bubblewrap's exit.
     command.stderr(Stdio::null());
     let child = spawned?;
     let init = namespace_init(&info, &child).and_then(|pid| {

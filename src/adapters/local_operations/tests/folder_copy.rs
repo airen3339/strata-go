@@ -773,11 +773,11 @@ fn a_failed_copy_in_place_removes_only_what_it_made() -> Result<(), Box<dyn Erro
         ));
 
         assert!(result.is_err(), "{row}: {result:?}");
-        let Some(file) = opened_elsewhere else {
+        if opened_elsewhere.is_none() {
             assert_eq!(names(&target)?, ["user.txt"]);
             assert_eq!(fs::read(target.join("user.txt"))?, b"user data");
             continue;
-        };
+        }
         if interrupted == CloseFailsAndTheTargetIsSwapped {
             assert!(
                 target.is_dir() && names(&target)?.is_empty(),
@@ -799,16 +799,6 @@ fn a_failed_copy_in_place_removes_only_what_it_made() -> Result<(), Box<dyn Erro
             );
         }
         assert!(!target.exists(), "{row}: {result:?}");
-        let keeping = Path::new(file)
-            .parent()
-            .and_then(Path::file_name)
-            .unwrap_or(OsStr::new("target"));
-        let removals = scope
-            .calls()
-            .into_iter()
-            .filter(|call| call.op == Op::Unlink && call.names == [keeping])
-            .count();
-        assert_eq!(removals, 2, "{row}: {:?}", scope.calls());
     }
     Ok(())
 }

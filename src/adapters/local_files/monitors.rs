@@ -27,9 +27,10 @@ pub(super) struct BareMonitor {
     unsafe_code,
     reason = "a monitor without handlers moves between the UI thread and the monitors worker"
 )]
-// SAFETY: a bare monitor carries no signal handler, so no closure, and no `Rc` one captured, can be
-// freed with it on another thread. GObject reference counts and `g_file_monitor_cancel` are
-// thread-safe, and the monitor's source stays attached to the main context.
+// SAFETY: a bare monitor crosses threads only while no signal handler is connected (callers
+// disconnect before dropping it), so no `Rc`-capturing closure is freed off the UI thread. GObject
+// reference counts and `g_file_monitor_cancel` are thread-safe, and the monitor's source stays
+// attached to the default main context.
 unsafe impl Send for BareMonitor {}
 
 impl BareMonitor {

@@ -49,8 +49,7 @@ pub(super) fn install_command(command: &str, finished: &str) -> gtk::Box {
         let (status, finished) = (status.clone(), finished.clone());
         glib::MainContext::default().spawn_local(async move {
             let launched = terminal::spawn_reaped(move || {
-                let terminal =
-                    Terminal::resolve().ok_or_else(terminal::no_terminal_message)?;
+                let terminal = Terminal::resolve().ok_or_else(terminal::no_terminal_message)?;
                 terminal
                     .exec_command(&arguments)
                     .spawn()

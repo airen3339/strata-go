@@ -295,7 +295,9 @@ impl ThemeManager {
         manager.monitor_text_scaling();
         manager.monitor_omarchy(&omarchy.directories);
         manager.monitor_custom_themes(themes_directory().is_dir());
-        manager.user_provider.load_from_string(&read_user_stylesheet());
+        manager
+            .user_provider
+            .load_from_string(&read_user_stylesheet());
         manager.monitor_user_stylesheet();
         manager
     }

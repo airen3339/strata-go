@@ -8,7 +8,7 @@ use std::{
     time::Duration,
 };
 
-use gtk::{glib, prelude::*};
+use gtk::{gio, glib, prelude::*};
 
 use super::{
     install_command::install_command, page_content, scrollable_page, search, settings_group,
@@ -149,11 +149,10 @@ impl Page {
 
         let (sender, receiver) = mpsc::channel();
         (self.spawn)(sender);
-        // The worker stream and the checks that need this thread finish independently.
         self.pending_parts.set(2);
         let page = Rc::downgrade(self);
         glib::MainContext::default().spawn_local(async move {
-            let detected = crate::storage::writer::run(PackageManager::detect).await;
+            let detected = gio::spawn_blocking(PackageManager::detect).await;
             let Some(page) = page.upgrade() else {
                 return;
             };
@@ -253,7 +252,7 @@ impl Page {
 }
 
 async fn main_thread_checks() -> [Check; 4] {
-    let terminal = crate::storage::writer::run(|| {
+    let terminal = gio::spawn_blocking(|| {
         Terminal::resolve().map(|terminal| terminal.program().to_string_lossy().into_owned())
     });
     let catalog = crate::ui::actions::shared().reload().await;
@@ -563,7 +562,9 @@ fn copy_report(
     results: &[Check],
     manager: Option<PackageManager>,
 ) {
-    button.clipboard().set_text(&report(environment, results, manager));
+    button
+        .clipboard()
+        .set_text(&report(environment, results, manager));
     button.set_label(&crate::i18n::tr("Copied"));
     let button = button.downgrade();
     glib::timeout_add_local_once(COPY_FEEDBACK, move || {

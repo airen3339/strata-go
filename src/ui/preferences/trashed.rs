@@ -33,8 +33,8 @@ impl<T> Default for TrashedValues<T> {
 }
 
 impl<T> TrashedValues<T> {
-    /// Two live items never share an identity, so an older entry with this
-    /// identity belongs to an item that has left Trash and whose inode was reused.
+    /// An older entry proven to be the same item belongs to one that left Trash
+    /// and came back; a reused inode number alone keeps both.
     pub(super) fn forget_identity(&mut self, identity: ItemIdentity) {
         let keys = &mut self.keys;
         self.items.retain(|item| {

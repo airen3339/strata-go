@@ -44,6 +44,7 @@ fn refused(call: impl FnOnce()) -> bool {
 }
 
 #[test]
+#[cfg(debug_assertions)]
 fn path_walks_through_the_seam_are_refused_on_the_ui_thread() {
     let ran = thread::spawn(|| {
         ui_thread::mark();

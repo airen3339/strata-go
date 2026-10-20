@@ -26,8 +26,8 @@ fn wait_until(condition: impl Fn() -> bool, waiting_for: &str) {
 
 fn saved_pins() -> Vec<(Location, String)> {
     crate::storage::writer::settle();
-    let contents = std::fs::read(crate::adapters::bookmarks::pinned_places_path())
-        .unwrap_or_default();
+    let contents =
+        std::fs::read(crate::adapters::bookmarks::pinned_places_path()).unwrap_or_default();
     crate::adapters::bookmarks::parse_pinned_places(&contents)
 }
 
@@ -255,9 +255,7 @@ fn connect_to_server_stays_open_until_connecting_ends_and_pins_only_on_success()
             );
             assert_eq!(view.browser().active_location(), Some(opened.clone()));
             assert!(
-                saved_pins()
-                    .iter()
-                    .any(|(location, _)| *location == opened),
+                saved_pins().iter().any(|(location, _)| *location == opened),
                 "the retried location is pinned"
             );
             view.browser().clear_observer();

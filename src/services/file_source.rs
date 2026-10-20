@@ -683,6 +683,7 @@ pub trait FileSource {
         LoadHandle::new(|| {})
     }
 
+    /// `locations` must share one mount: the check runs on the first one's lane.
     fn check_stamps(
         &self,
         locations: Vec<Location>,

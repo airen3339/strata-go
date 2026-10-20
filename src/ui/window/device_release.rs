@@ -885,9 +885,9 @@ where
                 .and_then(|browser| browser.active_location());
             #[cfg(test)]
             note_release_before_flush(browser.as_ref());
-            let _operation = crate::adapters::ActiveOperation::begin([]);
+            let operation = crate::adapters::ActiveOperation::begin([]);
             if let Some(root) = sync_root.clone() {
-                _operation
+                operation
                     .release_lexically(vec![root], &gio::Cancellable::new())
                     .await;
             }

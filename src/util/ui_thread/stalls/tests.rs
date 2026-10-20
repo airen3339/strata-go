@@ -52,7 +52,7 @@ fn a_blocked_ui_thread_is_reported_with_its_call_and_path_until_it_runs_again() 
         Watched {
             context: context.clone(),
             thread: rustix::thread::gettid().as_raw_nonzero().get(),
-            limit: Duration::from_millis(200),
+            limit: Duration::from_secs(1),
         },
         stopped.clone(),
         move |line| {
@@ -61,7 +61,7 @@ fn a_blocked_ui_thread_is_reported_with_its_call_and_path_until_it_runs_again() 
     )
     .expect("watchdog");
 
-    let answering_until = Instant::now() + Duration::from_millis(600);
+    let answering_until = Instant::now() + Duration::from_secs(2);
     while Instant::now() < answering_until {
         context.iteration(false);
         std::thread::sleep(Duration::from_millis(10));

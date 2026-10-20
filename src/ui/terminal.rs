@@ -240,6 +240,8 @@ pub(super) fn no_terminal_message() -> String {
     rust_i18n::t!("No terminal emulator was found. Install “%{PREFERRED_LAUNCHER}” with a configured ~/.config/xdg-terminals.list, set $TERMINAL, or install one of: %{fallbacks}", PREFERRED_LAUNCHER = PREFERRED_LAUNCHER, fallbacks = fallbacks).into_owned()
 }
 
+/// Starts and reaps the child off the UI thread, so a launcher neither blocks
+/// it nor lingers as defunct.
 pub(super) fn spawn_reaped(
     start: impl FnOnce() -> Result<Child, String> + Send + 'static,
 ) -> impl Future<Output = Result<(), String>> + 'static {

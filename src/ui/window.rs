@@ -2023,16 +2023,20 @@ impl SidebarState {
         if self.trash_monitor.borrow().is_some() {
             return;
         }
-        let weak = Rc::downgrade(self);
+        let (changed, live) = (Rc::downgrade(self), Rc::downgrade(self));
         let monitor = crate::adapters::watch(
             &Location::uri("trash:///"),
             crate::adapters::Watched::Folder,
             move |_, _| {
-                if let Some(state) = weak.upgrade() {
+                if let Some(state) = changed.upgrade() {
                     state.refresh_trash_contents();
                 }
             },
-            || {},
+            move || {
+                if let Some(state) = live.upgrade() {
+                    state.refresh_trash_contents();
+                }
+            },
         );
         *self.trash_monitor.borrow_mut() = Some(monitor);
     }

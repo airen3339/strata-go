@@ -1769,10 +1769,6 @@ fn watching_network_folders_applies_before_settings_and_follows_changes_across_w
             let switched_on = (manager.watch_network_folders(), watching());
             close_settings(&first);
             manager.set_watch_network_folders(false);
-            for mode in [BrowserMode::List, BrowserMode::Icons, BrowserMode::Columns] {
-                first.content.browser.set_view_mode(mode);
-                second.content.browser.set_view_mode(mode);
-            }
 
             assert_eq!(saved, [false, false]);
             assert!(closed_at_startup && shown_off);

@@ -176,6 +176,8 @@ impl Barrier {
     }
 
     pub(super) fn reach(&self, fs: &dyn FsOps, removable: bool) -> Result<(), Errno> {
+        // FAT and ntfs3 report lost renames only from the folder's fsync, and their
+        // sync_fs leaves the device cache unflushed, so the folder is synced around it.
         if self.plan.sync_dir && self.plan.sync_fs {
             fs.sync_dir(self.dir.as_fd())?;
         }

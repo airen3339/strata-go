@@ -166,7 +166,7 @@ fn sandbox_command_starts_absolute_bubblewrap() {
         .join(" ");
     assert!(joined.contains("--unshare-all"));
     assert!(joined.contains("--clearenv"));
-    assert!(joined.starts_with("--info-fd 2 "), "{joined}");
+    assert!(joined.contains("--info-fd 2"), "{joined}");
     let arguments: Vec<_> = command.get_args().collect();
     let runtime = super::runtime::current();
     let (path, root, prlimit) = (

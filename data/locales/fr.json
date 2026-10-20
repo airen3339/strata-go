@@ -783,7 +783,7 @@
   "Release channel": "Canal de publication",
   "Release notes": "Notes de version",
   "Release notes are unavailable because this version’s tag was not found.": "Les notes de version ne sont pas disponibles, car l’étiquette de cette version est introuvable.",
-  "Check open folders on network shares every few seconds for changes made on other computers. When off, those changes show only after a refresh.": "Vérifier toutes les quelques secondes si les dossiers ouverts sur des partages réseau ont été modifiés depuis d'autres ordinateurs. Si cette option est désactivée, ces modifications n'apparaissent qu'après une actualisation.",
+  "Check open folders on network shares every few seconds for changes made on other computers. When off, those changes show only after a refresh.": "Vérifier toutes les quelques secondes si les dossiers ouverts sur des partages réseau ont été modifiés depuis d’autres ordinateurs. Si cette option est désactivée, ces modifications n’apparaissent qu’après une actualisation.",
   "Remember sort and icon size per folder": "Mémoriser le tri et la taille des icônes par dossier",
   "Remote PDF previews are not supported; copy the file locally first": "L’aperçu des PDF distants n’est pas pris en charge ; copiez d’abord le fichier en local",
   "Remote cover previews are not supported; copy the file locally first": "L’aperçu des couvertures distantes n’est pas pris en charge ; copiez d’abord le fichier en local",

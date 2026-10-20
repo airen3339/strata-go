@@ -55,6 +55,15 @@ fn labelled(window: &gtk::Window, label: &str) -> Option<gtk::Button> {
         .find(|button| button.label().as_deref() == Some(label) && button.is_mapped())
 }
 
+fn labelled_count(window: &gtk::Window, label: &str) -> usize {
+    let mut found = Vec::new();
+    widgets::<gtk::Button>(window.upcast_ref(), &mut found);
+    found
+        .iter()
+        .filter(|button| button.label().as_deref() == Some(label) && button.is_mapped())
+        .count()
+}
+
 fn shows_text(window: &gtk::Window, text: &str) -> bool {
     let mut labels = Vec::new();
     widgets::<gtk::Label>(window.upcast_ref(), &mut labels);
@@ -202,6 +211,11 @@ fn the_review_acts_on_each_leftover_through_the_usual_commands() {
                 pump_until(
                     || labelled(&window, &crate::i18n::tr("Delete…")).is_some(),
                     "the review",
+                );
+                assert_eq!(
+                    labelled_count(&window, &crate::i18n::tr("Delete…")),
+                    1,
+                    "only the incomplete copy offers Delete…"
                 );
                 let activity = (action == "busy").then(|| {
                     file_activity::begin(OperationScope {

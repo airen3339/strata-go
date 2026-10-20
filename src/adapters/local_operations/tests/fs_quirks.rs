@@ -234,7 +234,7 @@ pub(crate) enum Births {
     #[default]
     Reported,
     MadeUp,
-    /// One per file that renumbering keeps, where the base reports none, as FAT records them.
+    /// A birth time per file, kept across renumbering, on a base that reports none (as FAT).
     Recorded,
 }
 
@@ -933,8 +933,6 @@ struct State {
     links_made: u64,
     stale: HashMap<PathBuf, EntryStat>,
     written: HashSet<(u64, u64)>,
-    /// The birth and the modification time last revalidated of each file open for writing, by
-    /// device and inode.
     written_times: HashMap<(u64, u64), WrittenTime>,
     renumbered: HashSet<PathBuf>,
     /// Writebacks lost so far, and how many each open folder has reported.

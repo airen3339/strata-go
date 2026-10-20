@@ -184,6 +184,7 @@ impl ViewState {
             return;
         };
         if leftovers.is_empty() {
+            self.refused_while_busy(&folder);
             return;
         }
         let Some(ModalHost {
