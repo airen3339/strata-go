@@ -3077,10 +3077,11 @@ fn later_names_rewritten_within_the_tick_are_kept() -> Result<(), Box<dyn Error>
     let _serial = serial()?;
     let _kernel = KernelGuard::set(Some((6, 12, 0)));
     // Within one coarse tick only a digest tells a same-size rewrite. SMB
-    // refuses to open a later name, so none of them can be compared there.
-    for (row, quirks, kept_names) in [
-        ("ext4", Quirks::ext4 as fn() -> Quirks, &["m", "sub/n"][..]),
-        ("smb", smb_with_one_name_open, &["m", "sub/n", "sub/y"][..]),
+    // refuses to open a later name, so none of them can be compared there;
+    // which of the unchanged pair is later depends on the listing order.
+    for (row, quirks, later_kept) in [
+        ("ext4", Quirks::ext4 as fn() -> Quirks, false),
+        ("smb", smb_with_one_name_open, true),
     ] {
         let tick = SystemTime::now() - Duration::from_secs(1);
         let _clock = ClockGuard::set(tick);
@@ -3105,12 +3106,29 @@ fn later_names_rewritten_within_the_tick_are_kept() -> Result<(), Box<dyn Error>
         assert_eq!(fs::read(moved.join("sub/n"))?, b"m", "{row}");
         let mut left = report.kept;
         left.sort_by_key(|item| item.location.native_path().map(Path::to_path_buf));
-        let expected = kept_names
+        let unchanged_pair = [folder.join("x"), folder.join("sub/y")];
+        let later = unchanged_pair
             .iter()
-            .map(|path| kept(folder.join(path), KeptCause::Changed))
+            .filter(|name| {
+                left.iter()
+                    .any(|item| item.location == Location::local(name))
+            })
             .collect::<Vec<_>>();
+        assert_eq!(later.len(), usize::from(later_kept), "{row}: {left:?}");
+        let mut expected = vec![
+            kept(folder.join("m"), KeptCause::Changed),
+            kept(folder.join("sub/n"), KeptCause::Changed),
+        ];
+        expected.extend(
+            later
+                .iter()
+                .map(|name| kept((*name).clone(), KeptCause::Changed)),
+        );
+        expected.sort_by_key(|item| item.location.native_path().map(Path::to_path_buf));
         assert_eq!(left, expected, "{row}");
-        assert!(!folder.join("x").exists(), "{row}");
+        for name in &unchanged_pair {
+            assert_eq!(name.exists(), later.contains(&name), "{row}: {name:?}");
+        }
     }
     Ok(())
 }
