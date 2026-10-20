@@ -83,17 +83,21 @@ fn model_progress_and_theme_reloads_follow_the_current_request_in_each_drawer() 
                 2,
                 crate::services::ModelPreviewStage::Rendering { triangles: 23 },
             );
-            let label = first
+            let triangles = first
                 .state
                 .model
                 .borrow()
                 .as_ref()
                 .expect("loading model UI")
-                .progress_label
+                .triangles
                 .clone();
-            assert_eq!(label.text(), "Rendering 23 triangles…");
-            emit_progress(0, crate::services::ModelPreviewStage::Finishing);
-            assert_eq!(label.text(), "Rendering 23 triangles…");
+            assert_eq!(triangles.text(), "23 triangles");
+            emit_progress(
+                0,
+                crate::services::ModelPreviewStage::Rendering { triangles: 99 },
+            );
+            assert_eq!(triangles.text(), "23 triangles");
+            assert!(first.state.model_spinner.is_visible());
             {
                 let pending = provider.0.borrow();
                 (pending[0].emit)(PreviewEvent::Failed {
@@ -102,16 +106,8 @@ fn model_progress_and_theme_reloads_follow_the_current_request_in_each_drawer() 
                     message: "stale failure".into(),
                 });
             }
-            assert!(
-                first
-                    .state
-                    .model
-                    .borrow()
-                    .as_ref()
-                    .expect("current model")
-                    .progress
-                    .is_visible()
-            );
+            assert!(first.state.model.borrow().is_some(), "current model");
+            assert!(first.state.model_spinner.is_visible());
             model::ready(&provider, 2, Some(crate::services::ModelView::FrontLeft));
             model::ready(&provider, 1, Some(crate::services::ModelView::FrontLeft));
             let next = first

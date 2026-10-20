@@ -142,10 +142,10 @@ existing parse/render pass and remain part of the cached preview. Thumbnail-only
 previews do not parse geometry for badges. Dimensions and units are not shown.
 The first loading view already shows the filename, listing position and file
 format. The triangle count appears once parsing reports it, and the camera
-controls become active when the first mesh image is ready. A centred progress
-card shows the current loading stage over the image area. While another view
-renders, that card overlays the dimmed last image, and a spinner also appears in
-the preview header beside the open button. Failed view changes
+controls become active when the first mesh image is ready. A spinner in the
+preview header beside the open button is the only loading indicator, for both
+the first load and later view changes; its accessible label follows the loading
+stage. While another view renders, the last image dims. Failed view changes
 retain that image with a visible error so the controls can retry. Completed
 embedded-image previews have no camera controls and are never replaced with
 geometry for view selection.

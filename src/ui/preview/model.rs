@@ -28,9 +28,6 @@ pub(super) struct ModelPreview {
     pub(super) title: gtk::Label,
     pub(super) format: gtk::Label,
     pub(super) triangles: gtk::Label,
-    pub(super) progress: gtk::Box,
-    pub(super) progress_label: gtk::Label,
-    progress_spinner: gtk::Spinner,
     camera_motion: Rc<CameraMotion>,
     error: gtk::Label,
     view: Cell<ModelView>,
@@ -207,24 +204,6 @@ fn draw_camera_position(
 impl ModelPreview {
     fn new(view: ModelView, spinner: gtk::Spinner, navigate: Rc<dyn Fn(i32)>) -> Self {
         let picture = picture(None);
-        let frame = gtk::Overlay::new();
-        frame.set_child(Some(&picture));
-        let progress_spinner = gtk::Spinner::new();
-        progress_spinner.add_css_class("preview-spinner");
-        progress_spinner.set_halign(gtk::Align::Center);
-        let progress_label = gtk::Label::new(None);
-        progress_label.add_css_class("preview-feedback-detail");
-        progress_label.set_wrap(true);
-        progress_label.set_justify(gtk::Justification::Center);
-        let progress = gtk::Box::new(gtk::Orientation::Vertical, 12);
-        progress.add_css_class("preview-model-loading");
-        progress.set_halign(gtk::Align::Center);
-        progress.set_valign(gtk::Align::Center);
-        progress.set_can_target(false);
-        progress.set_visible(false);
-        progress.append(&progress_spinner);
-        progress.append(&progress_label);
-        frame.add_overlay(&progress);
         let DetailsHeader {
             root: header,
             eyebrow,
@@ -266,7 +245,7 @@ impl ModelPreview {
         controls.append(&row);
         controls.append(&error);
         let (root, layout) = player_layout::section(player_layout::Areas {
-            content: frame.upcast_ref(),
+            content: picture.upcast_ref(),
             details: header.upcast_ref(),
             badges: Some(badges.upcast_ref()),
             timeline: None,
@@ -286,9 +265,6 @@ impl ModelPreview {
             title,
             format,
             triangles,
-            progress,
-            progress_label,
-            progress_spinner,
             camera_motion,
             error,
             view: Cell::new(view),
@@ -339,10 +315,6 @@ impl ModelPreview {
         let has_image = self.picture.paintable().is_some();
         self.previous.set_sensitive(has_image);
         self.next.set_sensitive(has_image);
-        self.progress_label
-            .set_text(&crate::i18n::tr("Waiting for preview…"));
-        self.progress.set_visible(true);
-        self.progress_spinner.start();
         self.picture.set_opacity(0.3);
         self.picture.set_cursor_from_name(Some("wait"));
         self.picture
@@ -354,9 +326,7 @@ impl ModelPreview {
 
     pub(super) fn set_progress(&self, stage: ModelPreviewStage) {
         if self.loading.get() {
-            let label = stage.label();
-            self.progress_label.set_text(&label);
-            crate::ui::accessibility::set_label(&self.spinner, &label);
+            crate::ui::accessibility::set_label(&self.spinner, &stage.label());
             if let ModelPreviewStage::Rendering { triangles } = stage {
                 self.set_triangles(triangles);
             }
@@ -367,8 +337,6 @@ impl ModelPreview {
         self.loading.set(false);
         self.spinner.stop();
         self.spinner.set_visible(false);
-        self.progress_spinner.stop();
-        self.progress.set_visible(false);
         let has_image = self.picture.paintable().is_some();
         self.previous.set_sensitive(has_image);
         self.next.set_sensitive(has_image);
@@ -402,7 +370,6 @@ impl Drop for ModelPreview {
     fn drop(&mut self) {
         self.spinner.stop();
         self.spinner.set_visible(false);
-        self.progress_spinner.stop();
     }
 }
 

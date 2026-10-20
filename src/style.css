@@ -3242,19 +3242,6 @@ paned > separator {
   padding: 0;
 }
 
-.preview-model-loading {
-  background: alpha(@strata_bg, 0.94);
-  border: 1px solid alpha(@strata_border, 0.6);
-  border-radius: 6px;
-  padding: 16px;
-  color: @strata_text;
-}
-
-.preview-model-loading .preview-spinner {
-  min-width: 24px;
-  min-height: 24px;
-}
-
 .preview-header-spinner {
   margin: 0 4px;
   min-width: 16px;
