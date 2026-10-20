@@ -1306,7 +1306,7 @@ const PINNED_GTK_THEME: &str = "StrataEmpty";
 /// GTK's built-in theme, restated above the reset.
 const BASE_THEME: &str = "Default";
 
-/// Keeps GTK's theme empty and its regular-contrast variant whatever the desktop
+/// Keeps GTK's own theme empty and its contrast regular whatever the desktop
 /// configures, so only Strata's stylesheets shape its widgets. Values are set
 /// even when they already match: only application-sourced values survive later
 /// portal updates. `GTK_THEME` is cleared before GTK starts because it bypasses

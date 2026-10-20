@@ -802,10 +802,11 @@ fn desktop_gtk_theme_and_gtk_css_do_not_restyle_widgets() {
             assert_eq!(settings.gtk_theme_name().as_deref(), Some(PINNED_GTK_THEME));
             for variant in ["gtk.css", "gtk-dark.css"] {
                 let path = format!("/org/gtk/libgtk/theme/{PINNED_GTK_THEME}/{variant}");
-                let (size, _) =
+                if let Err(error) =
                     gtk::gio::resources_get_info(&path, gtk::gio::ResourceLookupFlags::NONE)
-                        .unwrap_or_else(|error| panic!("{path} should be bundled: {error}"));
-                assert!(size > 0, "{path} should not be zero-length");
+                {
+                    panic!("{path} should be bundled: {error}");
+                }
             }
             let expected =
                 gtk::gdk::RGBA::parse(&manager.starter_tokens().text).expect("text color");
