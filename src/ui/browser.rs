@@ -1483,15 +1483,7 @@ impl BrowserView {
     }
 
     pub fn location_has_focus(&self) -> bool {
-        let entry = self.state.location_entry.upcast_ref::<gtk::Widget>();
-        self.state.location_entry.has_focus()
-            || self
-                .state
-                .overlay
-                .root()
-                .and_then(|root| root.focus())
-                .as_ref()
-                .is_some_and(|focused| focused == entry || focused.is_ancestor(entry))
+        self.state.location_entry_has_focus()
     }
 
     pub(super) fn location_edit_is_active(&self) -> bool {

@@ -1544,6 +1544,19 @@ impl ViewState {
         );
     }
 
+    /// The entry's focus sits on its inner text widget, so the root's focus
+    /// widget is checked rather than the entry itself.
+    pub(super) fn location_entry_has_focus(&self) -> bool {
+        let entry = self.location_entry.upcast_ref::<gtk::Widget>();
+        self.location_entry.has_focus()
+            || self
+                .overlay
+                .root()
+                .and_then(|root| root.focus())
+                .as_ref()
+                .is_some_and(|focused| focused == entry || focused.is_ancestor(entry))
+    }
+
     pub(super) fn begin_location_edit(&self) {
         self.location_stack.set_visible_child_name("entry");
         self.location_entry.grab_focus();
@@ -2555,8 +2568,14 @@ impl ViewState {
                 self.breadcrumbs.append(&button);
             }
         }
-        self.location_stack.set_visible_child_name("breadcrumbs");
-        self.location_entry.set_text(&location.display_path());
+        // A folder that arrives while the user types a location, such as a new
+        // tab's first load, must not close the entry or replace the typed text.
+        let editing = self.location_stack.visible_child_name().as_deref() == Some("entry")
+            && self.location_entry_has_focus();
+        if !editing {
+            self.location_stack.set_visible_child_name("breadcrumbs");
+            self.location_entry.set_text(&location.display_path());
+        }
         let Some(last) = self.breadcrumbs.last_child() else {
             return;
         };
