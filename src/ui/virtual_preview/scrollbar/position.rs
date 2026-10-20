@@ -210,7 +210,9 @@ impl DocumentPosition {
     }
 
     fn publish(&self) {
-        if self.coasting.get() && self.pixels.value() != self.momentum_pixels.get() {
+        // ListView truncates both the kinetic position and its restored row
+        // anchor to integers. Their combined rounding is not a new pixel origin.
+        if self.coasting.get() && (self.pixels.value() - self.momentum_pixels.get()).abs() >= 2.0 {
             self.stop_momentum();
         }
         let Some(preview) = self.preview.upgrade() else {
