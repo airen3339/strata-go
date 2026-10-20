@@ -317,12 +317,7 @@ fn a_folder_holding_originals_gets_a_review_card_once_per_session() {
             review.emit_clicked();
             assert!(labelled(&window, &crate::i18n::tr("Review")).is_none());
             pump_until(
-                || {
-                    shows_text(
-                        &window,
-                        &crate::i18n::tr("Originals that a merge set aside"),
-                    )
-                },
+                || shows_text(&window, &crate::i18n::tr("Originals set aside by a merge")),
                 "the review",
             );
             labelled(&window, &crate::i18n::tr("Close"))

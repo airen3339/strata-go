@@ -1554,11 +1554,11 @@ replaces an existing item."
 
 | Name | Shown as | Actions |
 | --- | --- | --- |
-| `.strata-originals-*` | Originals that were set aside, or a finished copy of a replaced item | Restore, Show |
-| `.strata-merge-*` | Originals that a merge set aside | Restore, Show |
-| older flat names | An original that was set aside under a hidden name | Restore, Show |
-| older stage names | May be a replaced original or an incomplete copy | Restore, Show |
-| `.strata-copy-*`, `.strata-extraction-*`, older copy names | An incomplete copy. Its source was not changed. | Delete…, Show |
+| `.strata-originals-*` | Set-aside originals | Restore, Show |
+| `.strata-merge-*` | Originals set aside by a merge | Restore, Show |
+| older flat names | Set-aside original | Restore, Show |
+| older stage names | Possible original | Restore, Show |
+| `.strata-copy-*`, `.strata-extraction-*`, older copy names | Incomplete copy | Delete…, Show |
 
 - **Restore of a folder of originals** puts each item back in the folder under its own name, or for
   a merge under its own folders, which are made again where missing, by the identity it reads then.

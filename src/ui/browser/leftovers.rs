@@ -45,24 +45,47 @@ enum Action {
 
 struct Row {
     date: gtk::Label,
+    contains: gtk::Label,
     inside: gtk::Label,
     restore: Option<gtk::Button>,
+}
+
+/// What the row's "Contains" line says, or a status line without that label.
+enum Inside {
+    Contains(String),
+    Status(String),
 }
 
 fn title() -> String {
     crate::i18n::tr("Items left by an interrupted operation")
 }
 
-fn holds(kind: Leftover) -> String {
+fn heading(kind: Leftover) -> String {
+    crate::i18n::tr(match kind {
+        Leftover::Originals => "Set-aside originals",
+        Leftover::MergeOriginals => "Originals set aside by a merge",
+        Leftover::Original => "Set-aside original",
+        Leftover::MaybeOriginal => "Possible original",
+        Leftover::IncompleteCopy | Leftover::Probe => "Incomplete copy",
+    })
+}
+
+fn explanation(kind: Leftover) -> String {
     crate::i18n::tr(match kind {
         Leftover::Originals => {
-            "Originals that were set aside, or a finished copy of a replaced item"
+            "Originals moved aside before being replaced. Restore puts them back."
         }
-        Leftover::MergeOriginals => "Originals that a merge set aside",
-        Leftover::Original => "An original that was set aside under a hidden name",
-        Leftover::MaybeOriginal => "May be a replaced original or an incomplete copy",
+        Leftover::MergeOriginals => {
+            "Originals a merge moved aside before replacing them. Restore puts them back."
+        }
+        Leftover::Original => {
+            "An original an earlier version kept under a hidden name. Restore brings it back under a new name."
+        }
+        Leftover::MaybeOriginal => {
+            "May be a replaced original or an incomplete copy. Restore brings it back under a new name."
+        }
         Leftover::IncompleteCopy | Leftover::Probe => {
-            "An incomplete copy. Its source was not changed."
+            "A copy that never finished. Its source was not changed."
         }
     })
 }
@@ -83,11 +106,11 @@ fn recovered_name(taken: &[String]) -> String {
         .unwrap_or(base)
 }
 
-fn describe(inside: &LeftoverInside) -> Option<String> {
+fn describe(inside: &LeftoverInside) -> Option<Inside> {
     match inside {
         LeftoverInside::Item => None,
         LeftoverInside::Items { names, more } if names.is_empty() && *more == 0 => {
-            Some(crate::i18n::tr("Nothing inside"))
+            Some(Inside::Contains(crate::i18n::tr("Nothing inside")))
         }
         LeftoverInside::Items { names, more } => {
             let mut lines: Vec<String> = names
@@ -97,13 +120,35 @@ fn describe(inside: &LeftoverInside) -> Option<String> {
             if *more > 0 {
                 lines.push(crate::i18n::count("more_items", *more));
             }
-            Some(lines.join("\n"))
+            Some(Inside::Contains(lines.join("\n")))
         }
         LeftoverInside::StillOpen(reason) | LeftoverInside::Unreadable(reason) => {
-            Some(reason.clone())
+            Some(Inside::Status(reason.clone()))
         }
-        LeftoverInside::Gone => Some(crate::i18n::tr("No longer here")),
+        LeftoverInside::Gone => Some(Inside::Status(crate::i18n::tr("No longer here"))),
     }
+}
+
+fn card_label(text: &str, class: &str) -> gtk::Label {
+    let label = gtk::Label::builder()
+        .label(text)
+        .xalign(0.0)
+        .wrap(true)
+        .wrap_mode(gtk::pango::WrapMode::WordChar)
+        .build();
+    label.add_css_class(class);
+    label
+}
+
+/// A grid cell: wrapping labels make a grid request their narrowest layout's height.
+fn detail_label(text: &str, class: &str) -> gtk::Label {
+    let label = gtk::Label::builder()
+        .label(text)
+        .xalign(0.0)
+        .ellipsize(gtk::pango::EllipsizeMode::End)
+        .build();
+    label.add_css_class(class);
+    label
 }
 
 impl ViewState {
@@ -238,42 +283,54 @@ impl ViewState {
         list.add_css_class("delete-confirmation-files");
         let mut rows = HashMap::new();
         for (entry, kind) in &leftovers {
-            let row = gtk::Box::new(gtk::Orientation::Vertical, 4);
-            row.add_css_class("delete-confirmation-file");
-            row.add_css_class("leftover-row");
-            let top = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-            top.append(&crate::assets::primary_icon(entry_icon(entry), 16));
-            let what = gtk::Label::builder()
-                .label(holds(*kind))
-                .xalign(0.0)
-                .wrap(true)
-                .wrap_mode(gtk::pango::WrapMode::WordChar)
-                .hexpand(true)
-                .build();
-            top.append(&what);
+            let card = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+            card.add_css_class("leftover-card");
+            let icon = crate::assets::primary_icon(entry_icon(entry), 16);
+            icon.set_valign(gtk::Align::Start);
+            card.append(&icon);
+            let body = gtk::Box::new(gtk::Orientation::Vertical, 4);
+            body.set_hexpand(true);
+            body.append(&card_label(&heading(*kind), "leftover-card-title"));
             let date = gtk::Label::new(None);
-            date.add_css_class("delete-confirmation-file-metadata");
-            date.set_valign(gtk::Align::Start);
-            top.append(&date);
-            row.append(&top);
+            date.set_xalign(0.0);
+            date.add_css_class("leftover-card-detail");
+            body.append(&date);
+            let about = card_label(&explanation(*kind), "leftover-card-text");
+            about.set_margin_top(6);
+            body.append(&about);
+            let details = gtk::Grid::builder()
+                .row_spacing(2)
+                .column_spacing(10)
+                .margin_top(6)
+                .build();
+            let contains = detail_label(&crate::i18n::tr("Contains"), "leftover-card-label");
+            contains.set_valign(gtk::Align::Start);
+            contains.set_visible(false);
+            let inside = detail_label("", "leftover-card-value");
+            inside.set_visible(false);
+            details.attach(&contains, 0, 0, 1, 1);
+            details.attach(&inside, 1, 0, 1, 1);
+            details.attach(
+                &detail_label(&crate::i18n::tr("On disk"), "leftover-card-label"),
+                0,
+                1,
+                1,
+                1,
+            );
             let name = gtk::Label::builder()
                 .label(&entry.display_name)
                 .xalign(0.0)
+                .hexpand(true)
                 .ellipsize(gtk::pango::EllipsizeMode::Middle)
                 .selectable(true)
                 .build();
-            name.add_css_class("delete-confirmation-file-metadata");
-            row.append(&name);
-            let inside = gtk::Label::builder()
-                .xalign(0.0)
-                .wrap(true)
-                .wrap_mode(gtk::pango::WrapMode::WordChar)
-                .visible(false)
-                .build();
-            inside.add_css_class("delete-confirmation-file-metadata");
-            row.append(&inside);
+            name.add_css_class("leftover-card-value");
+            details.attach(&name, 1, 1, 1, 1);
+            body.append(&details);
+            card.append(&body);
             let actions = gtk::Box::new(gtk::Orientation::Horizontal, 6);
             actions.set_halign(gtk::Align::End);
+            actions.set_valign(gtk::Align::Center);
             let mut restore = None;
             for (action, label, offered) in [
                 (Action::Restore, "Restore", restorable(*kind, &folder)),
@@ -301,12 +358,13 @@ impl ViewState {
                 }
                 actions.append(&button);
             }
-            row.append(&actions);
-            list.append(&row);
+            card.append(&actions);
+            list.append(&card);
             rows.insert(
                 entry.native_name.clone(),
                 Row {
                     date,
+                    contains,
                     inside,
                     restore,
                 },
@@ -316,7 +374,7 @@ impl ViewState {
             .child(&list)
             .hscrollbar_policy(gtk::PolicyType::Never)
             .vscrollbar_policy(gtk::PolicyType::Automatic)
-            .max_content_height(320)
+            .max_content_height(400)
             .propagate_natural_height(true)
             .build();
         scroller.add_css_class("delete-confirmation-list");
@@ -350,9 +408,17 @@ impl ViewState {
                         continue;
                     };
                     crate::util::set_full_modified_date(&row.date, reviewed.modified);
-                    if let Some(text) = describe(&reviewed.inside) {
-                        row.inside.set_text(&text);
-                        row.inside.set_visible(true);
+                    match describe(&reviewed.inside) {
+                        Some(Inside::Contains(text)) => {
+                            row.inside.set_text(&text);
+                            row.inside.set_visible(true);
+                            row.contains.set_visible(true);
+                        }
+                        Some(Inside::Status(text)) => {
+                            row.inside.set_text(&text);
+                            row.inside.set_visible(true);
+                        }
+                        None => {}
                     }
                     if let (Some(restore), LeftoverInside::StillOpen(_) | LeftoverInside::Gone) =
                         (&row.restore, &reviewed.inside)
