@@ -2,6 +2,7 @@
 
 pub(crate) mod actions;
 pub(crate) mod camera_preview;
+pub(crate) mod diagnostics;
 mod document;
 pub(crate) mod document_media;
 pub(crate) mod docx;
@@ -11,6 +12,7 @@ mod file_source;
 pub(crate) mod image_conversion;
 mod install_source;
 mod item_identity;
+pub(crate) mod integration_catalog;
 pub(crate) mod jobs;
 mod listeners;
 mod mime_type;
@@ -64,7 +66,7 @@ pub use mime_type::{
     mime_description_for_name,
 };
 pub(crate) use model_preview::ModelRender;
-pub use model_preview::{ModelFormat, ModelPalette};
+pub use model_preview::{ModelEncoding, ModelFormat, ModelMesh, ModelPalette, ModelView};
 pub(crate) use native_fs::{
     is_hidden_name, link_target_kind, listed_kind, native_hidden_names, native_kind, symlink_kind,
 };

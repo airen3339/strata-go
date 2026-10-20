@@ -31,6 +31,9 @@ const FONT_STYLE_PRIORITY: u32 = BASE_THEME_STYLE_PRIORITY + 1;
 const STYLE_PRIORITY: u32 = FONT_STYLE_PRIORITY + 1;
 const RESET_CSS: &str = "* { all: unset; }";
 const TOKEN_STYLE_PRIORITY: u32 = STYLE_PRIORITY + 1;
+/// Above every Strata stylesheet, so `~/.config/strata/style.css` has the final word.
+const USER_STYLE_PRIORITY: u32 = TOKEN_STYLE_PRIORITY + 1;
+const USER_STYLE_FILE: &str = "style.css";
 const STYLE_CSS: &str = include_str!("../style.css");
 
 thread_local! {
@@ -192,6 +195,7 @@ pub struct ThemeManager {
     base_theme_provider: gtk::CssProvider,
     font_provider: gtk::CssProvider,
     base_provider: gtk::CssProvider,
+    user_provider: gtk::CssProvider,
     base_roundness: Cell<Option<CornerRoundness>>,
     themes: RefCell<Vec<Theme>>,
     preferences: Rc<PreferenceManager>,
@@ -201,6 +205,8 @@ pub struct ThemeManager {
     pending_omarchy_refresh: RefCell<Option<glib::SourceId>>,
     themes_monitor: RefCell<Option<LoadHandle>>,
     pending_themes_refresh: RefCell<Option<glib::SourceId>>,
+    user_style_monitor: RefCell<Option<LoadHandle>>,
+    pending_user_style_refresh: RefCell<Option<glib::SourceId>>,
     preview: RefCell<Option<ThemeTokens>>,
     preview_generation: Cell<u64>,
     /// Omarchy state can be unreadable mid-switch while the window keeps these colors.
@@ -252,6 +258,7 @@ impl ThemeManager {
             base_theme_provider: gtk::CssProvider::new(),
             font_provider: gtk::CssProvider::new(),
             base_provider: gtk::CssProvider::new(),
+            user_provider: gtk::CssProvider::new(),
             base_roundness: Cell::new(None),
             themes: RefCell::new(themes),
             preferences: preferences.clone(),
@@ -261,6 +268,8 @@ impl ThemeManager {
             pending_omarchy_refresh: RefCell::new(None),
             themes_monitor: RefCell::new(None),
             pending_themes_refresh: RefCell::new(None),
+            user_style_monitor: RefCell::new(None),
+            pending_user_style_refresh: RefCell::new(None),
             preview: RefCell::new(None),
             preview_generation: Cell::new(0),
             applied_omarchy_tokens: RefCell::new(None),
@@ -286,6 +295,8 @@ impl ThemeManager {
         manager.monitor_text_scaling();
         manager.monitor_omarchy(&omarchy.directories);
         manager.monitor_custom_themes(themes_directory().is_dir());
+        manager.user_provider.load_from_string(&read_user_stylesheet());
+        manager.monitor_user_stylesheet();
         manager
     }
 
@@ -478,7 +489,67 @@ impl ThemeManager {
                 &self.provider,
                 TOKEN_STYLE_PRIORITY,
             );
+            gtk::style_context_add_provider_for_display(
+                &display,
+                &self.user_provider,
+                USER_STYLE_PRIORITY,
+            );
         }
+        self.user_provider
+            .connect_parsing_error(|_, section, error| {
+                tracing::warn!(
+                    %error,
+                    path = %user_stylesheet_path().display(),
+                    location = %section,
+                    "invalid rule in user stylesheet"
+                );
+            });
+    }
+
+    /// A missing or unreadable file clears the provider, so deleting
+    /// `style.css` restores Strata's own appearance without a restart.
+    fn refresh_user_stylesheet(self: &Rc<Self>) {
+        let read = crate::storage::writer::run(read_user_stylesheet);
+        let weak = Rc::downgrade(self);
+        glib::MainContext::default().spawn_local(async move {
+            if let (Ok(css), Some(manager)) = (read.await, weak.upgrade()) {
+                manager.user_provider.load_from_string(&css);
+            }
+        });
+    }
+
+    fn monitor_user_stylesheet(self: &Rc<Self>) {
+        let (changed, live) = (Rc::downgrade(self), Rc::downgrade(self));
+        let monitor = crate::adapters::watch(
+            &Location::local(user_stylesheet_path()),
+            Watched::File,
+            move |_, _| {
+                if let Some(manager) = changed.upgrade() {
+                    manager.schedule_user_style_refresh();
+                }
+            },
+            move || {
+                if let Some(manager) = live.upgrade() {
+                    manager.schedule_user_style_refresh();
+                }
+            },
+        );
+        self.user_style_monitor.replace(Some(monitor));
+    }
+
+    fn schedule_user_style_refresh(self: &Rc<Self>) {
+        if let Some(pending) = self.pending_user_style_refresh.borrow_mut().take() {
+            pending.remove();
+        }
+        let weak = Rc::downgrade(self);
+        let refresh = glib::timeout_add_local_once(Duration::from_millis(75), move || {
+            let Some(manager) = weak.upgrade() else {
+                return;
+            };
+            manager.pending_user_style_refresh.borrow_mut().take();
+            manager.refresh_user_stylesheet();
+        });
+        self.pending_user_style_refresh.replace(Some(refresh));
     }
 
     /// Reparses the stylesheet only when the roundness changed; the other
@@ -1555,6 +1626,23 @@ fn title_case_slug(slug: &str) -> String {
 
 fn themes_directory() -> PathBuf {
     super::preferences::config_directory().join("themes")
+}
+
+fn user_stylesheet_path() -> PathBuf {
+    super::preferences::config_directory().join(USER_STYLE_FILE)
+}
+
+fn read_user_stylesheet() -> String {
+    let path = user_stylesheet_path();
+    match fs::read_to_string(&path) {
+        Ok(css) => css,
+        Err(error) => {
+            if error.kind() != io::ErrorKind::NotFound {
+                tracing::warn!(%error, path = %path.display(), "cannot read user stylesheet");
+            }
+            String::new()
+        }
+    }
 }
 
 pub(in crate::ui) fn omarchy_state_dir() -> PathBuf {
