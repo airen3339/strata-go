@@ -2008,7 +2008,10 @@ impl ViewState {
                         && focused != shell.clone().upcast::<gtk::Widget>()
                         && focused.ancestor(gtk::Popover::static_type()).is_none()
                 });
+                // 10xer hides the filter with its state kept for leaving, so a focus
+                // move while it is hidden must not switch the filter off.
                 if left_column
+                    && !crate::ui::tenxer_mode::chrome_suppressed()
                     && weak_browser
                         .upgrade()
                         .is_some_and(|browser| !browser.is_chooser_mode())

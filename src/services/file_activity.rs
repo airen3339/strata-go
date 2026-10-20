@@ -261,7 +261,6 @@ pub(crate) struct Listing {
 }
 
 pub(crate) fn list(folder: &Path) -> io::Result<Listing> {
-    crate::util::ui_thread::assert_off();
     let hold = hold_real(folder)?;
     Ok(Listing {
         entries: Some(fs::read_dir(folder)?),

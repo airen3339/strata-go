@@ -1119,6 +1119,11 @@ fn entering_tenxer_hides_an_open_filter_and_leaving_restores_it() {
             settle();
             assert!(!revealer.reveals_child());
             assert_controls(&open, false);
+            assert!(
+                focusable_outside_the_browser(&open).grab_focus(),
+                "focus leaves the column while 10xer hides the filter"
+            );
+            settle();
             manager.set_tenxer_mode(false);
             settle();
             assert!(revealer.reveals_child());
@@ -2278,6 +2283,22 @@ fn label_named(root: &gtk::Widget, text: &str) -> gtk::Label {
         }
     });
     found.unwrap_or_else(|| panic!("label {text}"))
+}
+
+fn focusable_outside_the_browser(open: &OpenWindow) -> gtk::Widget {
+    let browser = open.content.browser.widget();
+    let mut found = None;
+    walk(open.window.upcast_ref(), &mut |widget| {
+        if found.is_none()
+            && widget.is_focusable()
+            && widget.is_mapped()
+            && *widget != browser
+            && !widget.is_ancestor(&browser)
+        {
+            found = Some(widget.clone());
+        }
+    });
+    found.expect("a focusable widget outside the browser")
 }
 
 fn walk(widget: &gtk::Widget, visit: &mut impl FnMut(&gtk::Widget)) {
