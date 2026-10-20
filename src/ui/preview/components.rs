@@ -44,7 +44,7 @@ impl DetailsHeader {
     }
 }
 
-/// A binding expands the complete tooltip's `%{keys}` placeholder.
+/// `tooltip` names `binding`, when given, with `%{keys}`.
 pub(super) fn navigation_button(
     icon: &str,
     name: &str,
