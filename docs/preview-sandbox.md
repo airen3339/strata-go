@@ -154,11 +154,22 @@ candidates are corrupt or its geometry spans multiple model parts. Two usable
 images are ambiguous: Quick Preview tries geometry, while browser thumbnailing
 leaves the normal file icon. Multipart geometry is not rendered.
 
-Browser thumbnails extract embedded images only, through the **existing browser
+3MF and FreeCAD browser thumbnails extract embedded images only, through the **existing browser
 worker pool** and its normal cache, cancellation and slow-job admission. There is
-no geometry fallback, new pool or thumbnail job for STL. The decoder does not read
+no geometry fallback or new pool. The decoder does not read
 model XML when selecting an embedded image. Missing or unusable images leave the
 file icon, with the existing failure cache preventing immediate retries.
+
+Local STL browser thumbnails are a separate opt-in under **Settings → Appearance
+→ File icons → STL model thumbnails**; **Show thumbnails** must also be enabled.
+They reuse the software model renderer in a one-shot sandbox at 256×256, with a
+fixed camera and neutral artwork colors for the persistent cache. The existing
+browser queue admits at most one such render across all windows in the process,
+within its general worker limit, and cancels obsolete requests normally. This
+does not create a reusable worker pool or raise any model/sandbox limits. An
+interactive Quick Preview may run concurrently; it does not share this background
+STL slot. Disabling the option hides cached STL thumbnails as well as preventing
+new renders. Failed models retain the file icon and the normal retry backoff.
 
 Heavy Quick Previews (models, PDFs, workbooks and DOCX) share one process-wide
 permit and use one-shot sandboxes. Cancellation retains that permit until the
