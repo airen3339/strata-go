@@ -50,6 +50,9 @@ fn multi_word_queries_match_when_every_word_appears() {
         ("only-duck.md", "duck txt", false),
         ("summer holiday.jpg", "summer holiday", true),
         ("holiday.jpg", "summer holiday", false),
+        ("duck.txt", "duck ", true),
+        ("abc_tent.doc", "abc text", true),
+        ("abc_tent.doc", "abc tex", false),
     ] {
         assert_eq!(
             filter_name_matches(&fold_for_search(name), &fold_for_search(query)),

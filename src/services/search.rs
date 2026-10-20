@@ -1767,17 +1767,9 @@ fn filter_score_normalized(item: &SearchItem, query: &str) -> Option<i64> {
         return None;
     }
     if !query.contains('*') && item.search_name().contains(query) {
-        // Exact phrase matches outrank scattered multi-word hits.
         return fuzzy_score_normalized(item, query);
     }
-    let multi_word = !query.contains('*')
-        && query
-            .split_whitespace()
-            .filter(|word| !word.is_empty())
-            .count()
-            > 1;
-    let base = i64::from(item.is_directory) * 20 - i64::from(item.depth) * 32;
-    Some(if multi_word { base - 500 } else { base })
+    Some(i64::from(item.is_directory) * 20 - i64::from(item.depth) * 32)
 }
 
 fn fuzzy_score_normalized(item: &SearchItem, query: &str) -> Option<i64> {
