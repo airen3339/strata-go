@@ -219,3 +219,32 @@ def test_icons_fills_duration_without_regenerating_cached_thumbnails(strata, tes
         strata.wait(lambda: strata.window.find(role="label", name=caption), f"source detail {caption}")
     assert cached.stat().st_mtime_ns == stored
     assert strata.application.log().count("browser sandbox started") <= 2
+
+
+@pytest.mark.preferences(stl_thumbnails=True, show_thumbnails=True)
+def test_stl_thumbnails_render_geometry_and_reject_invalid_inputs(strata, test_environment):
+    directory = strata.fixture.path("stl-thumbnails")
+    directory.mkdir()
+    truncated = bytearray(84)
+    truncated[80:84] = (2).to_bytes(4, "little")
+    (directory / "a-truncated.stl").write_bytes(truncated)
+    oversized = directory / "b-oversized.stl"
+    with oversized.open("wb") as stream:
+        stream.truncate(128 * 1024 * 1024 + 1)
+    valid = directory / "c-valid.stl"
+    valid.write_text("solid sample\nvertex 0 0 0\nvertex 4 0 0\nvertex 0 2 1\nendsolid\n")
+    strata.switch_view("Icons")
+    strata.open_directory("stl-thumbnails")
+    bucket = test_environment.cache_home / "thumbnails" / "large"
+
+    def cached(path):
+        return bucket / (hashlib.md5(path.as_uri().encode()).hexdigest() + ".png")
+
+    strata.wait(cached(valid).is_file, "the valid STL to render after refused models")
+    with Image.open(cached(valid)) as image:
+        assert image.info["Thumb::URI"] == valid.as_uri()
+        assert image.convert("RGBA").getchannel("A").getextrema() == (0, 255)
+    for invalid in [directory / "a-truncated.stl", oversized]:
+        assert strata.entry(invalid.name) is not None
+        assert not cached(invalid).exists()
+    assert strata.environment.read_preferences().get("stl_thumbnails") == "true"

@@ -1883,12 +1883,11 @@ fn thumbnail_preferences_across_windows(name: &str, model: bool) {
             manager.set_show_thumbnails(false);
             wait_until(|| shown(false));
         }
+        manager.set_stl_thumbnails(false);
         crate::storage::writer::settle();
-        assert!(
-            std::fs::read_to_string(settings_file())
-                .expect("saved settings")
-                .contains("show_thumbnails = false")
-        );
+        let saved = std::fs::read_to_string(settings_file()).expect("saved settings");
+        assert!(saved.contains("show_thumbnails = false"));
+        assert!(saved.contains("stl_thumbnails = false"));
         for open in windows {
             open.window.close();
         }

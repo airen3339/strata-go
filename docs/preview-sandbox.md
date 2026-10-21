@@ -163,13 +163,21 @@ file icon, with the existing failure cache preventing immediate retries.
 Local STL browser thumbnails are a separate opt-in under **Settings → Appearance
 → File icons → STL model thumbnails**; **Show thumbnails** must also be enabled.
 They reuse the software model renderer in a one-shot sandbox at 256×256, with a
-fixed camera and neutral artwork colors for the persistent cache. The existing
+fixed camera, neutral model colors and a transparent background for the shared
+freedesktop thumbnail cache. The existing
 browser queue admits at most one such render across all windows in the process,
 within its general worker limit, and cancels obsolete requests normally. This
 does not create a reusable worker pool or raise any model/sandbox limits. An
 interactive Quick Preview may run concurrently; it does not share this background
 STL slot. Disabling the option hides cached STL thumbnails as well as preventing
-new renders. Failed models retain the file icon and the normal retry backoff.
+new renders. It does not delete PNGs already stored in
+`$XDG_CACHE_HOME/thumbnails/large`; other freedesktop clients may still display them.
+Cancellation or the wall deadline sends SIGKILL and releases the background STL
+worker and admission slot without waiting for the helper to be reaped. A detached
+waiter keeps its private output and file-operation hold alive until reaping and
+namespace cleanup finish. A killed helper stuck in kernel I/O can therefore
+overlap a later render until the kernel allows it to exit. Interactive Quick Preview
+retains its existing wait-for-exit policy. Failed models retain the file icon and normal retry backoff.
 
 Heavy Quick Previews (models, PDFs, workbooks and DOCX) share one process-wide
 permit and use one-shot sandboxes. Cancellation retains that permit until the

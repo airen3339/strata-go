@@ -65,8 +65,8 @@ pub use mime_type::{
     BROKEN_LINK_TYPE_NAME, EntryType, FOLDER_TYPE_NAME, OTHER_TYPE_NAME, entry_type,
     mime_description_for_name,
 };
-pub(crate) use model_preview::ModelRender;
 pub use model_preview::{ModelEncoding, ModelFormat, ModelMesh, ModelPalette, ModelView};
+pub(crate) use model_preview::{ModelRender, ModelRenderPurpose};
 pub(crate) use native_fs::{
     is_hidden_name, link_target_kind, listed_kind, native_hidden_names, native_kind, symlink_kind,
 };

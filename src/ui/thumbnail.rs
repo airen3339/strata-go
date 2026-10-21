@@ -1725,12 +1725,13 @@ fn render_thumbnail(
             let rendered = crate::sandbox::parse(
                 path,
                 ParseOperation::PreviewModel(crate::services::ModelRender {
+                    purpose: crate::services::ModelRenderPurpose::Thumbnail,
                     format: crate::services::ModelFormat::Stl,
                     size: crate::services::MediaPreviewSize::new(256, 256),
                     // Shared thumbnail-cache artwork must not depend on the active theme.
                     palette: crate::services::ModelPalette {
                         accent: 0xcccccc,
-                        surface: 0x202024,
+                        surface: 0,
                     },
                     view: crate::services::ModelView::default(),
                 }),
