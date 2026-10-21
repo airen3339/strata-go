@@ -99,3 +99,124 @@ fn scroll_refresh_waits_for_scrolling_to_stop() {
         },
     );
 }
+
+fn typed_entry(name: &str, kind: crate::model::EntryKind) -> FileEntry {
+    FileEntry {
+        location: Location::local(format!("/fixture/{name}")),
+        thumbnail_path: None,
+        native_name: name.into(),
+        display_name: name.into(),
+        kind,
+        size: MetadataValue::Unknown,
+        modified_unix_seconds: MetadataValue::Unknown,
+        mode: MetadataValue::Unknown,
+        recent_unix_seconds: MetadataValue::Unknown,
+        image_dimensions: MetadataValue::Unknown,
+        child_count: MetadataValue::Unknown,
+        duration_seconds: MetadataValue::Unknown,
+        is_hidden: false,
+        recent_uri: None,
+    }
+}
+
+#[test]
+fn type_groups_order_chunked_rows_and_follow_sort_preference_changes() {
+    use crate::model::{EntryKind, ViewPreferences};
+    crate::test_support::gtk_test(
+        "ui::browser_modes::tests::type_groups_order_chunked_rows_and_follow_sort_preference_changes",
+        || {
+            let preferences = Rc::new(Cell::new(Some(ViewPreferences::default())));
+            let sorter = TypeGroupSorter::new({
+                let preferences = preferences.clone();
+                move || preferences.get()
+            });
+            let source = gtk::StringList::new(&[]);
+            let view = gtk::SortListModel::new(Some(source.clone()), Some(sorter.sorter.clone()));
+            let publish = |position: u32, entries: &[(&str, EntryKind)]| {
+                let values: Vec<_> = entries
+                    .iter()
+                    .map(|(name, kind)| {
+                        super::super::browser::entry_model_value(&typed_entry(name, *kind))
+                    })
+                    .collect();
+                let values: Vec<_> = values.iter().map(String::as_str).collect();
+                source.splice(position, 0, &values);
+            };
+            let shown = || -> Vec<String> {
+                (0..view.n_items())
+                    .filter_map(|position| view.item(position))
+                    .map(|item| {
+                        let value = item_name(&item);
+                        value
+                            .split_once('\t')
+                            .map_or(value.clone(), |(_, name)| name.to_owned())
+                    })
+                    .collect()
+            };
+
+            // Rows arrive in filename order over two splices, as publication delivers them.
+            publish(
+                0,
+                &[
+                    ("a.png", EntryKind::File),
+                    ("b", EntryKind::Directory),
+                    ("c.jpg", EntryKind::File),
+                ],
+            );
+            publish(
+                3,
+                &[
+                    ("d", EntryKind::Directory),
+                    ("e.png", EntryKind::File),
+                    ("socket", EntryKind::Other),
+                ],
+            );
+            assert_eq!(shown(), ["b", "d", "c.jpg", "a.png", "e.png", "socket"]);
+
+            sorter.refresh(preferences.get());
+            assert_eq!(shown(), ["b", "d", "c.jpg", "a.png", "e.png", "socket"]);
+
+            preferences.set(Some(ViewPreferences {
+                sort_key: SortKey::Type,
+                sort_direction: SortDirection::Descending,
+                ..ViewPreferences::default()
+            }));
+            sorter.refresh(preferences.get());
+            assert_eq!(shown(), ["b", "d", "socket", "a.png", "e.png", "c.jpg"]);
+        },
+    );
+}
+
+#[test]
+fn density_slider_positions_snap_to_presets_and_clamp_to_the_maximum() {
+    for (px, density) in [
+        (0, BrowserDensity::Custom(0)),
+        (4, BrowserDensity::Compact),
+        (5, BrowserDensity::Custom(5)),
+        (8, BrowserDensity::Airy),
+        (200, BrowserDensity::Custom(16)),
+    ] {
+        assert_eq!(BrowserDensity::from_px(px), density, "content {px} px");
+        assert_eq!(density.px(), px.min(16));
+    }
+    for (px, density) in [
+        (0, FrameDensity::Compact),
+        (3, FrameDensity::Custom(3)),
+        (4, FrameDensity::Airy),
+        (200, FrameDensity::Custom(12)),
+    ] {
+        assert_eq!(FrameDensity::from_px(px), density, "frame {px} px");
+        assert_eq!(density.px(), px.min(12));
+    }
+}
+
+#[test]
+fn icons_column_cap_follows_the_slider_side_of_airy() {
+    for (px, columns) in [(0, 20), (4, 20), (7, 20), (8, 16), (16, 16)] {
+        assert_eq!(
+            density_icons_columns(BrowserDensity::from_px(px)),
+            columns,
+            "{px} px"
+        );
+    }
+}
