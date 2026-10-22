@@ -94,6 +94,23 @@ fn set_times(file: BorrowedFd<'_>, times: &rustix::fs::Timestamps) -> rustix::io
     )
 }
 
+/// True when `name` is only the archive root (`.`, `./`, `././`, or the same name with `\`).
+///
+/// `Path` comparison collapses `.` components. `\` is folded the same way as
+/// [`sanitized_archive_path`].
+pub(super) fn names_archive_root(name: impl AsRef<OsStr>) -> bool {
+    let name = name.as_ref();
+    let bytes = name.as_bytes();
+    if !bytes.contains(&b'\\') {
+        return Path::new(name) == Path::new(".");
+    }
+    let folded: Vec<u8> = bytes
+        .iter()
+        .map(|byte| if *byte == b'\\' { b'/' } else { *byte })
+        .collect();
+    Path::new(OsStr::from_bytes(&folded)) == Path::new(".")
+}
+
 /// Clamp parent traversal at the extraction root so one such member does not abort the archive.
 pub(super) fn sanitized_archive_path(name: impl AsRef<OsStr>) -> Result<PathBuf, String> {
     let native = name.as_ref();

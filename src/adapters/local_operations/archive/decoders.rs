@@ -25,6 +25,7 @@ use crate::services::{INCORRECT_ARCHIVE_PASSWORD, TransferReport};
 use super::{
     ArchiveError, MAYBE_BAD_PASSWORD, PASSWORD_REQUIRED, archive_failed, archive_io_failed,
     archive_read_failed, check_archive_cancelled, copy_with_big_buf,
+    destination::names_archive_root,
     extraction::{
         ArchiveOutcome, ExtractionSession, MAX_SYMLINK_TARGET_BYTES, MemberContent, MemberMetadata,
     },
@@ -463,7 +464,7 @@ pub(super) fn extract_tar(
             }
             let name = entry.path().map_err(|error| archive_io_failed(&error))?;
             let entry_type = entry.header().entry_type();
-            if entry_type.is_dir() && name == Path::new(".") {
+            if entry_type.is_dir() && names_archive_root(name.as_ref()) {
                 continue;
             }
             let declared_size = entry.size();
