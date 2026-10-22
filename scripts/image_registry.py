@@ -7,7 +7,6 @@ import json
 import os
 import re
 import subprocess
-import sys
 import time
 
 from image_inputs import dependency_key, image_key
