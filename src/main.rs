@@ -11,6 +11,7 @@ mod adapters;
 mod app;
 mod assets;
 mod build_info;
+mod child_environment;
 mod i18n;
 mod logging;
 mod media;
@@ -127,7 +128,11 @@ fn file_manager_debug_environment(
 /// GTK reads its renderer and theme override during startup. Re-exec before
 /// initializing GTK rather than mutating the environment after libraries may
 /// have started threads. Returns only when the restart fails.
-fn restart_for_gtk_environment(arguments: &[OsString], select_cairo: bool) -> gtk::glib::ExitCode {
+fn restart_for_gtk_environment(
+    arguments: &[OsString],
+    select_cairo: bool,
+    service_debug: Option<OsString>,
+) -> gtk::glib::ExitCode {
     let Ok(executable) = std::env::current_exe() else {
         eprintln!("Unable to locate Strata to restart it");
         return gtk::glib::ExitCode::FAILURE;
@@ -136,12 +141,15 @@ fn restart_for_gtk_environment(arguments: &[OsString], select_cairo: bool) -> gt
     command
         .args(&arguments[1..])
         .env_remove(DESKTOP_THEME_OVERRIDE);
-    if let Some(debug) =
-        file_manager_debug_environment(arguments, std::env::var_os("GDK_DEBUG").as_deref())
-    {
+    if let Some(debug) = service_debug {
         // OpenDirectory synchronously waits for FileManager1. GTK must not
         // query that same portal while initializing this D-Bus-activated app.
-        command.env("GDK_DEBUG", debug);
+        command
+            .env(
+                child_environment::ORIGINAL_GDK_DEBUG,
+                std::env::var_os("GDK_DEBUG").unwrap_or_default(),
+            )
+            .env("GDK_DEBUG", debug);
     }
     if select_cairo {
         command
@@ -233,7 +241,7 @@ fn main() -> gtk::glib::ExitCode {
         }
         LaunchMode::Portal => {
             if has_desktop_theme_override() {
-                return restart_for_gtk_environment(&arguments, false);
+                return restart_for_gtk_environment(&arguments, false, None);
             }
             restart_with_local_vfs_if_gvfs_is_unresponsive();
             let _volumes = gio::VolumeMonitor::get();
@@ -317,7 +325,7 @@ fn main() -> gtk::glib::ExitCode {
             eprintln!("--qa needs GSK_RENDERER set and GTK_THEME unset");
             return gtk::glib::ExitCode::FAILURE;
         }
-        return restart_for_gtk_environment(&arguments, select_cairo);
+        return restart_for_gtk_environment(&arguments, select_cairo, service_debug);
     }
 
     if let Err(error) = portal_setup::refresh_stale_portal() {

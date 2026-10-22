@@ -115,9 +115,9 @@ approximately 25 seconds and stalls other portal consumers.
 
 This is a compatibility mitigation for the activated process, not a replacement
 for asynchronous dispatch in the desktop portal. GTK portal integration is
-disabled for that process's lifetime and the environment may be inherited by
-subprocesses; ordinary launches and the separate `--portal` FileChooser backend
-do not acquire this override themselves. Do not set
+disabled for that process's lifetime. Programs it launches, and a restart from
+Settings, get the original `GDK_DEBUG` back; ordinary launches and the separate
+`--portal` FileChooser backend never acquire the override. Do not set
 `GDK_DEBUG=no-portals` globally to address this problem.
 
 ## Other distributions
