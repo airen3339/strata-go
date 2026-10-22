@@ -16,9 +16,9 @@ AUDIT = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = AUDIT
 SPEC.loader.exec_module(AUDIT)
 
-ENVIRONMENT = "/tmp/strata-e2e-home-x"
-FIXTURE = "/tmp/strata-e2e-fixture-x"
-RUNTIME = "/tmp/strata-e2e-runtime"
+ENVIRONMENT = "/tmp/strata-qa-home-x"
+FIXTURE = "/tmp/strata-qa-fixture-x"
+RUNTIME = "/tmp/strata-qa-runtime"
 SHADERS = "/tmp/strata-qa-shaders-x"
 LOG = "/tmp/strata-qa-x/strata.log"
 

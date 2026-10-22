@@ -27,7 +27,7 @@ class PinnedPackageTests(unittest.TestCase):
             f"#!{sys.executable}\n"
             "import json, os, sys\n"
             "from pathlib import Path\n"
-            "root = Path(os.environ['STRATA_E2E_PACMAN_ROOT'])\n"
+            "root = Path(os.environ['STRATA_TEST_PACMAN_ROOT'])\n"
             "with (root / 'calls.jsonl').open('a') as stream:\n"
             "    stream.write(json.dumps(sys.argv[1:]) + '\\n')\n"
             "if sys.argv[1:3] == ['-Syy', '--noconfirm'] and os.environ.get('CREATE_INDEXES') == '1':\n"
@@ -45,8 +45,8 @@ class PinnedPackageTests(unittest.TestCase):
             env={
                 **os.environ,
                 "PATH": f"{self.bin}:{os.environ.get('PATH', os.defpath)}",
-                "STRATA_E2E_ARCH_SNAPSHOT": snapshot,
-                "STRATA_E2E_PACMAN_ROOT": str(self.root),
+                "STRATA_TEST_ARCH_SNAPSHOT": snapshot,
+                "STRATA_TEST_PACMAN_ROOT": str(self.root),
                 "CREATE_INDEXES": "1" if create_indexes else "0",
                 "PACMAN_STATUS": str(status),
             },

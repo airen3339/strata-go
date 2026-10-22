@@ -13,7 +13,7 @@ from gi.repository import Gdk, GLib, Gtk  # noqa: E402
 
 EXPECTED_VERSION = (4, 22, 5)
 EXPECTED_LIBRARY = Path("/usr/lib/libgtk-4.so.1.2200.5")
-CHECKSUM_FILE = Path("/usr/share/strata-e2e/gtk.sha256")
+CHECKSUM_FILE = Path("/usr/share/strata-test/gtk.sha256")
 PADDING = 22
 
 

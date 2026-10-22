@@ -95,7 +95,7 @@ pass before merge.
   than repeating the full run. Use `./scripts/quality.sh test` only when a full
   Rust run is justified; defer `fmt` and `clippy` to the pre-push checkpoint.
   Preserve pinned image provenance and the existing `target/quality-container`
-  and `target/e2e-container` caches.
+  and `target/qa-container` caches.
 - GUI and delegated checks must never use the desktop or an inherited session
   bus. Use private Xvfb and private D-Bus, clear inherited display variables,
   disable accessibility bridging, and require GTK tests to run (not silently
@@ -142,9 +142,9 @@ pass before merge.
   every invocation, prune other sessions' images, or bypass image-input checks.
 - Only when intentionally changing environment inputs, or when an unpublished
   environment must be bootstrapped, run explicitly:
-  `STRATA_CONTAINER_ENGINE=podman python3 scripts/e2e_base.py build`.
+  `STRATA_CONTAINER_ENGINE=podman python3 scripts/image_base.py build`.
   Run this once, then return to `./scripts/qa.sh`. Do not habitually rebuild bases
-  as a pre-test step. Preserve `target/e2e-container` so Cargo can reuse its cache.
+  as a pre-test step. Preserve `target/qa-container` so Cargo can reuse its cache.
 - Published bases are updated by the trusted-main publisher when environment
   inputs change. Application edits do not require rebuilding the base. Different
   local UID/GID values are handled by generated container account files.

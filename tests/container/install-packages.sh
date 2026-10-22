@@ -2,13 +2,13 @@
 # SPDX-License-Identifier: MIT
 set -eu
 
-root=${STRATA_E2E_PACMAN_ROOT:-}
-snapshot=${STRATA_E2E_ARCH_SNAPSHOT:?the dated Arch snapshot is required}
+root=${STRATA_TEST_PACMAN_ROOT:-}
+snapshot=${STRATA_TEST_ARCH_SNAPSHOT:?the dated Arch snapshot is required}
 mirrorlist="$root/etc/pacman.d/mirrorlist"
 configuration="$root/etc/pacman.conf"
 sync="$root/var/lib/pacman/sync"
 
-fail() { printf 'E2E packages: %s\n' "$1" >&2; exit 1; }
+fail() { printf 'Test image packages: %s\n' "$1" >&2; exit 1; }
 case "$snapshot" in
     ????/??/??) ;;
     *) fail 'snapshot must use YYYY/MM/DD' ;;

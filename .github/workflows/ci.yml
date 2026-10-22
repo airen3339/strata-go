@@ -41,7 +41,7 @@ jobs:
         env:
           BASE_REF: ${{ github.event.pull_request.base.sha || 'HEAD^' }}
         run: |
-          if reference="$(python3 scripts/e2e_images.py environment)"; then
+          if reference="$(python3 scripts/image_registry.py environment)"; then
             docker pull --platform=linux/amd64 "${reference#environment_image=}"
           else
             git cat-file -e "$BASE_REF^{commit}"
@@ -53,11 +53,11 @@ jobs:
               if [[ "$status" != 1 ]]; then exit "$status"; fi
             fi
             echo 'Environment inputs changed: explicitly building this unpublished candidate without publishing it.'
-            reference="environment_image=$(python3 scripts/e2e_base.py build --engine docker)"
+            reference="environment_image=$(python3 scripts/image_base.py build --engine docker)"
             echo 'candidate=true' >> "$GITHUB_OUTPUT"
           fi
           printf '%s\n' "$reference" >> "$GITHUB_OUTPUT"
-          echo "inputs=$(python3 scripts/e2e_bundle.py image-key)" >> "$GITHUB_OUTPUT"
+          echo "inputs=$(python3 scripts/image_inputs.py image-key)" >> "$GITHUB_OUTPUT"
 
       - name: Restore quality-only Cargo cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -295,8 +295,8 @@ jobs:
       - name: Build the qa feature and run every scenario in the pinned container
         env:
           STRATA_CONTAINER_ENGINE: docker
-          STRATA_E2E_IMAGE: ${{ needs.quality-build.outputs.environment_image }}
-          STRATA_E2E_CARGO_CACHE: target/quality-container
+          STRATA_TEST_IMAGE: ${{ needs.quality-build.outputs.environment_image }}
+          STRATA_TEST_CARGO_CACHE: target/quality-container
         run: ./scripts/qa.sh
 
       - name: Confirm a qa build contains the text the release check rejects

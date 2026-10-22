@@ -1,4 +1,4 @@
-name: Publish pinned E2E environments
+name: Publish the pinned test image
 
 on:
   workflow_dispatch:
@@ -8,16 +8,16 @@ on:
       - Cargo.toml
       - Cargo.lock
       - tests/container/**
-      - scripts/e2e_bundle.py
-      - scripts/e2e_images.py
+      - scripts/image_inputs.py
+      - scripts/image_registry.py
       - .dockerignore
-      - .github/workflows/e2e-images.yml
+      - .github/workflows/test-image.yml
 
 permissions:
   contents: read
 
 concurrency:
-  group: e2e-image-publication
+  group: test-image-publication
   cancel-in-progress: false
 
 jobs:
@@ -37,9 +37,9 @@ jobs:
       - name: Identify the pinned environment inputs
         id: identity
         run: |
-          python3 scripts/e2e_images.py references >> "$GITHUB_OUTPUT"
-          echo "image_key=$(python3 scripts/e2e_bundle.py image-key)" >> "$GITHUB_OUTPUT"
-          echo "dependency_key=$(python3 scripts/e2e_bundle.py dependency-key)" >> "$GITHUB_OUTPUT"
+          python3 scripts/image_registry.py references >> "$GITHUB_OUTPUT"
+          echo "image_key=$(python3 scripts/image_inputs.py image-key)" >> "$GITHUB_OUTPUT"
+          echo "dependency_key=$(python3 scripts/image_inputs.py dependency-key)" >> "$GITHUB_OUTPUT"
           echo "uid=$(id -u)" >> "$GITHUB_OUTPUT"
           echo "gid=$(id -g)" >> "$GITHUB_OUTPUT"
 
@@ -56,14 +56,13 @@ jobs:
       - name: Check which input-addressed images already exist
         id: existing
         env:
-          RUNTIME_REF: ${{ steps.identity.outputs.runtime }}
           BUILD_REF: ${{ steps.identity.outputs.build }}
           CACHE_REF: ${{ steps.identity.outputs.cache }}
           ENVIRONMENT_CACHE_REF: ${{ steps.identity.outputs.environment_cache }}
           ENVIRONMENT_IMAGE_REF: ${{ steps.identity.outputs.environment_image }}
         shell: bash
         run: |
-          for kind in runtime build cache environment_cache environment_image; do
+          for kind in build cache environment_cache environment_image; do
             variable="${kind^^}_REF"
             if docker buildx imagetools inspect "${!variable}" >/dev/null 2>&1; then
               echo "$kind=true" >> "$GITHUB_OUTPUT"
@@ -73,12 +72,12 @@ jobs:
           done
 
       - name: Restore trusted default-branch dependency layers
-        if: steps.existing.outputs.build != 'true' || steps.existing.outputs.cache != 'true' || steps.existing.outputs.environment_cache != 'true' || steps.existing.outputs.runtime != 'true' || steps.existing.outputs.environment_image != 'true'
+        if: steps.existing.outputs.build != 'true' || steps.existing.outputs.cache != 'true' || steps.existing.outputs.environment_cache != 'true' || steps.existing.outputs.environment_image != 'true'
         id: dependency-cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: target/e2e-dependency-cache
-          key: strata-e2e-dependencies-local-v1-${{ steps.identity.outputs.image_key }}-${{ hashFiles('Cargo.toml', 'Cargo.lock', '.dockerignore') }}-${{ steps.identity.outputs.uid }}-${{ steps.identity.outputs.gid }}
+          path: target/test-image-cache
+          key: strata-test-dependencies-local-v1-${{ steps.identity.outputs.image_key }}-${{ hashFiles('Cargo.toml', 'Cargo.lock', '.dockerignore') }}-${{ steps.identity.outputs.uid }}-${{ steps.identity.outputs.gid }}
 
       - name: Publish the build environment and its complete dependency cache
         if: steps.existing.outputs.build != 'true' || steps.existing.outputs.cache != 'true' || steps.existing.outputs.environment_cache != 'true' || steps.existing.outputs.environment_image != 'true'
@@ -89,71 +88,50 @@ jobs:
           target: dependencies
           platforms: linux/amd64
           build-args: |
-            E2E_UID=${{ steps.identity.outputs.uid }}
-            E2E_GID=${{ steps.identity.outputs.gid }}
+            TEST_UID=${{ steps.identity.outputs.uid }}
+            TEST_GID=${{ steps.identity.outputs.gid }}
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
-            org.strata.e2e.inputs=${{ steps.identity.outputs.image_key }}
-            org.strata.e2e.dependencies=${{ steps.identity.outputs.dependency_key }}
+            org.strata.test.inputs=${{ steps.identity.outputs.image_key }}
+            org.strata.test.dependencies=${{ steps.identity.outputs.dependency_key }}
           tags: |
             ${{ steps.identity.outputs.build }}
             ${{ steps.existing.outputs.environment_image != 'true' && steps.identity.outputs.environment_image || '' }}
           push: true
           cache-from: |
-            ${{ steps.dependency-cache.outputs.cache-hit == 'true' && 'type=local,src=target/e2e-dependency-cache' || 'type=gha,scope=strata-e2e-dependencies-v1' }}
-            type=gha,scope=strata-e2e-indexes-v1
+            ${{ steps.dependency-cache.outputs.cache-hit == 'true' && 'type=local,src=target/test-image-cache' || 'type=gha,scope=strata-test-dependencies-v1' }}
+            type=gha,scope=strata-test-indexes-v1
             type=registry,ref=${{ steps.identity.outputs.environment_cache }}
           cache-to: |
             type=registry,ref=${{ steps.identity.outputs.cache }},mode=max
             ${{ steps.existing.outputs.environment_cache != 'true' && format('type=registry,ref={0},mode=max', steps.identity.outputs.environment_cache) || '' }}
 
-      - name: Publish the runtime without Rust or Cargo
-        if: steps.existing.outputs.runtime != 'true'
-        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
-        with:
-          context: .
-          file: tests/container/Dockerfile
-          target: runtime
-          platforms: linux/amd64
-          build-args: |
-            E2E_UID=${{ steps.identity.outputs.uid }}
-            E2E_GID=${{ steps.identity.outputs.gid }}
-          labels: |
-            org.opencontainers.image.source=https://github.com/${{ github.repository }}
-            org.opencontainers.image.revision=${{ github.sha }}
-            org.strata.e2e.inputs=${{ steps.identity.outputs.image_key }}
-          tags: ${{ steps.identity.outputs.runtime }}
-          push: true
-          cache-from: type=registry,ref=${{ steps.identity.outputs.cache }}
-
       - name: Report published references and anonymous-access setup
         env:
-          RUNTIME_REF: ${{ steps.identity.outputs.runtime }}
           BUILD_REF: ${{ steps.identity.outputs.build }}
           CACHE_REF: ${{ steps.identity.outputs.cache }}
+          ENVIRONMENT_IMAGE_REF: ${{ steps.identity.outputs.environment_image }}
         run: |
           {
-            echo '## Pinned E2E environments'
+            echo '## Pinned test image'
             echo
-            echo "Runtime: \`$RUNTIME_REF\`"
+            echo "Base: \`$ENVIRONMENT_IMAGE_REF\`"
             echo "Build environment: \`$BUILD_REF\`"
             echo "BuildKit cache: \`$CACHE_REF\`"
             echo
-            echo 'Make both GHCR packages public in package settings for anonymous CI/fork pulls.'
+            echo 'Make the GHCR package public in package settings for anonymous CI/fork pulls.'
             echo 'CI resolves matching base/cache tags to OCI digests before use; it never consumes latest.'
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Require anonymous access and matching provenance for ordinary CI and fork PRs
         run: |
           docker logout ghcr.io
-          if ! python3 scripts/e2e_images.py bases --require-published > "$RUNNER_TEMP/e2e-public-bases.txt"; then
-            echo '::error title=Published E2E bases failed anonymous verification::Make both GHCR packages public after their first publication, then rerun this publisher. If they are already public, inspect the logged registry/provenance error. Do not give fork PRs package-write credentials.'
+          if ! python3 scripts/image_registry.py build > "$RUNNER_TEMP/public-test-image.txt"; then
+            echo '::error title=Published test image failed anonymous verification::Make the GHCR package public after its first publication, then rerun this publisher. If it is already public, inspect the logged registry/provenance error. Do not give fork PRs package-write credentials.'
             exit 1
           fi
-          python3 scripts/e2e_images.py environment >> "$RUNNER_TEMP/e2e-public-bases.txt"
+          python3 scripts/image_registry.py environment >> "$RUNNER_TEMP/public-test-image.txt"
           while IFS= read -r reference; do
-            case "$reference" in
-              dependencies_image=*|runtime_image=*|environment_image=*) printf '\nVerified: `%s`\n' "$reference" >> "$GITHUB_STEP_SUMMARY" ;;
-            esac
-          done < "$RUNNER_TEMP/e2e-public-bases.txt"
+            printf '\nVerified: `%s`\n' "$reference" >> "$GITHUB_STEP_SUMMARY"
+          done < "$RUNNER_TEMP/public-test-image.txt"

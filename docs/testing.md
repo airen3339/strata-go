@@ -90,7 +90,7 @@ for a targeted test selection.
 refuses a name no scenario file has, listing the names it knows; see
 "Scheduling and run costs" for `--skip` and the other options. A selection
 that runs no scenario fails. Preserve the verified image provenance and the
-`target/e2e-container` and `target/quality-container` caches. CI still runs its
+`target/qa-container` and `target/quality-container` caches. CI still runs its
 complete gate.
 
 Every GUI or delegated check must clear inherited display variables and use a
@@ -116,7 +116,7 @@ When intentionally updating the environment, or before its first publication,
 explicitly build the local base once:
 
 ```bash
-STRATA_CONTAINER_ENGINE=podman python3 scripts/e2e_base.py build
+STRATA_CONTAINER_ENGINE=podman python3 scripts/image_base.py build
 ./scripts/qa.sh
 ```
 
@@ -127,7 +127,7 @@ image replaces only GTK's versioned shared library with a matching-source build
 carrying the accessibility-coordinate patch documented in
 [`tests/container/gtk/README.md`](../tests/container/gtk/README.md); an
 image-build probe checks the loaded library and rendered/accessibility
-coordinates on a private display. `scripts/e2e_bundle.py image-key` hashes
+coordinates on a private display. `scripts/image_inputs.py image-key` hashes
 those inputs, so changing them selects a new base; application edits do not.
 The runners still compile the checked-out application and retain Cargo's
 worktree cache. No host GTK libraries, fonts, desktop sockets, or Rust binaries
@@ -136,7 +136,7 @@ coordinate probe and the helpers some scenarios start; there is no Python test
 environment.
 
 The checkout is mounted at `/workspace`. QA build and Cargo caches live in
-`target/e2e-container` (quality's in `target/quality-container`), separately
+`target/qa-container` (quality's in `target/quality-container`), separately
 from native builds, and artifacts are owned by the invoking user. Minimal
 generated passwd/group files provide the invoking UID/GID to D-Bus, so one
 published environment works across local user IDs without rebuilding it or
@@ -255,7 +255,7 @@ The example runs shards sequentially for convenient local diagnosis; CI runs the
 in parallel on separate runners. These environment variables are CI handoff modes,
 not test filters; ordinary `./scripts/quality.sh test` still runs the complete
 unsharded suite. Rebuild the bundle after changing source or checkout revision.
-The two-shard matrix and `SHARDS` constant must be updated together if tuning
+The four-shard matrix and `SHARDS` constant must be updated together if tuning
 fan-out. Each shard has a ten-minute hang bound; timing is otherwise informational.
 
 ### Keep Rust test windows off the local desktop
@@ -310,7 +310,7 @@ STRATA_QA_KEEP_ARTIFACTS=1 ./scripts/qa.sh   # artifacts for passing runs too
 
 `scripts/qa.sh` runs `cargo test --features qa,invariant-checks --test qa` in
 the pinned image,
-with the mounts, account files, and `target/e2e-container` cache it shares with
+with the mounts, account files, and `target/qa-container` cache it shares with
 `scripts/qa-drive.sh` and `scripts/qa-mutation.sh` (through
 `scripts/lib/qa-container.sh`). Because the cache is shared, run them one after
 the other, never concurrently. `tests/qa.rs` refuses to start without the
@@ -891,7 +891,7 @@ scenario, run, mode, errors, and each failed step with its line). Set
 `scripts/qa-drive.sh` keeps one `strata --qa` session open in the pinned
 image, for checking a change interactively before (or instead of) writing a
 scenario. `start` starts a detached container with the same engine, image,
-mounts, account files, and `target/e2e-container` cache as `scripts/qa.sh`
+mounts, account files, and `target/qa-container` cache as `scripts/qa.sh`
 (both take them from `scripts/lib/qa-container.sh`), makes the
 build `qa.sh` makes (`cargo test --features qa,invariant-checks --test qa --no-run`), seeds a
 fresh HOME, XDG directories, and fixture from `tests/fixtures/harness.json` as
@@ -1182,7 +1182,7 @@ started by hand (**Run workflow** on the CI workflow, or
 failing scenario fails the run, but no required check needs the job. It waits
 for **Quality build and lint**, pulls (or loads) the same pinned build
 environment the Rust shards use, restores main's quality Cargo cache, and runs
-`./scripts/qa.sh` with `STRATA_E2E_CARGO_CACHE=target/quality-container`.
+`./scripts/qa.sh` with `STRATA_TEST_CARGO_CACHE=target/quality-container`.
 `--features qa,invariant-checks` equals `--all-features`, so that cache already
 holds every dependency built in the same image at the same paths and only
 `strata` and the runner compile. The job then checks the `qa` build contains
@@ -1192,33 +1192,32 @@ both checks' pattern to prefix `USAGE`. A failed run uploads
 `target/qa-artifacts` as `qa-artifacts-<attempt>`. CI does not run
 `scripts/qa-mutation.sh`.
 
-`scripts/qa.sh` accepts `STRATA_E2E_CARGO_CACHE`, a directory under `target/`
-holding `cargo/` and `build/` (default `target/e2e-container`); leave it unset
+`scripts/qa.sh` accepts `STRATA_TEST_CARGO_CACHE`, a directory under `target/`
+holding `cargo/` and `build/` (default `target/qa-container`); leave it unset
 locally. To read a failure, start with the job log (`PASS` and failed lines
 name each run), then the artifacts: `qa-artifacts-<attempt>` has the per-run
 bundle described in "Replies and the state snapshot".
 
 ### Persistent published environments
 
-`Publish pinned E2E environments` (`e2e-images.yml`) publishes two GHCR
-packages from trusted main when the image inputs, Cargo manifests, or
-`.dockerignore` change, or on manual dispatch:
+`Publish the pinned test image` (`test-image.yml`) publishes
+`ghcr.io/lgse/strata-test-image` from trusted main when the image inputs, Cargo
+manifests, or `.dockerignore` change, or on manual dispatch. The image holds the
+pinned GUI/font environment, Rust, and compiled locked Cargo dependencies. A
+stub application warms the dependencies; it and its fingerprints are removed,
+and no tested application binary is published.
 
-- `ghcr.io/lgse/strata-e2e-runtime`: the pinned GUI/font environment without
-  Rust.
-- `ghcr.io/lgse/strata-e2e-build`: Rust plus the runtime and compiled locked Cargo
-  dependencies. A stub application warms the dependencies; it and its
-  fingerprints are removed, and no tested application binary is published.
-
-Tags include SHA256 input identifiers, architecture, UID, and GID. Runtime inputs
-are independent of application source; the build identifier additionally includes
-`Cargo.toml`, `Cargo.lock`, and `.dockerignore`. Existing publications are
-checked before rebuilding. A separate `base-<environment-inputs>-linux-amd64-1001-1001`
-tag in the build package is the reusable environment that `scripts/e2e_base.py`
-pulls and CI's quality and QA jobs run. It is published once per environment
-input set and is not retagged on ordinary Cargo changes. GHCR storage is
-independent of Actions cache eviction; retain tags needed by supported
-revisions rather than treating them as disposable per-run artifacts.
+Tags include SHA256 input identifiers, architecture, UID, and GID. Environment
+inputs are independent of application source; the build identifier additionally
+includes `Cargo.toml`, `Cargo.lock`, and `.dockerignore`, and the publisher uses
+those build and BuildKit cache tags to skip or speed up its own rebuilds.
+Existing publications are checked before rebuilding. A separate
+`base-<environment-inputs>-linux-amd64-1001-1001` tag is the reusable
+environment that `scripts/image_base.py` pulls and CI's quality and QA jobs
+run. It is published once per environment input set and is not retagged on
+ordinary Cargo changes. GHCR storage is independent of Actions cache eviction;
+retain tags needed by supported revisions rather than treating them as
+disposable per-run artifacts.
 
 `install-packages.sh` configures only the dated HTTPS Arch Linux Archive mirror
 and requires Pacman's package-signature policy. It refreshes the signed `core`
@@ -1229,8 +1228,8 @@ none refreshes from a moving mirror.
 
 Only the main-only publisher has `packages: write` and registry login credentials.
 PR CI pulls anonymously and cannot publish shared images. After the first
-publication, **make both packages public in GHCR package settings** and rerun
-the publisher. Its anonymous-access check fails descriptively until they are
+publication, **make the package public in GHCR package settings** and rerun
+the publisher. Its anonymous-access check fails descriptively until it is
 readable without credentials. Do not give fork PRs package-write credentials.
 A pull request that changes `tests/container/` builds its unpublished
 candidate environment in **Quality build and lint** and hands it to the shards

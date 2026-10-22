@@ -37,8 +37,7 @@ git checkout -B <branch> origin/main
 The personal environment `start` script (`/tmp/cursor/start-user/start-user.sh`)
 must have exited 0. It:
 
-1. Creates `/workspace/target` (it may still link the retired
-   `/workspace/target/e2e-venv`, which nothing uses now).
+1. Creates `/workspace/target`.
 2. Starts `dockerd` if `docker info` fails, using `/etc/docker/daemon.json`.
 3. Runs `sudo chmod 666 /var/run/docker.sock`.
 
@@ -109,7 +108,7 @@ export PATH="/tmp/docker-hostnet:$PATH"
 STRATA_CONTAINER_ENGINE=docker ./scripts/qa.sh
 ```
 
-Later runs reuse `target/e2e-container`. Failure artifacts land in
+Later runs reuse `target/qa-container`. Failure artifacts land in
 `target/qa-artifacts`. The QA suite has not yet been verified on this
 snapshot; record the result below once it has.
 
