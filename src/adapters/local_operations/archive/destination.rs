@@ -96,27 +96,21 @@ fn set_times(file: BorrowedFd<'_>, times: &rustix::fs::Timestamps) -> rustix::io
 
 /// True when `name` is only the archive root (`.`, `./`, `././`, or the same name with `\`).
 pub(super) fn names_archive_root(name: impl AsRef<OsStr>) -> bool {
-    let name = name.as_ref();
-    let bytes = name.as_bytes();
-    if !bytes.contains(&b'\\') {
-        return Path::new(name) == Path::new(".");
-    }
-    let folded: Vec<u8> = bytes
+    Path::new(OsStr::from_bytes(&slash_separated(name.as_ref()))) == Path::new(".")
+}
+
+fn slash_separated(name: &OsStr) -> Vec<u8> {
+    name.as_bytes()
         .iter()
         .map(|byte| if *byte == b'\\' { b'/' } else { *byte })
-        .collect();
-    Path::new(OsStr::from_bytes(&folded)) == Path::new(".")
+        .collect()
 }
 
 /// Clamp parent traversal at the extraction root so one such member does not abort the archive.
 pub(super) fn sanitized_archive_path(name: impl AsRef<OsStr>) -> Result<PathBuf, String> {
     let native = name.as_ref();
     let name = native.to_string_lossy();
-    let normalized: Vec<_> = native
-        .as_bytes()
-        .iter()
-        .map(|byte| if *byte == b'\\' { b'/' } else { *byte })
-        .collect();
+    let normalized = slash_separated(native);
     if normalized.is_empty() || normalized.starts_with(b"/") {
         return Err(unsafe_archive_path(&name));
     }
