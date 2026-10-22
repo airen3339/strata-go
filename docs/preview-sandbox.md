@@ -170,7 +170,7 @@ within its general worker limit, and cancels obsolete requests normally. This
 does not create a reusable worker pool or raise any model/sandbox limits. An
 interactive Quick Preview may run concurrently; it does not share this background
 STL slot. Disabling the option hides cached STL thumbnails as well as preventing
-new renders. It does not delete PNGs already stored in
+new renders. It does not delete PNG thumbnails already stored in
 `$XDG_CACHE_HOME/thumbnails/large`; other freedesktop clients may still display them.
 Cancellation or the wall deadline sends SIGKILL and releases the background STL
 worker and admission slot without waiting for the helper to be reaped. A detached
