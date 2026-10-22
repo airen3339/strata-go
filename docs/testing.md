@@ -1096,6 +1096,88 @@ then leaves the pasted file neither selected nor focused.
   and one QA run in about fifty checked in between. Over 24 sequential Python
   runs of all seven cases the assertion always held at once.
 
+## Main-thread I/O audit
+
+Strata must not touch the disk on the GTK main thread (see
+[`docs/architecture.md`](architecture.md)). Runtime asserts catch calls that go
+through Strata's own seams; two opt-in tools catch the rest, including GLib and
+GTK internals and closes triggered by drops. Neither is a CI job: run them before
+pushing a change that moves work on or off the UI thread.
+
+`scripts/trace-main-io.py` runs a QA selection (every scenario by default)
+through `scripts/qa.sh` with `STRATA_QA_MAIN_IO` set, so the runner
+(`tests/qa/main_io.rs`) starts each Strata launch under `strace`: the
+application, its restarts, the portal backend and the second instances `launch`
+steps start. Only the initial thread, which runs GTK's main loop, is traced, so
+workers keep their normal timing. Arguments other than the script's own go to
+`qa.sh`:
+
+```bash
+./scripts/trace-main-io.py                                  # every scenario
+./scripts/trace-main-io.py delete-to-trash
+./scripts/trace-main-io.py --stacks rename-commits-on-enter/list
+./scripts/trace-main-io.py --analyze target/main-io/<run>   # classify again
+```
+
+Traces, each launch's log and the report go to
+`target/main-io/<run>/<scenario>__<run label>/launch-<n>/`. Each file
+call is classified by its path, after resolving descriptors and `*at` folders:
+
+- **user**: the scenario's fixture tree, `HOME`, the Trash, the user's
+  `gtksourceview-5` and `gstreamer-1.0` folders, `/tmp`, `/run/media`, `/media`,
+  `/mnt` and GVfs mounts. Always a violation.
+- **settings**: Strata's own settings, state, caches and runtime files (`strata`
+  under the XDG folders, the shared thumbnail cache, GTK bookmarks, portal files,
+  Omarchy's theme state and Strata's install folder). A violation unless a
+  documented exception below covers it.
+- **toolkit**: system paths and the toolkit's own files (fonts, icons, Mesa,
+  audio configuration, GTK settings, MIME associations, recently
+  used files, the rest of `XDG_RUNTIME_DIR`, the launch's `XDG_DATA_DIRS`, pipes,
+  sockets and event descriptors), and the runner's own places that `meta.json`
+  lists under `harness` (the shared shader cache, the launch's logs and the
+  `PATH` folders). Ignored. QA mode's own disk reads, for `pref` and file
+  predicates, run on a helper thread, so they never appear.
+- **unclassified**: anything else, reported so new paths get a deliberate
+  category.
+
+A metadata call (`stat`, `access`, `readlink`) on a folder above a settings or
+toolkit place takes that place's category, because path walks and `mkdir -p`
+stat every ancestor; the XDG folders themselves belong to the toolkit. Each call
+is a read, a write or, for `inotify_add_watch`, a watch, so no read exception
+covers a file monitor. The phase is startup until the first QA reply whose
+snapshot shows a pane, once the first window (the chooser for the portal
+backend) is up, then running; a second instance's whole trace is startup. The script exits
+non-zero when it finds a violation. `tests/qa/main-io-allowlist.toml` holds
+only documented exceptions, each with its reason; the script refuses entries for
+user paths. The documented exceptions are:
+
+- Strata's reads of its settings and state at startup, which stay synchronous.
+- The bundled font, which Strata writes at startup and fontconfig reads whenever
+  it lays out text.
+- GIO's checks of an application's program while it lists or launches
+  applications (`GDesktopAppInfo`), a toolkit exception.
+
+`--stacks` adds the Strata frames of every reported call, named from the binary's
+symbol table; it leaves plain `read` and `write` untraced and is slow, so use it
+on a selection.
+
+Limits: page faults on mapped files and waits on another thread, such as a
+synchronous D-Bus call or a mutex held by a worker, make no traced call. The stall
+watchdog covers those. Set `STRATA_UI_STALL_MS` (for example `250`) to start a
+thread that posts to the main context every 100 ms; when the main loop has not run
+it within the limit, Strata logs the call the UI thread is blocked in, read from
+`/proc`:
+
+```text
+UI thread stalled 250 ms in openat("/mnt/nas/folder") wchan=…
+UI thread ran again after 2400 ms
+```
+
+The watchdog is off unless the variable is set. `scripts/qa.sh` forwards it to
+every Strata launch, and `--stall-ms` passes it to an audit run, whose report
+lists the logged stalls per scenario. Debug builds stall at start-up while the
+first window is built, and more so under `strace`.
+
 ## In CI
 
 ### QA in CI

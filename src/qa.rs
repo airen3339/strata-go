@@ -25,7 +25,6 @@ use std::{
     fs::File,
     io::{BufRead, Write},
     panic::AssertUnwindSafe,
-    path::Path,
     time::{Duration, Instant},
 };
 
@@ -100,10 +99,9 @@ impl Session {
         let [program, _, directory] = arguments else {
             return Err(USAGE.to_owned());
         };
+        // The directory is opened like any launch argument, so a main-thread
+        // I/O audit sees no file call that a release build would not make.
         let portal = directory == PORTAL_ARGUMENT;
-        if !portal && !Path::new(directory).is_dir() {
-            return Err(format!("--qa needs a directory, not {directory:?}"));
-        }
         let protocol = rustix::io::fcntl_dupfd_cloexec(std::io::stdout(), 3)
             .map_err(|error| format!("cannot keep stdout for replies: {error}"))?;
         match std::env::var(STREAMS_VARIABLE) {

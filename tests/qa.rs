@@ -29,6 +29,9 @@ mod fs_helpers;
 #[path = "qa/keyboard.rs"]
 mod keyboard;
 
+#[path = "qa/main_io.rs"]
+mod main_io;
+
 #[path = "qa/peer_steps.rs"]
 mod peer_steps;
 
@@ -421,6 +424,7 @@ struct Launch<'a> {
     extra: Vec<(String, String)>,
     bus: Option<&'a str>,
     portal: bool,
+    audit: Option<&'a main_io::Audit>,
 }
 
 impl Launch<'_> {
@@ -451,8 +455,28 @@ impl Launch<'_> {
         if let Some(bus) = self.bus {
             variables.push(("DBUS_SESSION_BUS_ADDRESS".to_owned(), bus.to_owned()));
         }
+        variables.extend(stall_limit());
         variables
     }
+
+    /// `program`, under `strace` when the run is part of a main-thread I/O audit.
+    fn command(&self, program: &str) -> Result<(Command, Option<main_io::Capture>), String> {
+        match self.audit {
+            Some(audit) => {
+                let capture = audit.capture(self)?;
+                Ok((capture.command(program), Some(capture)))
+            }
+            None => Ok((Command::new(program), None)),
+        }
+    }
+}
+
+/// The UI stall watchdog's limit, passed on to every launch when the runner has one.
+fn stall_limit() -> Option<(String, String)> {
+    std::env::var(main_io::STALL_VARIABLE)
+        .ok()
+        .filter(|limit| !limit.is_empty())
+        .map(|limit| (main_io::STALL_VARIABLE.to_owned(), limit))
 }
 
 struct Application {
@@ -461,13 +485,15 @@ struct Application {
     replies: Receiver<String>,
     log: PathBuf,
     responsive: bool,
+    capture: Option<main_io::Capture>,
+    traced: std::cell::OnceCell<u32>,
 }
 
 impl Application {
     fn start(launch: &Launch, relaunch: &Relaunch) -> Result<Self, String> {
         let log = launch.log.clone();
         let output = File::create(&log).map_err(|error| error.to_string())?;
-        let mut command = Command::new(BINARY);
+        let (mut command, capture) = launch.command(BINARY)?;
         // Its own process group, so a restart can signal the application and whatever it started.
         std::os::unix::process::CommandExt::process_group(&mut command, 0);
         command.arg("--qa");
@@ -505,6 +531,7 @@ impl Application {
             command.env(variable, launch.home.join(directory));
         }
         command.envs(launch.extra.iter().map(|(key, value)| (key, value)));
+        command.envs(stall_limit());
         command.envs(&relaunch.env);
         if let Some(streams) = relaunch.streams() {
             command.env("STRATA_QA_STREAMS", streams);
@@ -527,15 +554,37 @@ impl Application {
             replies,
             log,
             responsive: true,
+            capture,
+            traced: std::cell::OnceCell::new(),
         })
+    }
+
+    /// Strata's own pid, which is not the child's when `strace` runs it.
+    fn pid(&self) -> Result<u32, String> {
+        match self.capture {
+            Some(_) => main_io::traced_child(self.child.id(), &self.traced),
+            None => Ok(self.child.id()),
+        }
     }
 
     fn receive(&mut self, timeout: Duration) -> Result<Value, String> {
         let received = self.replies.recv_timeout(timeout);
         self.responsive = received.is_ok();
         match received {
-            Ok(line) => serde_json::from_str(&line)
-                .map_err(|error| format!("unreadable reply {line:?}: {error}")),
+            Ok(line) => {
+                let reply: Value = serde_json::from_str(&line)
+                    .map_err(|error| format!("unreadable reply {line:?}: {error}"))?;
+                // A pane shows once the first window is up: the browser, or the
+                // portal backend's first chooser.
+                if let Some(capture) = &mut self.capture
+                    && reply["app"]["panes"]
+                        .as_array()
+                        .is_some_and(|panes| !panes.is_empty())
+                {
+                    capture.ready();
+                }
+                Ok(reply)
+            }
             Err(RecvTimeoutError::Timeout) => {
                 Err(format!("no reply within {} s", timeout.as_secs()))
             }
@@ -560,6 +609,7 @@ impl Application {
     }
 
     fn terminate_group(&mut self) {
+        self.keep_log();
         let group = rustix::process::Pid::from_child(&self.child);
         for signal in [rustix::process::Signal::TERM, rustix::process::Signal::KILL] {
             let _ = rustix::process::kill_process_group(group, signal);
@@ -575,6 +625,13 @@ impl Application {
         if wait_for_exit(&mut self.child, EXIT_TIMEOUT).is_none() {
             let _ = self.child.kill();
             let _ = self.child.wait();
+        }
+        self.keep_log();
+    }
+
+    fn keep_log(&mut self) {
+        if let Some(capture) = &mut self.capture {
+            capture.keep_log(&self.log);
         }
     }
 }
@@ -677,6 +734,10 @@ fn execute(scenario: &Scenario, run: &Run, manifest: &Manifest) -> Outcome {
             return failed_setup(format!("setup: {error}"), &mut fs_state);
         }
     }
+    let audit = match main_io::Audit::for_run(&scenario.header.scenario, &run.label) {
+        Ok(audit) => audit,
+        Err(error) => return failed_setup(format!("setup: {error}"), &mut fs_state),
+    };
     let display = match Display::start(scratch.path().join("xvfb.log")) {
         Ok(display) => display,
         Err(error) => return failed_setup(format!("setup: {error}"), &mut fs_state),
@@ -716,6 +777,7 @@ fn execute(scenario: &Scenario, run: &Run, manifest: &Manifest) -> Outcome {
             .collect(),
         bus: bus.as_ref().map(|bus| bus.address.as_str()),
         portal: scenario.header.portal,
+        audit: audit.as_ref(),
     };
     let mut application = match launch.start() {
         Ok(application) => application,

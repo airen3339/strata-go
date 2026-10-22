@@ -67,6 +67,8 @@ exec "$engine" run "${options[@]}" "${mounts[@]}" \
   --env "STRATA_QA_KEEP_ARTIFACTS=${STRATA_QA_KEEP_ARTIFACTS:-0}" \
   --env "STRATA_QA_UPDATE_BASELINES=${STRATA_QA_UPDATE_BASELINES:-0}" \
   --env "STRATA_QA_NAMED=${named:-0}" \
+  --env "STRATA_QA_MAIN_IO=${STRATA_QA_MAIN_IO:-}" \
+  --env "STRATA_UI_STALL_MS=${STRATA_UI_STALL_MS:-}" \
   "$image" bash -euc '
     mkdir -p "$HOME" "$CARGO_HOME"
     # The tmpfs hides the X socket directory of the image; the xvfb.log owner warning is harmless.

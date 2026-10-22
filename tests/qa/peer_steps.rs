@@ -355,8 +355,10 @@ fn launch_instance(launch: &Launch, step: &LaunchStep) -> Result<(), String> {
         .open(launch.log.with_file_name("launches.log"))
         .map_err(|error| error.to_string())?;
     let errors = output.try_clone().map_err(|error| error.to_string())?;
+    // A second instance hands its arguments over and exits; its trace is all startup.
+    let (mut command, _capture) = launch.command(BINARY)?;
     let mut child = spawn(
-        Command::new(BINARY)
+        command
             .args(&arguments)
             .current_dir(launch.fixture)
             .env_clear()
