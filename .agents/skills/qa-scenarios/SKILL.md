@@ -14,9 +14,11 @@ description: >
 QA scenarios are Strata's GUI test suite. Each scenario is one `.jsonl` file
 that drives the real app with real X input and checks what a user would see.
 This file covers the common 80%; [reference.md](reference.md) has every
-header key, step, target, predicate, and `fs` kind. The maintained guide is the
-"QA scenarios (`--qa` mode)" section of `docs/testing.md`; its "Skipped
-scenarios" and "Waits for the app's own timers" lists are part of the suite.
+header key, step, target, predicate, and `fs` kind, and is the only catalogue
+of them. The "QA scenarios (`--qa` mode)" section of `docs/testing.md` covers
+the run environment, keyboard layouts, scheduling, visual baselines, and
+mutations; its "Skipped scenarios" and "Waits for the app's own timers" lists
+are part of the suite.
 
 ## How it fits together
 
@@ -331,6 +333,14 @@ Runner unit tests live in `tests/qa/scenario_tests.rs` and
 `#[cfg(test)]`, and `no_test_attribute_hides_a_runner_test` rejects them.
 Unit tests run in every `./scripts/qa.sh` run that names no scenario. Script
 tests: `python3 -m unittest discover -s scripts -p 'test_*.py'`.
+
+The main-thread I/O audit also runs through the runner: with
+`STRATA_QA_MAIN_IO` set, `tests/qa/main_io.rs` starts every Strata launch
+under `strace` and writes the `meta.json` that `scripts/trace-main-io.py`
+classifies paths by. When you change how the runner launches or restarts the
+app, starts peers, or places its own files, run
+`./scripts/trace-main-io.py <scenario>` on an affected scenario and check its
+traces still appear. See "Main-thread I/O audit" in `docs/testing.md`.
 
 ## Before committing a scenario change
 

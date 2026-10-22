@@ -120,8 +120,10 @@ check both the window and the resulting files:
 ```
 
 They need Docker or Podman; the container provides Xvfb, D-Bus, GTK, and the
-rest. See [testing](docs/testing.md) for how scenarios are written, how
-failure artifacts are collected, and how to regenerate the visual baselines.
+rest. See [testing](docs/testing.md) for how runs are set up, scheduled, and
+checked against visual baselines, and the
+[scenario reference](.agents/skills/qa-scenarios/reference.md) for every step,
+target, and predicate a scenario can use.
 
 ## Performance fixtures
 

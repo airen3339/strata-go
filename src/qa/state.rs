@@ -145,7 +145,7 @@ pub(crate) struct EntryObservation {
     pub(crate) focused: bool,
 }
 
-/// The `app` snapshot every reply carries; "Replies and the state snapshot" in `docs/testing.md` defines its shape.
+/// The `app` snapshot every reply carries; `.agents/skills/qa-scenarios/reference.md` defines its shape.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub(crate) struct AppState {
     pub(crate) view_mode: Option<String>,

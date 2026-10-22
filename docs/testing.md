@@ -367,365 +367,40 @@ near 150 MB.
 ### Scenario files
 
 A scenario is a `.jsonl` file under `tests/qa/scenarios/<feature area>/`, a
-folder named in snake_case (lowercase letters and digits joined by single
-underscores) without a `test_` prefix, such as
+folder named in snake_case without a `test_` prefix, such as
 `tests/qa/scenarios/clipboard/copy-leaves-source.jsonl`. The runner finds every
 file there itself. Scenario names are lowercase words joined by hyphens, since
-`./scripts/qa.sh` reads `_` in a name as `-`, and are unique across folders; the
-runner's `every_scenario_file_is_planned_and_well_formed` test checks that, that
-each file sits in a well-named folder and loads, that a `mutation` names a patch
-in `tests/qa/mutations/`, and that every run of every file is planned as a test.
-Its first line is a header:
+`./scripts/qa.sh` reads `_` in a name as `-`, and are unique across folders.
+The first line is a header and every later line one step:
 
 ```json
 {"scenario":"arrow-keys-move-focus","modes":["columns"],"prefs":{"type_to_search":false},"layout":"us","mutation":"keyboard-navigation","known_bug":null,"variants":[...]}
 ```
 
-`modes` runs the file once per view, `mutation` names the patch in
-`tests/qa/mutations/` that must make it fail (see "Proving a scenario catches a
-regression"), and `known_bug` an issue that makes a failure the expected result.
-A run is named `<scenario>/<label>`, its label the mode plus `-<variant>` for a
-variant, as in `PASS copy-leaves-source/columns-ru`. The header rejects any key
-it does not know.
-The optional `quality`
-(`{"impact":3,"coverage":3,"criticality":3,"diagnostic":3,"score":25,"note":"..."}`)
-rates the scenario: `impact`, `coverage`, `criticality`, and `diagnostic` are
-integers from 1 to 5, `score` an integer from 0 to 100, and `note` one
-non-empty line without any line break the scripts split headers on
-(`\n`, `\r`, U+000B, U+000C, U+001C–U+001E, U+0085, U+2028, U+2029); the
-runner rejects any other key, a missing one, or a value out of range, and
-checks the score exactly:
-`P = 3(impact - 1) + 3(criticality - 1) + 2(diagnostic - 1)` and
-`score = (50(coverage - 1)P + 32) // 64`, a mismatch failing the load with the
-expected score. The `qa-quality` agent skill (`.agents/skills/qa-quality/`)
-defines what the ratings mean.
-A `skip` (`"skip":"<reason>"`) keeps a scenario without a `mutation` or
-`known_bug` out of the default `./scripts/qa.sh` run, which prints
-`SKIPPED <scenario> (run it by name): <reason>` in its place; naming it,
-`./scripts/qa.sh <scenario>`, still runs it (see "Skipped scenarios").
-A `known_bug` needs `known_bug_step`, the file
-line (the header is line 1) of the step expected to fail, never a `layout`,
-`flag`, `note`, `slice`, `increment`, `stem`, `parent`, `screenshot`, `restart`,
-`http`, or `foreign_stop` step; a failure at any other
-step, or an error, still fails the run. The header `layout` is switched to once the
-process is ready, so key names always mean US key positions. Optional `variants`
-run the file again with their own `prefs`, `layout`, `modes`, and `vars`, their
-own `tree` and extra `setup` actions, and extra `teardown` actions taken after
-the header's. In a step, `$name` is replaced by a variable (`$$` is a literal
-`$`); the built-ins are `$root` (the fixture directory's name, which is also its
-pane's), `$fixture` (its absolute path), `$fixture_quoted` (that path as
-`pathlib.Path.as_uri` escapes it, without `file://`, for a trash file's `Path=`
-or a URI), `$home`, `$data`, `$config`, and `$cache` (the run's HOME and XDG
-data, config, and cache directories), `$python` (`python3`, the image's system
-interpreter), `$environment` (the directory holding HOME and the XDG
-directories), `$view` (`Columns`, `Icons`, `List`), and `$mode`.
-An optional `teardown` lists `fs` actions taken once setup has begun, however
-the run ends, to restore a mode a step changed. An optional `setup` lists `fs`
-actions taken after the tree is written and before the launch, such as an
-executable written into the tree or desktop entries and actions under `$data`
-and `$config`. An optional `tree` names
-a manifest tree or writes one out, where a name such as `{000..199}.txt` stands
-for one zero-padded file per number whose text has `{}` replaced by the number,
-and a file's text may be a list of parts: strings and
-`{"repeat":"record-{},{}\n","from":0,"to":999}`, the text once per number;
-`images` (`{"beta/thumb.png":{"width":64,"height":64,"rgb":[230,40,60]}}`)
-then adds solid-colour PNG images, and `gtk_settings`
-(`{"gtk-enable-animations":"true"}`) rewrites those lines of the manifest's
-GTK `settings.ini`.
-`env` (`{"PATH":"$environment/launcher-path"}`) adds or replaces variables
-in the application's environment, with `$variables` replaced (never one the
-runner owns: the display, buses, runtime, HOME and XDG directories, input log,
-Mesa shader cache, and state-dump variables), and `"session_bus":true` gives
-the run a private session bus with no service directories, which the
-application and `dbus_send`, `launch`, and `foreign` steps share; without it
-the application gets a bus address that cannot connect. `"portal":true` (with
-`session_bus`) starts `strata --qa --portal`, the FileChooser portal backend,
-in place of the browser: it has no window until a `portal_open` request opens a
-chooser, which `adopt` then drives, and while no chooser is open its state
-snapshot is the empty one.
-`"fixture_root":"/tmp/strata-e2e-baseline"` builds the tree at that fixed
-path, directly in `/tmp`, instead of a fresh one, because the breadcrumb and
-context menu of a visual baseline render the path; a directory already there
-is a setup error, never reused, and runs that claim a fixed root take turns.
-`"cost":{"columns":2.4,"list":0.3}` gives each run, by its label, its measured
-relative cost, which decides when it starts; `scripts/qa_cost.py` writes it
-(see "Scheduling and run costs").
-Every later line is one step; a step with `"modes":["icons","list"]` runs only
-in those views; a step with `"variants":["row-space"]` runs only in those
-header variants; a step with `"when":PREDICATE` runs only if the predicate
-holds just before it (the runner asks the process with `{"holds":PREDICATE}`);
-and a step with `"if":"returned"` or `"unless":"returned"` runs only if an
-earlier `expect` (or `flag`) kept as `"as":"returned"` held, or did not, so a
-scenario can collect failures and recover. A list (`"if":["a","b"]`) needs
-every one to have held, and `"unless":["a","b"]` skips the step if any did; an
-`expect` or `flag` that keeps a flag and is itself skipped this way keeps it
-false, so a retry loop unrolls into guarded attempts.
-A `note` keeps what an accessor reads: later steps say `$names`, which becomes
-the value itself where a string is exactly `$names` (so a list stays a list)
-and its text elsewhere (a list as Python prints it). A note may only be used
-after the step that keeps it, may not hide a variable, and any other unknown
-`$name` fails the scenario before it runs.
+`modes` runs the file once per view, and optional `variants` run it again with
+their own preferences, layout, tree, or variables; a run is named
+`<scenario>/<label>`, as in `PASS copy-leaves-source/columns-ru`. `mutation`
+names the patch that must make the scenario fail (see "Proving a scenario
+catches a regression"), `known_bug` an issue that makes a failure the expected
+result, `skip` keeps a scenario out of the default run (see "Skipped
+scenarios"), `cost` orders the runs (see "Scheduling and run costs"), and
+`quality` rates the scenario as the `qa-quality` skill defines. Steps run
+either in the process on the GTK main loop (input, waits, and checks on the
+window) or in the runner (filesystem setup and checks, restarts, layouts, and
+peers such as a portal request or a foreign drag source).
 
-### Steps
+The runner validates every file before any run starts: the header rejects a key
+it does not know, each step goes through the process's own parser, and the
+`every_scenario_file_is_planned_and_well_formed` test checks that each file
+sits in a well-named folder, loads, names an existing mutation patch, and has
+every run planned as a test. A typo fails as a harness error, never as a step a
+`known_bug` could excuse.
 
-| Step | Runs in | Meaning |
-| --- | --- | --- |
-| `{"key":"ctrl+x","repeat":2}` | process | US key positions; a tap comes up 20 ms after it goes down |
-| `{"type":"nested-notes"}` | process | types the text, one key per character |
-| `{"click":TARGET,"button":1,"count":1,"mods":["shift"],"at":[4,"50%"]}` | process | a click, a right click (`button` 3), or a double click (`count` 2), with the modifiers held; `"release_mods_first":true` releases the modifiers before the button comes up; `"left_bound":"browser"` (also on `move`) keeps the aim's left edge right of a remembered box, as `max(bounds.x, browser_left) + 12` |
-| `{"select":{"entry":"readme.md"}}` | process | clicks until the entry is selected |
-| `{"select_with_keyboard":"todo.txt","message":"..."}` | process | Home, then Down (Right in Icons) until the entry has focus |
-| `{"open_menu":TARGET,"until":PREDICATE,"message":"..."}` | process | clicks, and clicks again each second the menu stays closed while the target is not checked; `"open_states":["checked","pressed"]` counts either state as open |
-| `{"adopt":"PNG conversion test","timeout_ms":20000,"message":"..."}` | process | a portal run's chooser: waits for a showing application window with this title, and reads state, resolves targets, and logs input relative to it from then on |
-| `{"reveal_control":{"role":"spin button","name":"Text size in pixels"}}` | process | finds the control presented (`"{name} control"`), then while its scroll pane does not show all of it turns the wheel 16 pixels inside the pane's right edge at its middle height, `min(12, max(1, int(distance / height) * 3))` clicks toward it (`"reachable {name} control"`), and settles it |
-| `{"reveal":{"role":"button","name":"Modified date format"}}` | process | finds the control presented; unless the window and its scroll pane show it, turns the wheel three clicks at the window's centre up to twelve times, toward it, settling it once shown, then waits for it to be on screen (GTK's bridge declines the `scroll_into_view` before the loop) |
-| `{"keep":[0,0,240,80],"as":"foreign"}` | process | keeps a box on the X screen for `kept` targets; the runner sends it for a `foreign` drag source's button |
-| `{"activate":{"role":"toggle button","name":"..."},"message":"..."}` | process | the widget's default action, no pointer input; a role target without `within` may be scrolled away; one with `within`, or a `{"dialog_button":"Close dialog"}`, is looked up on screen first |
-| `{"holds":PREDICATE}` | process | `true` or `false` in `result`, never a failure |
-| `{"remember":{"field":true},"as":"filter"}` | process | keeps the focused field; any other target keeps its box, for `left_bound` and `moved`, and its widget, for `replaced` and a `remembered` target, apart from the fields, so a field lookup never resolves it |
-| `{"note":"entries","dir":"$root","as":"names"}` | process | an accessor's value for later `$names`: `directory`, `pane`, `panes`, `entries`, `selected`, `all_selected`, `matches`, `focused`, `focused_pane`, `visible` (the rows wholly inside the pane's scroll viewport), `menu_items` (the open menu's items, empty with none), `editable_fields` (how many editable text fields are on screen, a number); `from`/`through` slice a list as `names[names.index(a):names.index(b) + 1]`, then `"middle":3` keeps `names[len // 2:len // 2 + 3]`, `"plus":["todo.txt"]` makes it `sorted(set(names) \| {...})`, `"sorted":true` sorts it, and `"pick":-1` keeps one name, `names[-1]`; `bounds` with `"of":TARGET` is its box as Python prints `screen_bounds()`, for a message; `"until_found":true` (with `message`, `timeout_ms`) polls until it is not null; `middle_visible` with `unless_first` is the reversing-scroll scenario's `middle_entry`; `scroll_target` with `"of":TARGET` is the pane's scroll value plus `max(of.y + of.height - viewport.y + 1, 1)` |
-| `{"note":"number","expr":NUMBER,"as":"fitted"}`, `{"note":"visible_top","as":"rows"}` | process | a number worked out now (see `compare`); with `until_found` and `"until":[{"op":">","than":300}]` it polls until the number itself is within the bounds and keeps the value that poll read; the deepest pane's rows whose top edge lies inside its scroll viewport (a list, so `pick` and `middle` apply) |
-| `{"increment":"first","as":"next"}`, `{"stem":"source","as":"stem"}` | runner | a noted name with its trailing number one higher, `f"folder-{n + 1:03}"`; a noted name's `Path(name).stem` |
-| `{"clipboard_set":"selection-cleared"}`, `{"clipboard":"999","message":"..."}` | process | opens a second connection to the display and owns the clipboard with the text (for a scenario that copies a table, should one return); reads the clipboard through that connection (or a new one), closes it, and fails unless the text matches, exactly or as `{"starts_with":...,"contains":...,"longer_than":5}` |
-| `{"slice":"rows","middle":3,"pick":-1,"as":"last"}` | runner | part of a noted list, so one snapshot serves several values: `middle` then `pick`, as a note shapes a list |
-| `{"keys_until":PREDICATE,"keys":["Home","Left"],"times":2}` | process | presses the keys in turn for at most `times` rounds, stopping once the predicate holds right after a round, as `for _ in range(2): ...; if node.has_state(...): break`; `"check_first":true` checks before each round instead, as `for _ in range(30): if ...: break; press(...)`, and `times` may be a noted list, whose length it then is; `"await_focus_change":{"timeout_ms":5000,"message":"..."}` waits after each round for the focused widget to change, and `"exhausted":"..."` fails with that message when every round ran without the predicate holding, as a loop's `else: raise AssertionError(...)` |
-| `{"move":TARGET,"at":[...]}` | process | moves the pointer to the target |
-| `{"move_by":[2,0]}` | process | moves the pointer by an offset from where it is |
-| `{"wheel":TARGET,"clicks":3,"direction":"down","at":[...]}` | process | turns the wheel over the target |
-| `{"wheel":TARGET,"clicks":10,"until":PREDICATE,"tries":40}` | process | turns the wheel only while the predicate does not hold, checking before each turn: at most `tries` turns with no pause, or else (with `message`, `timeout_ms`) polling as a wait whose condition scrolls, failing on timeout |
-| `{"key_down":"ctrl"}`, `{"key_up":"Escape"}` | process | one modifier or key, no tap and no pause |
-| `{"during":PREDICATE,"ms":1200,"every_ms":50,"message":"..."}` | process | checks every `every_ms` (default 50) for `ms` and fails as soon as the predicate does not hold, as through a sustained hover |
-| `{"capture":TARGET,"inset":3,"as":"before"}` | process | keeps the screen's pixels in the target's box, inset on every side, for `repainted`; any part off the screen is black, and so it is for `repainted` |
-| `{"measure_text":"label","as":"resting"}` | process | `text_position` over a kept box from a fresh screen grab: the luma-weighted mean row of the ink and its contrast; fails as `the source label disappeared` when there is no ink, and is an error when the box leaves the screen (so for `drop_samples`) |
-| `{"drop_samples":"label","resting":"resting","dragging":"dragging","escape":true,"as":"released"}` | process | the drag-completion release: Escape down and up when asked, then button 1 up, with no pauses, then grabs of the kept box 60, 120, and 180 ms later; each must come within 240 ms (failing with the samples printed), sit within 1.5 pixels of `resting`, and the last must have 1.25 times `dragging`'s contrast; the release instant is kept for `elapsed` |
-| `{"drag":{"from":TARGET,"to":TARGET},"steps":16,"release":true,"mods":[]}` | process | a drag; `from` starts on its first rendered image, else its centre except a point-like `from` (`kept`, `point`, `pane`, `background`, `window`), which aims where it always does; `release:false` keeps the button held |
-| `{"drag":{"from":TARGET,"from_at":[...],"to":TARGET,"to_at":[...]},"after_press":PREDICATE,"message":"..."}` | process | a drag between two points: the predicate is checked once after the press; a mismatch lets go and fails the step; `after_press` may instead list `{"wait":PREDICATE,"message":...}` and `{"expect":PREDICATE,"message":...}` steps, run in order, as a callback that waits and then asserts. Without `from_at`, the target is read before the source |
-| `{"button_down":1}`, `{"button_up":1}` | process | one button press or release where the pointer is; `button_up` also ends an abandoned drag |
-| `{"set_scrollbar":"horizontal","value":0}` | process | sets the value of the first scroll bar with that orientation; no pointer input |
-| `{"sleep":600}` | process | sleeps 0.6 s; the main loop keeps running |
-| `{"resize":{"width":420,"height":300}}` | process | resizes the main window; without `height`, its current height |
-| `{"settle":TARGET,"timeout_ms":15000,"as":"entered"}` | process | waits for the bounds to repeat three polls and remembers them, under `as` too when given |
-| `{"wait":PREDICATE,"timeout_ms":15000,"message":"...","samples":10}` | process | stops the run on timeout, with the widget tree; `samples` polls in a row must hold (a wait polls about every 50 ms); `"settling":TARGET` settles the target before every poll |
-| `{"click_result_rows":{"selected":true},"mods":["ctrl"]}` | process | each of `result_rows` (the `Search results` rows, or else every list item) whose states match when its turn comes, clicked in DFS order |
-| `{"expect":[PREDICATE,...],"message":"..."}` | process | reports mismatches and continues; `message` is the assertion message; with `timeout_ms` it polls until all hold first, and with `hold_ms` too they must hold that long in a row before the timeout; `"as":"name"` keeps whether it held for a later step's `if` or `unless` |
-| `{"query":"state"}`, `"tree"`, `"prefs"` | process | snapshot, widget tree, or `settings.toml` as JSON in `result` |
-| `{"wait":PREDICATE,"never":PREDICATE,"never_message":"..."}` | process | the wait still fails if `never` held at any poll, the last included |
-| `{"during":[{"check":PREDICATE,"message":"..."},...],"ms":7000,"every_ms":40}` | process | `during` over several assertions in order, each failing with its own message |
-| `{"note":"entries","until_found":true,"until_names":NAMES,"as":"names"}` | process | polls until the list matches and keeps the list that poll read |
-| `{"each":"names","as":"name","derive":{"caption":{"number_plus":320,"suffix":"×180"}},"step":STEP}` | runner | the process step once per item of a noted list, `$name` the item and each `derive` variable the last number in the item's stem plus `number_plus` between an optional `prefix` and `suffix` |
-| `{"restart":true}` | runner | stops and starts the application: SIGTERM to its process group, 5 s, then SIGKILL; it starts again with the same environment, fixture, display, and input log, under the US layout, and a fresh log |
-| `{"restart":{"directory":"$fixture/target","env":{"RUST_LOG":"trace"},"stdout":"closed","stderr":"null"}}` | runner | stops the application and starts `strata <directory>` itself: in that directory, with those variables added, and with standard output and error a pipe whose reading end is closed or `/dev/null`, as `Popen(stdout=PIPE)` closed at once or `DEVNULL`; the process sets them up itself (`STRATA_QA_STREAMS`) before anything writes, keeping its replies on their own descriptor |
-| `{"launch":["$fixture/requested-missing"],"percent_path":true}` | runner | `subprocess.run([strata, *arguments], cwd=fixture, check=True, timeout=30)` with a helper's environment: another `strata`, which hands its arguments to the running one over the session bus and exits; `percent_path` makes `%XX` raw bytes |
-| `{"portal_open":"Multiple selection test","options":{"current_folder":"$fixture","multiple":true,"filters":[["PNG images",[[1,"image/png"]]]]}}` | runner | waits up to 20 s for the backend's bus name, then sends `OpenFile` (60 s D-Bus timeout) from a worker thread without waiting for the answer; a request still unanswered when the run ends gets `Request.Close` once the final state is read |
-| `{"portal_response":{"done":false},"message":"..."}`, `{"portal_response":{"done":true,"status":0,"names":[...],"paths":[...],"keep":"output","png":{...},"discard":true},"timeout_ms":20000,"message":"..."}` | runner | `assert not response.done()`; or waits for the answer and checks its status, the chosen files' names as a set or paths in order, keeps the first path as a note, checks it as `png` checks a file, and then (`discard`) removes its download directory however that went, as `finally: shutil.rmtree(output.parent)` |
-| `{"http":"<base64>","as":"url"}`, `{"http_requests":1,"message":"..."}` | runner | `image_server(body)`: an HTTP/1.0 server on 127.0.0.1 answering every GET with the body as `image/png`, its URL kept as a note, until the run's final state is read; `assert len(requests) == 1, message` |
-| `{"foreign":{"paths":["$fixture/a"],"move_only":true},"as":"foreign","message":"..."}`, `{"foreign_label":"Foreign drag finished","message":"..."}`, `{"foreign_stop":true}` | runner | `tests/qa/fixtures/file_drag_source.py` run unchanged through `tests/qa/foreign_drag_source.py`, which prints its button's screen box and each new label on stdout: waits for the box and keeps it in the process under `as` for a `kept` drag source; waits for the label; `terminate(source.popen)` |
-| `{"zipcrypto":{"path":"password.zip","password":"zipsecret","member":"some.txt","contents":"...","deflated":true},"as":"collision"}` | runner | writes a ZipCrypto archive (a random 11-byte header, raw deflate at level 9) and finds a CRC collision: the first numeric password below 4096 whose decrypted header passes `zipfile`'s check, kept as a note; `contents` may be `{"repeat":"text","count":64}` |
-| `{"fail":"the compress dialog never accepted the archive name"}` | runner | fails with the message, as a retry loop's last resort |
-| `{"parent":"output","as":"output_dir"}` | runner | a noted path's `Path(name).parent` |
-| `{"dbus_send":["--print-reply","--dest=...","/path","iface.Method","array:string:file://..."]}` | runner | `dbus-send --session ...` on the run's private bus (`session_bus`), with a helper's environment, failing as `subprocess.run(..., check=True, timeout=30)` |
-| `{"log":{"count":"browser sandbox started"},"as":"initial"}`, `{"log":{"count":"...","at_most":2},"timeout_ms":0}` | runner | reads the application's log with its colour codes stripped: `count` occurrences of a text, `matches` (the numbers a pattern's first group finds, `re.findall`; `pick` keeps one), or `contains` (kept as a flag); with `as` it keeps the value as a note, without it waits until the count (or how many numbers) is `equals`, `at_least`, or `at_most` a number or a noted list's length, plus `plus` |
-| `{"proc":{"gone":"$original"}}`, `{"proc":{"parent_is_app":"$pid"},"timeout_ms":0}`, `{"proc":{"kill":"$pid"}}`, `{"proc":{"app_cwd":"/"}}` | runner | waits until none of the noted pids runs (`/proc/<pid>` is gone); checks `PPid:` in a pid's `/proc/<pid>/status` is the application's; sends it SIGKILL at once, refusing any pid that is not the application's child; waits until the application's `/proc/<pid>/cwd` is the path |
-| `{"layout":"ru"}` | runner | `setxkbmap` and a group lock on the run's Xvfb |
-| `{"flag":PREDICATE,"as":"enabled"}` | runner | keeps whether the predicate holds now, never a failure, for later steps' `if` and `unless`; with `timeout_ms` it polls until the predicate holds or time runs out |
-| `{"fs":{"path":"archive/todo.txt","exists":true},"timeout_ms":15000,"message":"..."}` | runner | waits for `exists`, `text`, `names`, `is` (`file`, `dir`, `symlink`), `empty`, or `unchanged` (equal to a remembered listing); `timeout_ms` 0 is a plain assertion |
-| `{"fs":{"path":"archive/todo.txt","write":"existing\n"}}`, `{"fs":{"path":".","remember":"original"}}` | runner | acts at once: writes a file, or keeps `fixture.listing()` under a name |
-| `{"fs":{"path":"archive/folder-{000..159}","mkdir":true}}`, `{"fs":{"path":".","populate":TREE}}` | runner | `Path.mkdir()` (`"parents":true` for `mkdir(parents=True)`), once per number of a range in the last component; writes a tree as the header's `tree` does, and pins the times below `path` |
-| `{"fs":{"path":"full/{000..179}.txt","write":"{}\n"}}`, `{"fs":{"path":"archive","chmod":"555"}}` | runner | one `write_text` per number of a range, `{}` in the text standing for it; `Path.chmod(0o555)` |
-| `{"fs":{"path":"archive/report.md","copy_of":"documents/report.md"}}`, `"size_of"` | runner | waits until the file has the other file's bytes, or its size |
-| `{"fs":{"path":".","remember_names":"original"}}`, `{"fs":{"path":".","names_from":"original","minus":["todo.txt"],"plus":[...]}}` | runner | keeps `set(fixture.names(path))`; waits until the names are that set less `minus` plus `plus` |
-| `{"fs":{"path":"drop-volume","volume":"/dev/shm"}}` | runner | the cross-volume fixture: a fresh `strata-drop-volume-*` directory in `/dev/shm` (`"prefix":"strata-no-trash-"` names it otherwise, and `"with":{"doomed.txt":"doomed"}` writes files into it before it is linked), which must lie on another device than the fixture, linked at `path` and removed when the run ends, or by `{"fs":{"path":"no-trash","remove_volume":true}}`, which leaves the link dangling |
-| `{"fs":{"path":"new file (1)","symlink":"missing"}}`, `{"fs":{"path":"run-me","program":"true"}}` | runner | `Path.symlink_to(target)`; `shutil.copy2(shutil.which("true"), path)`: the program's bytes, mode, and times |
-| `{"fs":{"path":"$config/strata/settings.toml","has":{"contains":["\"$fixture/docs2\""],"lacks":[...]}}}` | runner | waits until the text contains every part and none of the others; an unreadable file contains nothing |
-| `{"fs":{"path":".","names_without":"clicked"}}`, `{"fs":{"path":"no-trash/doomed.txt","can_trash":false}}` | runner | waits until no name contains the part, as `not any("clicked" in name ...)`; until GIO's `access::can-trash` is that value |
-| `{"fs":{"path":"todo.txt","remove":true}}`, `{"fs":{"path":"documents","rename":"archive/documents"}}` | runner | `Path.unlink()`, or `shutil.rmtree` for a directory; `Path.rename(root / ...)`; both refuse a path whose parent, with links resolved, lies outside the fixture, the run's `$environment`, and its scratch directory |
-| `{"fs":{"path":"$environment/launches","lines":{"at_least":1}}}`, `{"fs":{"path":"a.png","keep_bytes":"original"}}`, `"bytes_of":"original"` | runner | waits until the file has that many lines, exactly or at least (a missing file has none; an unreadable or non-UTF-8 one fails the step at once, as `read_text()` raises), as `len(path.read_text().splitlines())`; keeps `path.read_bytes()` under a name; waits until the bytes are those kept, failing at once on a read error |
-| `{"screenshot":"hover.png"}` | runner | captures the Xvfb root; saved with the run's artifacts when it keeps them |
-| `{"baseline":"columns-view"}` | runner | captures the Xvfb root with ImageMagick's `import` and compares it with `tests/qa/baselines/gtk-<major>.<minor>/columns-view.png` for the GTK the runner links: a pixel differs when a channel moves by more than 24, and more than 0.5% of differing pixels, a size change, or a missing image fails with a summary; the run's artifacts keep `<name>.actual.png`, and on a mismatch `<name>.expected.png` and `<name>.diff.png`. It writes a baseline only under `STRATA_QA_UPDATE_BASELINES=1` (see "Visual baselines"). Its failure starts with that summary, so the step carries no `message` |
-| `{"fs":{"path":"photo.png","image":{"width":1600,"height":900,"rgb":[0,128,0]}}}`, `{"fs":{"path":"sound.wav","ffmpeg":["-f","lavfi",...]}}` | runner | a solid-colour PNG, written in place in one write (written in pieces, the listing would see it grow and replace its row), or `ffmpeg -v error -y <ffmpeg...> <path>` |
-| `{"fs":{"path":"small.png","thumbnail":{"cache":"$cache/thumbnails/large","width":256,"height":128,"rgb":[0,0,255],"mode":"700"}}}`, `{"fs":{"path":"photos-a/model.3mf","cached_in":"$cache/thumbnails/large","pixel":{"at":[0,0],"rgb":[220,40,80]}}}`, `{"fs":{"path":"photos-a","all_cached_in":"$cache/thumbnails/large","except_suffix":".stl"}}` | runner | writes a freedesktop cached thumbnail for the file (a solid-colour PNG named after the MD5 of its URI, with `Thumb::URI` and `Thumb::MTime` text chunks, in one write, `mode` setting the cache directory's); `cached_in` reads the path's cached thumbnail instead for `exists`, `is`, `pixel`, `keep_mtime`, and `mtime_of`; waits until every entry but those ending in `except_suffix` has one |
-| `{"fs":{"path":"a.png","pixel":{"at":[0,0],"rgb":[...]}}}`, `"keep_mtime":"stored"`, `"mtime_of":"stored"`, `"executable":true`, `"mtime":1000000000` or `{"local":[2001,9,9,1,46,40]}` | runner | `Image.open(path).convert("RGB").getpixel(at)`; keeps `st_mtime_ns` and waits until it is that again; `st_mode & 0o111 == 0o111`; `int(st_mtime)`, a local time read in the runner's zone as `datetime(...).timestamp()` |
-| `{"fs":{"path":"unknown.bin","hex":"0001..."}}`, `"base64":"..."`, `"append":"text"`, `"raw_photo":true`, `"pdf_image":{"width":400,"height":200,"rgb":[...]}`, `"magick":["-limit","thread","1","$fixture/small.png"]` | runner | bytes in one write; `open("a").write`; a minimal raw camera photo; a one-page PDF of a solid image at 72 dpi; ImageMagick (`magick`, else `convert`) with the path last |
-| `{"fs":{"path":"a.tar.gz","tar_gz":{"mode":"755","mtime":1000000000,"members":[["a.txt","text"]]}}}`, `"zip_members":[["todo.txt","todo.txt"]]`, `"tar_members":[...]`, `"is_zip":true` | runner | a gzipped tar as `tarfile.open(path, "w:gz")` with `TarInfo` modes and times; the archive's member names are exactly these in order, each holding the bytes of the named fixture file; `zipfile.is_zipfile` |
-| `{"fs":{"path":"$config/mimeapps.list","default_app":{"for":"todo.txt","is":"x.desktop"}}}`, `{"fs":{"path":"$environment/opened-files","opened":["$fixture/todo.txt"]}}` | runner | the first desktop file `[Default Applications]` lists for the content type GIO gives the file; the file's lines, read with `Gio.File.new_for_commandline_arg`, are as many as the paths and include each |
-| `{"fs":{"path":"action.toml","toml":{"run.args":["a"]}}}`, `"toml_like":"saved"`, `{"fs":{"path":"record","json":{"action":"keep"}}}`, `"json_set":{"paths":[...]}` | runner | values at dotted keys of the parsed TOML; the parsed TOML equals that of bytes `keep_bytes` kept; values at top-level JSON keys, or each list compared as a set |
-| `{"fs":{"path":"$environment/terminal-launches.log","launches":{"count":3,"within":"$fixture"}}}`, `{"launches":{"first_dir":"$fixture/documents"}}`, `{"fs":{"path":"$data/Trash/info","replace_lines":{"suffix":".trashinfo","prefix":"DeletionDate=","with":"..."}}}` | runner | the stub terminal launcher's `cwd<TAB>--dir=...` lines as `test_terminal` asserts on them; rewrites matching lines of every file with the suffix |
-| `{"fs":{"path":"documents/bad%E8name.txt","write":"x","percent_path":true}}` | runner | the path's `%XX` escapes stand for raw bytes, for names that are not UTF-8 |
-| `{"fs":{"path":"payload.bin","random":67108864}}`, `"size":67108864`, `{"fs":{"path":".","glob_none":".strata-compression-*"}}` | runner | `write_bytes(os.urandom(size))` in one write; `st_size == size`; no name in the directory matches the pattern, `*` any run of characters, as `not list(root.glob(pattern))` |
-| `{"fs":{"path":"$config/gtk-3.0/bookmarks","lines_equal":[...]}}`, `"last_line":"..."` | runner | `path.read_text().splitlines()` equals the list, a missing file having none; its last line is that |
-| `{"fs":{"path":"settings.toml","toml_prefix":{"sidebar_order":["desktop","home"]}}}`, `"toml_like":"original","toml_keys":[...]` | runner | the list at the dotted key starts with these, as `tomllib.loads(...)["sidebar_order"][:2] == [...]`; only those keys of the TOML kept by `keep_bytes` and now compare equal |
-| `{"fs":{"path":"todo.txt.zip","zip_member":["todo.txt","todo.txt"]}}`, `"png":{"size":[23,17],"at":[5,5],"min":[241,0,0],"max":[255,9,9]}` | runner | the zip's member holds the fixture file's bytes, as `archive.read(name) == path.read_bytes()`; the path ends in `.png`, is a PNG of that size, and the RGB pixel's channels lie within bounds |
-| `"tar_gz":{"mode":"644","mtime":0,"members":[["a.txt",{"repeat":"x","count":50000}]],"flip_from_end":8}` | runner | a member's text repeated, and the compressed byte that far from the end flipped, as `damaged[-8] ^= 0xFF` breaks the gzip trailer's CRC |
-| `{"fs":{"path":"a.3mf","zip":[["3D/3dmodel.model","text"],["thumb.png",{"image":{...}}]]}}`, `{"fs":{"path":"big.stl","truncate":134217729}}`, `{"fs":{"path":"page.pdf","from_repository":"tests/fixtures/documents/text.pdf"}}` | runner | a stored zip of the entries in order, as `zipfile.ZipFile(path, "w").writestr` (an entry may be `{"text":...,"date_time":[2001,9,9,1,46,40],"mode":"100755"}`, a `ZipInfo` with that time and `external_attr`); an `image` with a range in its name (`photo-{0..5}.png`) writes one file per number, `width_step` wider each, each followed by its `thumbnail` when given; `path.open("wb").truncate(size)`; the repository file's bytes in one write, as `write_bytes(... .read_bytes())` |
-
-The thumbnail, archive, byte, append, line-rewriting, generated-file, and
-record `fs` kinds, like `remove` and `rename`, refuse a path outside the
-fixture, the run's `$environment`, and its scratch directory. A cached
-thumbnail's name and `Thumb::URI` use the path escaped as
-`pathlib.Path.as_uri` escapes it.
-
-`fs` paths are relative to the fixture directory unless absolute, so
-`$data/Trash/files` is the run's isolated trash. Every timeout defaults to 15
-seconds. A missing directory counts
-as `empty`, as `not (path.exists() and any(path.iterdir()))` does. A `message`
-on `select_with_keyboard` or `activate` names the step in its failure.
-
-A click holds the button 100 ms; a double click's two clicks are 90 ms apart,
-inside GTK's 400 ms double-click time, and a drag after a selecting click waits
-600 ms so it is no double click. The pointer approaches a point in two steps, 6
-pixels off and then on it, so GTK sees enter and motion rather than a jump. A target is never a screen point; it is resolved from
-the widget's bounds in its native surface plus that surface's X origin, which
-covers popovers, and is waited for up to 15 seconds.
-The pointer aims only once that box comes through a painted frame unchanged: a
-row a listing has just added or replaced can report a box before its first
-allocation lands. A tapped key comes
-up 20 ms after it went down, with the X server
-timing the release (XTEST's delay), never after waiting for a frame: the
-server autorepeats a key held past 660 ms, and a busy app could hold a frame
-that long after a press that started a navigation.
-
-### Targets
-
-| Target | Resolves to |
-| --- | --- |
-| `{"entry":"todo.txt","dir":"archive"}` | the entry row by name in the pane for `dir`; any pane without `dir` |
-| `{"result":"beta/match-note.txt"}` | a filter result by its path |
-| `{"result_row":-1,"containing":"match-note"}`, `{"result_row":0,"name":"match-note.txt"}` | the `Search results` rows or else every list item: one by its index in DFS order (negative counts back), among those whose name contains the part or is the name, as `[row for row in rows if "match-note" in row.name][-1]` |
-| `{"role":"button","name":"drafts","nth":-1}`, `{"role":"list item","name_ends_with":["/a","/b"]}` | the `nth` match of role and name (negative counts back); `name_ends_with` keeps names ending with any of the parts, as `node.name.endswith(f"/{name}")` |
-| `{"focused_widget":true}`, `{"remembered":"focused"}` | the focused widget; the widget `remember` kept under the name |
-| `{"role":"check menu item","name":"Folders first"}` | the first widget in the window with that role and name |
-| `{"role":"button","name":"Next video","within":{"preview":true}}` | a role and name inside another target: the search starts at another target; without `name` any name matches, as `entry.find(role="panel")`, and `description` must match too when given; `"states":["selected"]` (also `focused`, `checked`, `pressed`, `sensitive`, `horizontal`, `vertical`) as `find(..., states={...})`, and `"name_matches":"^\\d+:\\d\\d$"` as `find_all(name_matches=...)`, a regular expression searched in the name |
-| `{"role":["check box","toggle button","switch"],"name":"Confirm"}` | `next(node for node in find_all(name=...) if node.role in {...})`: a role list matches any of them |
-| `{"role":"*","states":["selected"],"within":{"preview":true}}`, `{"role":"list item","has":{"role":"label","name":"top.txt"}}`, `{"role":"button","name":"Settings","rendered":false}` | `preview.find(states={"selected"})`: `*` is any role; a match that has a rendered widget the inner role target finds at or below it, as `archive_row` picks the row holding a label; `find(..., rendered=False)`, presented but perhaps scrolled away, which `state`, `description`, `activate`, and `remember` then read as it is |
-| `{"row":"readme.md"}` | the first rendered list item with the name, else the first table cell |
-| `{"other_window":"Strata"}` | a showing application window with this title other than the one the run started with, as a reveal opens a second browser window |
-| `{"toplevel":"Copy to"}`, `{"field":true,"within":{"toplevel":"Copy to"}}` | an application window by its title, outside the browser window; inside it, the focused editable text, which `remember` keeps as a field |
-| `{"sidebar":"Home"}`, `{"header":"Choose sort field"}` | the sidebar button with that name; the column-header button with that name |
-| `{"menu_item":"New File"}` | the menu item with that name, in the open menu if there is one |
-| `{"dialog_button":"Close"}` | the button with that name in the open dialog |
-| `{"field":true}`, `{"field":"filter"}` | the focused editable text, or the one remembered as `filter` |
-| `{"background":true,"dir":...}` | a blank point in the pane's entry list, so it takes no `at` |
-| `{"pane":"archive"}` | the pane; aims at a blank point in it unless `at` is given |
-| `{"viewport":null}` | the scroll viewport around a pane's entry list |
-| `{"entry":"todo.txt","part":"label"}`, `"part":"icon"` | the entry row's name label; its icon image |
-| `{"window":true}`, `{"window":true,"y_of":TARGET}` | the browser window; with `y_of`, the point's height is that target's centre, as `(window.x + window.width - 40, pane.center[1])` |
-| `{"preview":true}` | the quick preview drawer |
-| `{"search_result":"todo.txt"}` | a `Search results` row by name, or else any list item with it |
-| `{"named":"Apply to All","within":{"dialog":true}}`, `{"dialog":true}` | a widget of any role with that name, inside another target; the open dialog |
-| `{"container":"archive"}` | the list or grid inside a pane |
-| `{"parent":TARGET}`, `{"ancestor":"scroll pane","of":TARGET}` | the target's parent; its nearest ancestor with the role |
-| `{"kept":"edge"}` | a box `settle` or `remember` kept, or a point `remember` kept, from before the window changed |
-| `{"point":[X,Y]}` | a point put together from targets, as `(pane.x + 2, container.y + 2)`; each coordinate is `{"of":TARGET,"at":OFFSET}` (its centre without `at`), `{"mid":[A,B]}` (`(a + b) // 2`), `{"max":[A,B]}`, or `{"extent":TARGET}` (its width or height taken as a screen coordinate, as `park_pointer` moves to `(width - 4, height - 4)`), each with an optional `"plus":40`, in whole pixels |
-| `{"entry":"todo.txt","part":"metadata"}` | the row's first named label other than its name |
-
-`at` is `[x, y]` from the target's top-left corner, each in pixels (negative
-counts back from the far edge), a share such as `"80%"` or `"2/3"` (rounded
-down, as `width * 2 // 3`), a share plus pixels such as `"2/3+3"`,
-`"start-6"` or `"end+60"` for pixels from the near or far edge that may lie
-outside the target, or `"end-1/6"` for a share back from the far edge; without
-it the pointer aims at the centre. A share has no lower bound, so `"1/6"` of a row under 6 pixels tall is 0. Role names are AT-SPI's, with `push button` spelled
-`button`, a plain box `panel`, a group `grouping`, a scale `slider`, and a password entry `password text`, as GTK's AT-SPI bridge
-reports them; names are the labels `src/ui/accessibility.rs` records (an entry row's
-is its list item's, and `set_labelled_by` joins its labels' names), a label's
-own text, or children's names for buttons and menu items; a menu button's inner
-toggle takes the menu button's name, as GTK names it, and a button with a text
-label is named by that label, through the `labelled-by` relation GTK gives it,
-before any label set on the button, unless `accessibility::clear_labelled_by`
-dropped the relation or `set_labelled_by` replaced it. A list view's row is
-selected as its selected state flag says, as GTK reports it. Tooltips never name a
-target: a control that needs a name, such as an icon-only button, gets
-`accessibility::set_label` with its tooltip text. The `tree` query prints both
-for every widget, which is the quickest way to write a target. `absent` holds
-only when the target is not found or not on screen; a lookup that breaks, such
-as an unrealized surface, is an error.
-
-### Predicates
-
-Predicates read the window and the run's files:
-
-| Predicate | Holds when |
-| --- | --- |
-| `{"directory":"archive"}`, `{"panes":[...]}`, `{"pane":"archive"}` | the focused pane's directory, else the deepest pane's; the panes' names, left to right; the focused pane's name |
-| `{"entries":NAMES,"dir":...}`, `{"selected":NAMES,"dir":...}` | the pane's entry names; its selected names, in visual order |
-| `{"entry":"a.txt","dir":...}`, `{"entry_gone":"a.txt"}` | the entry is listed; it is no longer listed |
-| `{"focused":"a.txt"}`, `{"focused_pane":true}` | the focused entry's name; the focused pane; a name, `true` for any, or null |
-| `{"dialog":"Unable to rename item"}` | the open dialog's name, `true` for any, or null for none |
-| `{"menu_items":NAMES}`, `{"menu_items":{}}`, `{"menu_items":null}` | the open menu's items; `{}` is any open menu, null none |
-| `{"preview":"beta source"}`, `{"preview":null}` | the open preview shows the text; no preview is open |
-| `{"matches":NAMES,"dir":...}` | the search results, or else the pane's entries |
-| `{"field":{"of":"rename","name":"Rename","text":"a","caret":4,"selection":[0,4],"focused":true}}` | a field node's `text`, caret offset, selection (null for none), and `focused` state |
-| `{"editor_within_viewport":{"of":"rename"}}` | the remembered inline editor stays inside the browser viewport, as the long-name caret scenario checks |
-| `{"pref":{"key":"browser_mode","value":"icons"}}` | the saved preference in `settings.toml`, parsed from TOML; null when absent; `"contains":"size"` instead holds for a list holding the string or a string containing it, and `"one_of":[1,2,3,4]` holds for any of the values |
-| `{"state":{"target":TARGET,"selected":true,"focused":false,"checked":false,"pressed":true,"sensitive":true}}` | the widget has each state given; an active switch is `pressed` as well as `checked`, and `selected` is what `accessibility::set_selected` recorded, as for a tab, as GTK's bridge reports them (a list box row and a notebook tab report their own selection); `selectable` (a list box row that takes the selection), `editable` (an editable entry or text view), `focusable` (a widget that can take focus), and `busy` (what `accessibility::set_busy` recorded) too; a description is the recorded one, a picture's alternative text, or for a menu button's inner toggle the menu button's, as GTK describes it |
-| `{"view_mode":"Icons"}`, `{"window_width":420}` | the first pane's presentation; the main window's width |
-| `{"present":TARGET}`, `{"absent":TARGET}` | the target is, or is not, found on screen |
-| `{"moved":{"target":TARGET,"direction":"up"}}` | bounds against the last `settle`; also `down`, `left`, `right`, or `none`; `none` with `"within":1` allows that much drift on both axes and keeps the size, as `assert_layout` |
-| `{"any":[PREDICATE,...]}` | `a or b` |
-| `{"not":PREDICATE}` | `not ...` |
-| `{"all_selected":NAMES}` | every pane's selection, left to right |
-| `{"focused":{"one_of":[...]}}`, `{"focused_in_matches":true}` | the focused entry is one of the names; it is one of the matches |
-| `{"preview":true}`, `{"peek":true}` | a preview is open; a folder peek is open |
-| `{"on_screen":TARGET}` | the target lies within the window's height |
-| `{"blank":{"target":TARGET,"at":[...]}}` | the point lands on nothing inside the target but panels and fillers |
-| `{"visible":NAMES,"dir":...}` | the rows wholly inside the pane's scroll viewport |
-| `{"scroll_value":{"at_least":N},"dir":...}` | the first scroll bar showing in the pane's viewport, `scroll_bar.numeric_value >= N` |
-| `{"band_selected":{"from":"start","to":"end"}}` | the visible rows whose name box ends above the kept point `to` and overlaps the band from kept `from` are all selected, and there is one |
-| `{"focus_within":TARGET}` | the target or a widget inside it has focus |
-| `{"resized":{"target":TARGET,"since":"sidebar","width":0}}` | the width against a kept box: exactly that much wider, or `{"min":30}` |
-| `{"contains_point":{"target":TARGET,"point":TARGET,"axis":"x"}}` | `bounds.x <= x < bounds.x + bounds.width` for the point's coordinate |
-| `{"footer_fill":{"ends":["001.txt","011.txt"],"total":180}}` | both ends listed, cleared, and on screen, and a label described as `"<total - cleared> of <total> items selected"` |
-| `{"repainted":{"since":"before"}}` | `visibly_hovered`: a fresh grab of a capture's box differs from it outside the pointer's square, 2 pixels before the box's centre to 32 after |
-| `{"contrast_below":{"of":"dragging","to":"resting","share":0.8}}` | `dragging_contrast < resting_contrast * 0.8` for two `measure_text` results |
-| `{"elapsed":{"since":"released","ms":600}}` | `time.monotonic() - released >= 0.6` |
-| `{"diagnostics_mention":["could not","permission denied"]}` | any of them, case-insensitively, in the accessible names and descriptions of every application window |
-| `{"all":[PREDICATE,...]}` | `a and b` |
-| `{"editable_fields":1}` | `len(window.find_all(role="text", states={"editable"}))` |
-| `{"description":{"target":{"menu_item":"Copy"},"text":"Ctrl+C"}}` | `node.description == "Ctrl+C"`, or a pattern such as `{"contains":...}` |
-| `{"mentions":{"target":{"dialog":true},"text":"Customize Folder"}}`, `"words":"doesn't support Trash"` | `"Customize Folder" in dialog.dump()`: some name or description in the subtree contains it; with `"role":"label"`, the name of some rendered widget with that role does, as `any("x" in node.name for node in dialog.find_all(role="label"))`; with `words`, some rendered widget's `f"{name} {text}"` has them with any whitespace between, as `re.search(r"doesn't\s+support\s+Trash", ...)`; with `equals`, some rendered widget's name with its whitespace collapsed is exactly that, as `" ".join(node.name.split()) == text` |
-| `{"presented":{"role":"label","name":"Ctrl+Alt+M"}}` | `window.find(..., rendered=False) is not None` |
-| `{"file":{"path":"$fixture/documents/notes.txt","exists":false}}`, `{"file":{"path":"$fixture/todo.txt","mode_bits":{"mask":"100","set":true}}}` | whether the path exists without following a final symlink, as the runner's `fs` `exists` checks it; or `bool(path.stat().st_mode & 0o100)`; read by the process so `any` and `all` can join it with window state |
-| `{"focused_widget":"Custom color…"}` | the focused widget's name, exactly or as `{"contains":"Shortcuts"}`; null when nothing has focus |
-| `{"inside":{"target":TARGET,"of":{"container":"rename-target"},"axis":"y"}}` | the target has width and height and lies inside the other's box, on both axes or just `axis` |
-| `{"editor_within_window":{"of":"rename","pane":"$root"}}` | the narrow-window creation check: a remembered field wider than one pixel, starting at or right of `max(pane.x, 0)` and ending inside the window |
-| `{"replaced":{"target":{"entry":"rename-target"},"since":"listed"}}` | the target now resolves to another widget than the one `remember` kept under `since`, as a reload rebuilds a listing's rows; for the waits in "Waits for the app's own timers" |
-| `{"pixel":{"target":{"role":"image","within":{"result":"beta/thumb.png"}},"rgb":[230,40,60]}}` | `screenshot.getpixel(bounds.center)` equals the colour |
-| `{"accent_pixels":{"target":{"field":"filter"},"inset":2,"more_than":100}}` | more than that many pixels in the target's box, inset on every side, are exactly the accent of the theme `settings.toml` names in `data/themes/catalog.toml` |
-| `{"any_result_row":{"focused":true}}` | `any(row.has_state("focused") for row in result_rows(strata))`; `selected` too |
-| `{"hit_path":{"mark":"search: txt","hits":{"todo.txt":"todo.txt"},"name":"todo.txt"}}` | `footer_hit`: of the panels beside the footer mark, the first whose rendered labels, joined, are one of the hits' paths shows `hits[name]`; a `name` the hits do not list is an error |
-| `{"compare":{"left":NUMBER,"op":"<=","right":NUMBER}}` | `heading.x + heading.width <= button.x`: `op` is `<`, `<=`, `==`, `!=`, `>=`, or `>`; a `NUMBER` is a literal, `{"of":TARGET,"get":"width"}` (`x`, `y`, `width`, `height`, `right`, `bottom`, `center_x`, `center_y` in whole pixels, or `value`, a slider's `numeric_value`), `{"pref":"text_size","default":0}`, `{"count":{"role":"image","description":"LaTeX equation","within":TARGET,"rendered":true,"states":["selected"]}}` (`len(find_all(...))`), or `sum`, `minus`, `times`, `divide`, `floor_divide` (Python's `/` and `//`), `ceil`, and `abs` over them; a target not on screen is a mismatch, so a wait keeps polling |
-| `{"panes_with":{"target":{"role":"button","name":"Refresh (F5)"},"names":["documents"]}}` | `[name for name in pane_names() if pane(name).find(...)]`: the panes, left to right, in which the role target is on screen |
-| `{"largest_image":{"within":{"preview":true},"wider_than":40,"size":[160,80]}}`, `"exceeds":[160,80]` | of the rendered images inside the target wider than `wider_than`, the largest by area (the first of equals) exists, is exactly `size`, or is larger than `exceeds` on either axis |
-| `{"children":{"comm_prefix":"xdg-terminal-ex","count":0}}` | how many of the application's child processes have a command name with the prefix |
-| `{"list_sections":{"within":{"dialog":true},"section":"Recommended Applications","names":NAMES}}` | the selectable list items under each unselectable heading row, named by the row's first named child |
-| `{"text":{"target":TARGET,"text":"batch-rename"}}` | `node.text`, the text interface: a label's or entry's text, a text view's buffer |
-| `{"some_window":{"title":"Strata","holds":PREDICATE}}`, `{"windows":{"title":"Strata","count":6}}` | `any(... for window in application.find_all(role="frame", name="Strata"))`: the predicate read in each showing application window with the title as its own tree; how many there are |
-| `{"child_names":{"of":{"parent":{"sidebar":"Home"}},"role":"button","names":NAMES}}` | `[row.name for row in node.children if row.role == "button"]`, the target's visible children |
-| `{"focus_outside":TARGET}`, `{"focused_widget_is":TARGET}` | the focused widget has a name and is neither the target nor inside it; the focused widget is the target |
-| `{"alive":"rename"}`, `{"subtree_text":{"target":{"dialog":true},"contains":"...","strip_newlines":true}}` | `node.alive` for a widget `remember` kept: it still belongs to a window; `" ".join(node.text for _, node in dialog.walk() if node.text)` contains the part, after `.replace("\n", "")` with `strip_newlines` |
-| `{"name":{"target":TARGET,"text":"0:05"}}`, `{"editable_text":"todo"}`, `{"visible_top":NAMES}` | `node.name == "0:05"` (or a pattern; with `"rendered":false` the target is looked up presented, as `find(..., rendered=False).name`); `any(node.text == "todo" for node in window.find_all(role="text", states={"editable"}))`; the rows `note visible_top` lists |
-
-`NAMES` is an exact list in visual order or
-`{"contains":[...],"excludes":[...],"count":4,"at_least":2,"ends_with":[...]}`,
-with `"first"` (`names[0] == ...`), `"first_above"` (`names[0] > "010.txt"`),
-`"any_from"` (some name `>= "040.txt"`), and
-`"starts_with":[...]` (`names[:2] == [...]`),
-`"toggled":{"names":[...],"against":[...]}` (each listed exactly when
-`against` does not list it), `"in_order":[...]` (each listed, first
-occurrences in that order), `"set":[...]`
-(`set(names) == {...}`), `"occurrences":{"a.txt":2}`
-(`names.count("a.txt") == 2`), and `"sorted_casefold_from":1`
-(`names[1:] == sorted(names[1:], key=str.lower)`), comparing names as Python compares strings;
-`panes` takes one too. `moved` takes `"since":"entered"` to compare with a box
-`settle` or `remember` kept under that name, and with direction `none`,
-`"y_within":2` allows that much vertical drift and ignores the rest, as
-`abs(restored.y - y) <= 2`. A `field` check also takes `showing` (the field is
-mapped), and `text` also `{"lowercase_contains":...}`. A `field` check reads the
-field remembered as `of`, else the first on screen with that accessible `name`
-(never both), else the focused one; each property it gives must match, `text` exactly or as
-`{"starts_with"|"ends_with"|"contains":...}` and `caret` exactly or as
-`{"min":1,"max":72}`. Caret and selection come from `gtk::Editable`, which a
-`GtkEntry` such as the inline rename editor delegates to its `GtkText`, so they
-are the offsets AT-SPI's text interface reports.
+The full catalogue of header keys, variables, steps, `fs` kinds, targets,
+predicates, replies, the state snapshot, the input log, and artifacts is
+[`.agents/skills/qa-scenarios/reference.md`](../.agents/skills/qa-scenarios/reference.md);
+the parsers it names are the source of truth. The `qa-scenarios` skill beside
+it covers writing, running, and debugging a scenario.
 
 ### Accessible names are product surface
 
@@ -826,65 +501,15 @@ of each header line changes, added last where there is none; every other byte
 of the files stays. The order matters more than the numbers: a new run without
 a cost starts early until the next refresh.
 
-### Replies and the state snapshot
+### Replies and failure artifacts
 
-A reply is `{"ok","app","changed","criticals","result","failures","error"}`.
-`changed` lists the `app` keys that differ from the previous reply, and any GLib
-warning or critical in `criticals` fails the run. `app` has exactly these keys:
-
-```json
-{
-  "view_mode": "Columns",
-  "directory": "strata-qa-fixture-ab12CD",
-  "panes": [
-    {"name": "strata-qa-fixture-ab12CD", "selected": ["archive"], "focused": null},
-    {"name": "archive", "selected": [], "focused": "todo.txt"}
-  ],
-  "focused": "todo.txt",
-  "focused_pane": "archive",
-  "dialog": null,
-  "menu": null,
-  "preview": null,
-  "field": null,
-  "matches": ["todo.txt"]
-}
-```
-
-- `view_mode`: the first pane's presentation (`Columns`, `Icons`,
-  `List`), or null with no pane on screen.
-- `directory`: the focused pane's directory, else the deepest pane's; `focused_pane`: the focused pane's name.
-- `panes`: the panes left to right; per pane its name, its selected names in
-  visual order, and the name of its entry holding focus or null. As through
-  AT-SPI, a focused widget that is not mapped, such as a row a list keeps
-  while it is scrolled away, holds no focus.
-- `focused`: the name of the entry holding focus.
-- `dialog`: the open dialog's name, or null.
-- `menu`: the items of the open menu, or null when none is open.
-- `preview`: every non-empty accessible name and text inside the open preview
-  drawer in tree order, or null when it is closed.
-- `field`: the focused editable field as
-  `{"name","text","caret","selection","focused"}` (`selection` is
-  `[start, end]` or null), or null.
-- `matches`: the search results, or else the entries, of the deepest pane.
-
-The snapshot, every target, and the input log's origin belong to the browser
-window the run started with; a floating chooser, which becomes the active window while it is
-open, is reached through a `toplevel` target.
-
-The runner checks every step with the process's own parser before launching,
-so a typo fails the scenario as a harness error. Setup, launch, layout,
-artifact, and teardown problems, a reply that never arrives, and a process that
-exits are errors too: they fail even a `known_bug` run, which only scenario
-steps can satisfy.
-
-A failed run writes `target/qa-artifacts/<scenario>/<mode>[-<variant>]/`: a
-screenshot of the Xvfb root, the widget tree (headed by the window's focus,
-marked when it sits on a widget that is not mapped), the command and reply
-transcript, the application log, the input log, the fixture listing, the
-Xvfb log, `state.json` (the `app` snapshot after the last step, taken once two
-reads 250 ms apart agree, at most five seconds), and `result.json` (the run's
-scenario, run, mode, errors, and each failed step with its line). Set
-`STRATA_QA_KEEP_ARTIFACTS=1` to keep them for passing runs too.
+Every process command gets one JSON reply carrying the `app` state snapshot,
+and a GLib warning or critical in any reply fails the run. A failed run, or
+every run under `STRATA_QA_KEEP_ARTIFACTS=1`, writes
+`target/qa-artifacts/<scenario>/<run label>/`: a screenshot, the widget tree,
+the command and reply transcript, the application, Xvfb, and input logs, the
+fixture listing, the final snapshot, and the result. The reference's
+"Protocol, replies, and the snapshot" and "Artifacts" sections define each.
 
 ### Driving a session by hand
 
@@ -914,10 +539,10 @@ short `docker exec` (or `podman exec`) that returns at once:
 one-line reply, waiting 90 s, or the command's `timeout_ms` plus 30 s; it
 reports a process that exited with its log tail. Replies are matched to
 commands by number, so the reply to a command whose wait gave up is skipped
-when it comes, never printed as a later command's. Runner steps (`fs`, `layout`,
-`screenshot`, `restart`, and the others marked "runner" above) are not process
-commands: use the subcommands, or a scenario. `--tree` takes a tree as the
-manifest writes one (a name, or JSON, or `@file`), `--pref KEY=VALUE` changes a
+when it comes, never printed as a later command's. Runner steps (`fs`,
+`layout`, `screenshot`, `restart`, and the others the reference lists as runner
+and `fs` steps) are not process commands: use the subcommands, or a scenario.
+`--tree` takes a tree as the manifest writes one (a name, or JSON, or `@file`), `--pref KEY=VALUE` changes a
 seeded preference (the value is JSON, or else a string), `--env NAME=VALUE`
 adds a variable, and `--bus` starts the runner's private session bus in place
 of the address that cannot connect. `exec` runs a shell command in the
@@ -934,26 +559,6 @@ and it shares the build cache, so never run it while `scripts/qa.sh` runs.
 The values it copies from `tests/qa.rs` (the QA environment, XDG layout,
 Xvfb arguments, bus configuration, and timeouts) are checked by
 `scripts/test_qa_drive.py`.
-
-### Input log
-
-With `STRATA_INPUT_LOG=<path>` the process appends every synthetic event it
-sends, one per line; the runner sets it for each run and saves the file as
-`input.log` whenever it writes artifacts. Coordinates are X root coordinates minus
-the main window's X surface origin, so they are relative to the window (a portal
-run's, to the adopted chooser):
-
-```text
-key <keycode> down|up
-motion <x> <y>
-pointer <x> <y> button <n> down|up
-```
-
-`pointer` is a button event at the pointer's position, with the wheel as
-buttons 4 and 5, and keycodes are the X server's. `motion` lines record each
-XTEST motion, including both steps of the approach and every drag point. The
-position a `pointer` line carries is the final pointer position before that
-button event.
 
 ### Visual baselines
 
@@ -1030,25 +635,18 @@ at present.
 
 ### Waits for the app's own timers
 
-A QA run sends input faster than the retired Python suite did, whose AT-SPI
-lookups took tens of milliseconds. Where that pace lets the app's own timers
-fire in another order than they always did at the slower pace, the scenario
-waits for what that pace guaranteed, and is listed here. The run counts below
-for the Python suite were measured before it was removed:
+QA input arrives faster than a person's, fast enough to land between the app's
+own timers. Where that pace exposes a race the app does not yet guard against,
+the scenario waits for the state a person's slower pace would reach, and is
+listed here:
 
 - `same-folder-copy-numbered-duplicate` (folder): waits for the documents
-  column the keyboard cursor mirrors after 75 ms before Ctrl+D. Over 24
-  sequential Python runs the duplicate always ends selected in the root column
-  alone.
+  column the keyboard cursor mirrors after 75 ms before Ctrl+D.
 - `paste-targets-selected-directory` (Columns): waits for the archive column
-  the cursor mirrors before Ctrl+V. Over 24 Python runs the pasted file always
-  ends selected and focused in that column.
-
+  the cursor mirrors before Ctrl+V.
 - `escape-preserves-name-remaining` (existing-folder) and
   `rename-and-undo-restores` (folder): wait for the folder's column the
-  cursor mirrors before F2. Over 24 sequential Python runs each ended in the
-  same state every time, with that column open beside the folder wherever the
-  test stayed in its parent.
+  cursor mirrors before F2.
 
 These expose an app race: Ctrl+D, Ctrl+V, or F2 within 75 ms of the arrow key
 that moved the cursor onto a folder leaves a stale mirrored column, and a paste
@@ -1060,35 +658,29 @@ then leaves the pasted file neither selected nor focused.
   operation; a Ctrl+Z in between is dropped. The app shows nothing a run can
   read to tell that the undo is ready (Undo has no menu item or action
   state), so the wait is the settle. Under the same parallel load, 3 of 60
-  QA runs without it lost the Ctrl+Z and none of 60 with it did (6 of 116
-  and 0 of 84 over every probe). Over 24 Python runs of both kinds Ctrl+Z
-  always restored the original.
+  runs without it lost the Ctrl+Z and none of 60 with it did (6 of 116 and 0
+  of 84 over every probe).
 - `new-folder-with-selection-groups` (Columns): waits for the renamed
   `grouped` row to count its two items before clicking it. The row first
   shows the optimistic rename, and a click on it before the listing catches
-  up leaves focus in the parent column (16 of 24 QA runs without the wait,
-  none of 36 with it); over 24 Python runs the click always focused the
-  folder's column.
+  up leaves focus in the parent column (16 of 24 runs without the wait, none
+  of 36 with it).
 - `tenxer-d-without-trash-confirms`: waits for the `no-trash` link to be
-  listed before walking the cursor onto it, which over 24 Python runs the
-  fixture's own setup time always allowed.
+  listed before walking the cursor onto it.
 - `narrow-window-keeps-last-column`: settles the `folder` column before
   comparing its right edge with the preview's. Once the 900-pixel window first
   fits the column, the column strip scrolls it clear of the preview a moment
-  later; QA's pace compares in between (the column ended at 802 against the
-  preview's 600, then at 600). Over 24 sequential Python runs the comparison
-  always held.
+  later, and an immediate comparison falls in between (the column ended at
+  802 against the preview's 600, then at 600).
 - `empty-directory-focus-and-tab-order` (pointer): once the new `empty` row
   is listed after F5, waits up to a second for the listing to replace that
   row once more (it always did within a second over 36 probe runs) before
   clicking it; a click on the row the listing replaces mid-press is
-  cancelled, and 4 of 12 QA runs without the wait lost it. Over 24 sequential
-  Python runs of each pointer case the click always opened `empty`.
+  cancelled, and 4 of 12 runs without the wait lost it.
 - `invalid-archive-reports-damage`: waits for the error detail label once the
   progress dialog has turned into `Unable to complete operation`, before
-  asserting it; the label can show a moment after the dialog takes its new name,
-  and one QA run in about fifty checked in between. Over 24 sequential Python
-  runs of all seven cases the assertion always held at once.
+  asserting it; the label can show a moment after the dialog takes its new
+  name, and one run in about fifty checked in between.
 
 ## Main-thread I/O audit
 
@@ -1196,7 +788,7 @@ both checks' pattern to prefix `USAGE`. A failed run uploads
 holding `cargo/` and `build/` (default `target/qa-container`); leave it unset
 locally. To read a failure, start with the job log (`PASS` and failed lines
 name each run), then the artifacts: `qa-artifacts-<attempt>` has the per-run
-bundle described in "Replies and the state snapshot".
+bundle described in "Replies and failure artifacts".
 
 ### Persistent published environments
 

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-//! With `STRATA_INPUT_LOG` set, each event is appended in the format the "Input log" section of `docs/testing.md` defines.
+//! With `STRATA_INPUT_LOG` set, each event is appended in the format `.agents/skills/qa-scenarios/reference.md` defines.
 
 use std::{
     cell::{Cell, RefCell},
