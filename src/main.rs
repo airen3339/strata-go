@@ -95,6 +95,35 @@ fn has_desktop_theme_override() -> bool {
     std::env::var_os(DESKTOP_THEME_OVERRIDE).is_some()
 }
 
+fn file_manager_debug_environment(
+    arguments: &[OsString],
+    debug: Option<&std::ffi::OsStr>,
+) -> Option<OsString> {
+    if launch_mode(arguments) != LaunchMode::Application
+        || !arguments
+            .iter()
+            .skip(1)
+            .take_while(|argument| *argument != "--")
+            .any(|argument| argument == "--gapplication-service")
+    {
+        return None;
+    }
+    let debug = debug.unwrap_or_default();
+    if debug
+        .as_encoded_bytes()
+        .split(|byte| b":;, \t".contains(byte))
+        .any(|flag| flag.eq_ignore_ascii_case(b"no-portals"))
+    {
+        return None;
+    }
+    let mut debug = debug.to_os_string();
+    if !debug.is_empty() {
+        debug.push(":");
+    }
+    debug.push("no-portals");
+    Some(debug)
+}
+
 /// GTK reads its renderer and theme override during startup. Re-exec before
 /// initializing GTK rather than mutating the environment after libraries may
 /// have started threads. Returns only when the restart fails.
@@ -107,6 +136,13 @@ fn restart_for_gtk_environment(arguments: &[OsString], select_cairo: bool) -> gt
     command
         .args(&arguments[1..])
         .env_remove(DESKTOP_THEME_OVERRIDE);
+    if let Some(debug) =
+        file_manager_debug_environment(arguments, std::env::var_os("GDK_DEBUG").as_deref())
+    {
+        // OpenDirectory synchronously waits for FileManager1. GTK must not
+        // query that same portal while initializing this D-Bus-activated app.
+        command.env("GDK_DEBUG", debug);
+    }
     if select_cairo {
         command
             .env("GSK_RENDERER", "cairo")
@@ -272,7 +308,9 @@ fn main() -> gtk::glib::ExitCode {
         std::env::var_os("GSK_RENDERER").as_deref(),
         ui::preferences::PreferenceManager::shared().interface_renderer(),
     );
-    if select_cairo || has_desktop_theme_override() {
+    let service_debug =
+        file_manager_debug_environment(&arguments, std::env::var_os("GDK_DEBUG").as_deref());
+    if select_cairo || has_desktop_theme_override() || service_debug.is_some() {
         // Replies already own the original stdout, which a restart would lose.
         #[cfg(feature = "qa")]
         if qa_session.is_some() {
