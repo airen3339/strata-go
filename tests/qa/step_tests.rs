@@ -513,6 +513,7 @@ pub(crate) fn log_proc_and_each_steps_check_their_shape_before_the_run() {
         json!({ "log": { "contains": "Landlock" }, "as": "landlocked" }),
         json!({ "proc": { "gone": [1, 2] } }),
         json!({ "proc": { "kill": 7 } }),
+        json!({ "proc": { "app_cwd": "/" }, "timeout_ms": 0 }),
         json!({ "restart": true }),
         json!({ "dbus_send": ["--print-reply"] }),
         json!({ "each": "names", "as": "name", "step": { "wait": { "entry": "$name" } } }),
@@ -525,6 +526,7 @@ pub(crate) fn log_proc_and_each_steps_check_their_shape_before_the_run() {
         json!({ "log": { "contains": "a", "at_least": 1 } }),
         json!({ "log": { "contains": "a" }, "as": "x", "if": "y" }),
         json!({ "proc": { "kill": 7 }, "timeout_ms": 0 }),
+        json!({ "proc": { "app_cwd": "/", "kill": 7 } }),
         json!({ "restart": true, "message": "x" }),
         json!({ "dbus_send": [] }),
         json!({ "each": "names", "as": "name", "step": { "fs": { "path": "a", "exists": true } } }),
@@ -541,6 +543,16 @@ pub(crate) fn log_proc_and_each_steps_check_their_shape_before_the_run() {
             .is_err_and(|error| error.starts_with("refusing to kill")),
         "a pid that is not the application's child is never signalled"
     );
+    let own_cwd = std::env::current_dir().expect("the runner's working folder");
+    for (cwd, holds) in [
+        (own_cwd.to_str().expect("a UTF-8 folder"), true),
+        ("/nowhere", false),
+    ] {
+        let step: ProcStep =
+            serde_json::from_value(json!({ "proc": { "app_cwd": cwd }, "timeout_ms": 0 }))
+                .expect("an app_cwd query should parse");
+        assert_eq!(step.run(std::process::id()).is_ok(), holds, "app_cwd {cwd}");
+    }
     let directory = tempfile::tempdir().expect("a scratch directory");
     let path = directory.path().join("example.jsonl");
     for (name, allowed) in [

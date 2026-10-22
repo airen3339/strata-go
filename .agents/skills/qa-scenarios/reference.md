@@ -172,7 +172,7 @@ These run in the runner (`drive` in `tests/qa/drive.rs`), between process comman
 | `{"stem":"source","as":"stem"}`, `{"parent":"output","as":"dir"}` | A noted name's stem; a noted path's parent. |
 | `{"fail":"the dialog never accepted the name"}` | Fails with that message; ends an unrolled retry. |
 | `{"log":{"count":"browser sandbox started"},"as":"initial"}` | Reads the app log (colours stripped): `count` of a text, `matches` (numbers a pattern's first group finds; `pick` keeps one), or `contains` (kept as a flag). With `as` it keeps the value; without, it waits until the count is `equals`, `at_least`, or `at_most` a number or a noted list's length, plus `plus`. |
-| `{"proc":{"gone":"$pids"}}`, `{"proc":{"parent_is_app":"$pid"},"timeout_ms":0}`, `{"proc":{"kill":"$pid"}}` | Waits until noted pids exit; checks a pid's parent is the app; SIGKILLs an app child (only). |
+| `{"proc":{"gone":"$pids"}}`, `{"proc":{"parent_is_app":"$pid"},"timeout_ms":0}`, `{"proc":{"kill":"$pid"}}`, `{"proc":{"app_cwd":"/"}}` | Waits until noted pids exit; checks a pid's parent is the app; SIGKILLs an app child (only); waits until the app's working folder is the path. |
 | `{"launch":["$fixture/requested-missing"],"percent_path":true}` | Runs another `strata` with arguments (needs `session_bus`); it hands them to the running app over the bus and exits. `percent_path` turns `%XX` into raw bytes. |
 | `{"dbus_send":["--print-reply","--dest=...","/path","iface.Method","array:string:file://..."]}` | `dbus-send --session` on the private bus (needs `session_bus`); fails on a non-zero exit. |
 | `{"screenshot":"hover.png"}` | Captures the X root into the run's artifacts. |
