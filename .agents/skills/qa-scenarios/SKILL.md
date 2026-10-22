@@ -250,7 +250,7 @@ Step modifiers: `"modes":[...]`, `"variants":[...]`, `"when":PREDICATE`,
 
 - **Rename:** `git mv` the file, change its `scenario` key to the new stem,
   and replace the old name everywhere it appears (`grep -rn <old> docs tests
-  .agents`), including the "Skipped scenarios" and "QA-only waits" lists.
+  .agents`), including the "Skipped scenarios" and "Waits for the app's own timers" lists.
   Cost labels are run labels, so they stay.
 - **Split:** give each new file its own header and only the steps its
   behaviour needs; keep every meaningful assertion; refresh `cost`; rate each
@@ -279,8 +279,8 @@ Step modifiers: `"modes":[...]`, `"variants":[...]`, `"when":PREDICATE`,
 - A wait that exists only because QA input is faster than a person can be
   (for example waiting for the column the cursor mirrors before a shortcut)
   is allowed only with evidence: add the scenario, run, what it waits for,
-  the app race, and failure counts with and without the wait to "QA-only
-  waits", and file an issue for the race.
+  the app race, and failure counts with and without the wait to "Waits for the
+  app's own timers", and file an issue for the race.
 
 ## Debug a failure
 

@@ -86,7 +86,7 @@ pass before merge.
   callers, or preferences coverage.
 - QA selections name scenarios, or `<scenario>/<run>` for one run, for
   example `./scripts/qa.sh copy-leaves-source` or
-  `./scripts/qa.sh arrow-keys-move-focus/columns-ru`; `qa.sh` rejects unknown
+  `./scripts/qa.sh arrow-keys-move-focus/columns-arrows`; `qa.sh` rejects unknown
   names and fails a selection that runs no scenario. `scripts/qa.sh` is the
   canonical pinned-container GUI runner. `scripts/quality.sh` accepts only
   `all`, `fmt`, `clippy`, or `test` and does not forward test filters.

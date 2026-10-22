@@ -304,7 +304,7 @@ involved.
 ```bash
 ./scripts/qa.sh                              # every scenario, every mode
 ./scripts/qa.sh arrow-keys-move-focus        # one scenario, all of its runs
-./scripts/qa.sh arrow-keys-move-focus/columns-ru   # one run of it
+./scripts/qa.sh arrow-keys-move-focus/columns-arrows   # one run of it
 STRATA_QA_KEEP_ARTIFACTS=1 ./scripts/qa.sh   # artifacts for passing runs too
 ```
 

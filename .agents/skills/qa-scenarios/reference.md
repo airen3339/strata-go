@@ -278,12 +278,12 @@ lookup that breaks, such as an unrealized surface, is an error, never
 | `{"background":true,"dir":...}` | An empty point in a pane (a point; takes no `at`). |
 | `{"container":"archive"}` | The list or grid inside a pane. |
 | `{"viewport":null}` | The scroll viewport around a pane's entry list. |
-| `{"role":"button","name":"Settings"}` | By role and accessible name. Options: `"nth":-1`, `"name_ends_with":["/a"]`, `"name_matches":"^\\d+$"` (regex), `"description":...`, `"states":["selected"]` (also `focused`, `checked`, `pressed`, `sensitive`, `busy`, `horizontal`, `vertical`), `"within":TARGET`, `"has":{role target}` (a match containing that widget), `"rendered":false` (presented but maybe scrolled away, which `state`, `description`, `activate`, and `remember` read as it is). Without `name` any name matches. `role` may be a list, or `*` for any. |
+| `{"role":"button","name":"Settings"}` | By role and accessible name. Options: `"nth":-1`, `"name_ends_with":["/a"]`, `"name_matches":"^\\d+$"` (regex), `"description":...`, `"states":["selected"]` (also `focused`, `checked`, `pressed`, `sensitive`, `selectable`, `editable`, `busy`, `horizontal`, `vertical`), `"within":TARGET`, `"has":{role target}` (a match containing that widget), `"rendered":false` (presented but maybe scrolled away, which `state`, `description`, `activate`, and `remember` read as it is). Without `name` any name matches. `role` may be a list, or `*` for any. |
 | `{"named":"Apply to All","within":{"dialog":true}}` | Any role by name, inside another target. |
 | `{"menu_item":"New File"}` | A menu item, in the open menu if there is one. |
 | `{"sidebar":"Home"}`, `{"header":"Choose sort field"}` | A sidebar place; a column header button. |
 | `{"dialog":true}`, `{"dialog_button":"Close"}` | The modal dialog; a button in it. |
-| `{"field":true}`, `{"field":"filter"}` | The focused editable text, or the one remembered as `filter`. |
+| `{"field":true}`, `{"field":"filter"}`, `{"field":true,"within":TARGET}` | The focused editable text, the one remembered as `filter`, or the editable text inside another target. |
 | `{"focused_widget":true}`, `{"remembered":"focused"}` | The focused widget; a widget `remember` kept. |
 | `{"preview":true}` | The quick preview drawer. |
 | `{"search_result":"todo.txt"}`, `{"result":"beta/match-note.txt"}`, `{"result_row":-1,"containing":"match-note"}` | Search result rows by name, by path, or by index among those whose name contains a part (or is `"name"`). |
@@ -387,7 +387,7 @@ reached, a drag landing, a repaint, a visual baseline); never to pin layout.
 | `{"moved":{"target":T,"direction":"up","since":"entered"}}` | Moved since the last `settle` (or a named one): `up`, `down`, `left`, `right`, or `none`. With `none`, `"within":1` allows that much drift on both axes and keeps the size; `"y_within":2` allows that much vertical drift and ignores the rest. |
 | `{"resized":{"target":T,"since":"sidebar","width":0}}` | Width change against a kept box, exactly or `{"min":30}`. |
 | `{"inside":{"target":T,"of":T,"axis":"y"}}`, `{"contains_point":{"target":T,"point":T,"axis":"x"}}` | Box containment. |
-| `{"compare":{"left":NUMBER,"op":"<=","right":NUMBER}}` | `op` is `<`, `<=`, `==`, `!=`, `>=`, or `>`. `NUMBER` is a literal, `{"of":T,"get":"width"}` (`x`, `y`, `width`, `height`, `right`, `bottom`, `center_x`, `center_y`, `value`), `{"pref":"text_size","default":0}`, `{"count":{role target}}`, or `sum`, `minus`, `times`, `divide`, `floor_divide`, `ceil`, `abs` over them. A target off screen is a mismatch, so a wait keeps polling. |
+| `{"compare":{"left":NUMBER,"op":"<=","right":NUMBER}}` | `op` is `<`, `<=`, `==`, `!=`, `>=`, or `>`. `NUMBER` is a literal, `{"of":T,"get":"width"}` (`x`, `y`, `width`, `height`, `right`, `bottom`, `center_x`, `center_y`, `value`), `{"pref":"text_size","default":0}`, `{"count":{role target}}` (also `"rendered":false` and `"states"`), or `sum`, `minus`, `times`, `divide`, `floor_divide`, `ceil`, `abs` over them. A target off screen is a mismatch, so a wait keeps polling. |
 | `{"editor_within_viewport":{"of":"rename"}}`, `{"editor_within_window":{"of":"rename","pane":"$root"}}` | The inline editor stays inside the viewport or window. |
 | `{"blank":{"target":T,"at":[...]}}`, `{"band_selected":{"from":"start","to":"end"}}` | The point lands on nothing but panels; the marquee band's visible rows are all selected. |
 | `{"pixel":{"target":T,"rgb":[...]}}`, `{"accent_pixels":{"target":T,"inset":2,"more_than":100}}` | The centre pixel's colour; more than N pixels in the box, inset on every side, are exactly the accent of the theme `settings.toml` names in `data/themes/catalog.toml`. |
