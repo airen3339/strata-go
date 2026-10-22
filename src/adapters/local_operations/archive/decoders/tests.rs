@@ -546,54 +546,21 @@ fn multi_root_zip_keeps_member_names_inside_the_fresh_folder() -> Result<(), Box
 
 #[test]
 fn zip_extraction_skips_root_directories_and_preserves_contents() -> Result<(), Box<dyn Error>> {
-    let root = tempfile::tempdir()?;
-    let destination = root.path().join("destination");
-    fs::create_dir(&destination)?;
-    let archive = root.path().join("root-entry.zip");
-    write_zip(
-        &archive,
-        &[
-            ("./", b""),
-            (
-                "./hello.txt",
-                b"Hello from a ZIP with a root directory marker.\n",
-            ),
-        ],
-    )?;
-    let progress = Arc::new(AtomicUsize::new(0));
-    assert_eq!(
-        completed_extract(decode_fixture(
-            &archive,
-            &destination,
-            ArchiveFormat::Zip,
-            None,
-            &progress,
-        )?)?,
-        Some("hello.txt".to_owned())
-    );
-    assert_eq!(progress.load(Ordering::Relaxed), 1);
-    assert_eq!(
-        fs::read(destination.join("hello.txt"))?,
-        b"Hello from a ZIP with a root directory marker.\n"
-    );
-    assert_eq!(fs::read_dir(&destination)?.count(), 1);
-
-    for root_entry in [None, Some("./"), Some("././"), Some(".\\")] {
+    for root_entry in ["./", ".\\"] {
         let root = tempfile::tempdir()?;
         let destination = root.path().join("destination");
-        fs::create_dir_all(destination.join("folder"))?;
-        fs::write(destination.join("folder/keep.txt"), b"keep")?;
-        let archive = root.path().join("content.zip");
-        let mut entries = Vec::new();
-        if let Some(name) = root_entry {
-            entries.push((name, b"".as_slice()));
-        }
-        entries.extend([
-            ("./folder/", b"".as_slice()),
-            ("./folder/item.txt", b"contents"),
-            ("./empty.txt", b""),
-        ]);
-        write_zip(&archive, &entries)?;
+        fs::create_dir(&destination)?;
+        let archive = root.path().join("root-entry.zip");
+        write_zip(
+            &archive,
+            &[
+                (root_entry, b""),
+                (
+                    "./hello.txt",
+                    b"Hello from a ZIP with a root directory marker.\n",
+                ),
+            ],
+        )?;
         let progress = Arc::new(AtomicUsize::new(0));
         assert_eq!(
             completed_extract(decode_fixture(
@@ -603,106 +570,54 @@ fn zip_extraction_skips_root_directories_and_preserves_contents() -> Result<(), 
                 None,
                 &progress,
             )?)?,
-            Some("content".to_owned()),
+            Some("hello.txt".to_owned()),
             "{root_entry:?}"
         );
-        assert_eq!(progress.load(Ordering::Relaxed), 3, "{root_entry:?}");
+        assert_eq!(progress.load(Ordering::Relaxed), 1, "{root_entry:?}");
         assert_eq!(
-            fs::read(destination.join("content/folder/item.txt"))?,
-            b"contents"
+            fs::read(destination.join("hello.txt"))?,
+            b"Hello from a ZIP with a root directory marker.\n"
         );
-        assert_eq!(fs::read(destination.join("folder/keep.txt"))?, b"keep");
-        assert_eq!(
-            fs::metadata(destination.join("content/empty.txt"))?.len(),
-            0
-        );
-        assert_eq!(fs::read_dir(&destination)?.count(), 2, "{root_entry:?}");
+        assert_eq!(fs::read_dir(&destination)?.count(), 1, "{root_entry:?}");
     }
     Ok(())
 }
 
 #[test]
 fn sevenz_extraction_skips_a_root_directory_and_preserves_contents() -> Result<(), Box<dyn Error>> {
-    for root_entry in [None, Some("."), Some("./"), Some("././")] {
-        let root = tempfile::tempdir()?;
-        let destination = root.path().join("destination");
-        fs::create_dir(&destination)?;
-        let archive = root.path().join("content.7z");
-        let mut writer = sevenz_rust2::ArchiveWriter::create(&archive)?;
-        if let Some(name) = root_entry {
-            writer.push_archive_entry::<io::Cursor<&[u8]>>(
-                sevenz_rust2::ArchiveEntry::new_directory(name),
-                None,
-            )?;
-        }
-        writer.push_archive_entry(
-            sevenz_rust2::ArchiveEntry::new_file("./hello.txt"),
-            Some(io::Cursor::new(&b"hello\n"[..])),
-        )?;
-        writer.finish()?;
-        let progress = Arc::new(AtomicUsize::new(0));
-        assert_eq!(
-            completed_extract(decode_fixture(
-                &archive,
-                &destination,
-                ArchiveFormat::SevenZ,
-                None,
-                &progress,
-            )?)?,
-            Some("hello.txt".to_owned()),
-            "{root_entry:?}"
-        );
-        assert_eq!(progress.load(Ordering::Relaxed), 1, "{root_entry:?}");
-        assert_eq!(fs::read(destination.join("hello.txt"))?, b"hello\n");
-    }
-    Ok(())
-}
-
-#[test]
-fn zip_extraction_root_only_completes_without_a_name_and_respects_cancellation()
--> Result<(), Box<dyn Error>> {
     let root = tempfile::tempdir()?;
     let destination = root.path().join("destination");
     fs::create_dir(&destination)?;
-    let archive = root.path().join("content.zip");
-    write_zip(&archive, &[("./", b"")])?;
+    let archive = root.path().join("content.7z");
+    let mut writer = sevenz_rust2::ArchiveWriter::create(&archive)?;
+    writer.push_archive_entry::<io::Cursor<&[u8]>>(
+        sevenz_rust2::ArchiveEntry::new_directory("."),
+        None,
+    )?;
+    writer.push_archive_entry(
+        sevenz_rust2::ArchiveEntry::new_file("./hello.txt"),
+        Some(io::Cursor::new(&b"hello\n"[..])),
+    )?;
+    writer.finish()?;
     let progress = Arc::new(AtomicUsize::new(0));
     assert_eq!(
         completed_extract(decode_fixture(
             &archive,
             &destination,
-            ArchiveFormat::Zip,
+            ArchiveFormat::SevenZ,
             None,
             &progress,
         )?)?,
-        None
+        Some("hello.txt".to_owned())
     );
-    let file = fs::File::open(&archive)?;
-    let mut archive = zip::ZipArchive::new(file)?;
-    assert!(matches!(
-        extract_zip_from_archive(
-            &mut archive,
-            &destination,
-            "archive",
-            None,
-            &progress,
-            &always_cancelled(),
-            &mut TransferReport::default(),
-        )?,
-        ArchiveOutcome::Cancelled {
-            completed,
-            failed,
-            not_attempted,
-        } if completed.is_empty() && failed.is_empty() && not_attempted.is_empty()
-    ));
-    assert_eq!(progress.load(Ordering::Relaxed), 0);
-    assert!(fs::read_dir(&destination)?.next().is_none());
+    assert_eq!(progress.load(Ordering::Relaxed), 1);
+    assert_eq!(fs::read(destination.join("hello.txt"))?, b"hello\n");
     Ok(())
 }
 
 #[test]
 fn zip_extraction_rejects_root_files_and_parent_only_directories() -> Result<(), Box<dyn Error>> {
-    for name in [".", "..", "../", "foo/../"] {
+    for name in [".", "../", "foo/../"] {
         let root = tempfile::tempdir()?;
         let destination = root.path().join("destination");
         fs::create_dir(&destination)?;

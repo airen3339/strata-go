@@ -95,9 +95,6 @@ fn set_times(file: BorrowedFd<'_>, times: &rustix::fs::Timestamps) -> rustix::io
 }
 
 /// True when `name` is only the archive root (`.`, `./`, `././`, or the same name with `\`).
-///
-/// `Path` comparison collapses `.` components. `\` is folded the same way as
-/// [`sanitized_archive_path`].
 pub(super) fn names_archive_root(name: impl AsRef<OsStr>) -> bool {
     let name = name.as_ref();
     let bytes = name.as_bytes();

@@ -264,8 +264,6 @@ impl<'a> ExtractionSession<'a> {
         content: MemberContent<'_>,
         metadata: MemberMetadata,
     ) -> Result<(), ArchiveError> {
-        // Directory markers for the archive itself have no destination entry.
-        // Files and links with the same spelling still fail below.
         if matches!(content, MemberContent::Directory) && names_archive_root(name.as_ref()) {
             return Ok(());
         }
