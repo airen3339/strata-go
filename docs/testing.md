@@ -1025,14 +1025,8 @@ and when adding a scenario for a workflow that does not have a mutation yet.
 
 A scenario whose pass or fail the app leaves to chance, so neither
 `known_bug` nor a pass can be relied on, carries a `skip` reason until the app
-is fixed; it stays in the suite and runs when named.
-
-- `archive-double-click-extracts-subfolder`: lgse/strata#1772 drops a
-  double-click on the archive that lands soon after the previous extraction's
-  progress dialog closes. The scenario double-clicks twice more after the first
-  extraction; locally the second double-click was lost every time, while a CI
-  run extracted on the second and lost the third, so no single `known_bug` step
-  holds.
+is fixed; it stays in the suite and runs when named. No scenario is skipped
+at present.
 
 ### Waits for the app's own timers
 
