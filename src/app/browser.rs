@@ -444,6 +444,22 @@ impl UndoEntry {
         }
     }
 
+    /// Undoing a copy or merge moves what it placed to Trash, which `admin://` lacks.
+    fn places_as_administrator(&self) -> bool {
+        match self {
+            Self::Copy(created) => created.iter().any(Location::is_administrator),
+            Self::Merge {
+                created,
+                overwritten,
+                ..
+            } => created
+                .iter()
+                .chain(overwritten)
+                .any(Location::is_administrator),
+            Self::Trash { .. } | Self::Move(_) | Self::Group { .. } | Self::Rename(_) => false,
+        }
+    }
+
     fn empty_like(&self) -> Self {
         match self {
             Self::Trash { .. } => Self::trashed(Vec::new(), &HashMap::new()),
@@ -778,7 +794,7 @@ thread_local! {
 }
 
 fn push_pending_undo(entry: UndoEntry) {
-    if entry.is_empty() {
+    if entry.is_empty() || entry.places_as_administrator() {
         return;
     }
     PENDING_UNDO.with(|pending| {
@@ -790,7 +806,7 @@ fn push_pending_undo(entry: UndoEntry) {
 }
 
 fn push_background_undo(entry: UndoEntry) {
-    if entry.is_empty() {
+    if entry.is_empty() || entry.places_as_administrator() {
         return;
     }
     PENDING_UNDO.with(|pending| {

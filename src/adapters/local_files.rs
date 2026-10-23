@@ -1574,7 +1574,8 @@ impl FileSource for LocalFileSource {
                     can_delete,
                 });
             };
-            let mut can_trash = None;
+            // GVfs's admin backend has no trash operation but reports `access::can-trash`.
+            let mut can_trash = location.is_administrator().then_some(false);
             let mut can_delete = None;
             let remaining = deadline.saturating_duration_since(Instant::now());
             if remaining.is_zero() {

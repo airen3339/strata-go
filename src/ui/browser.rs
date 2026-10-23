@@ -905,9 +905,11 @@ impl BrowserView {
 
     pub(super) fn can_trash_file_drop(sources: &[Location]) -> bool {
         !sources.is_empty()
-            && sources
-                .iter()
-                .all(|source| source.parent().is_some() && !paths::is_trash_location(source))
+            && sources.iter().all(|source| {
+                source.parent().is_some()
+                    && !paths::is_trash_location(source)
+                    && !source.is_administrator()
+            })
     }
 
     pub(super) fn trash_file_drop(&self, sources: Vec<Location>) -> bool {
