@@ -188,9 +188,16 @@ fn derives_rendered_blocks_without_omission_warnings() {
 #[test]
 fn long_documents_truncate_within_the_rendered_parser_budgets() {
     let long_paragraph = format!("<text:p>{}</text:p>", "x".repeat(64 * 1024));
+    let cell = "<text:p><text:line-break/>x<text:line-break/></text:p>".repeat(50);
+    let row =
+        format!("<table:table-row><table:table-cell>{cell}</table:table-cell></table:table-row>");
     for (case, body) in [
         ("bytes", long_paragraph.repeat(24)),
         ("events", "<text:p>x</text:p>".repeat(12_000)),
+        (
+            "cell paragraph separators",
+            format!("<table:table>{}</table:table>", row.repeat(130)),
+        ),
     ] {
         let data = read_body(&body);
         assert!(data.truncated, "{case}");

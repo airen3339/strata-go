@@ -728,6 +728,7 @@ impl Parser {
                     (Some((markup, events)), Some(cell)) => {
                         if !cell.markup.is_empty() {
                             cell.markup.push(' ');
+                            cell.events += 1;
                         }
                         cell.markup.push_str(&markup);
                         cell.events += events;
