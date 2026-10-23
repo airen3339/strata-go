@@ -6,6 +6,8 @@ const ROOT: &str = "/fixture";
 const LOCKED: &str = "/fixture/locked";
 const ADMIN_LOCKED: &str = "admin:///fixture/locked";
 
+type Activation = fn(&Rc<Browser>);
+
 struct LockedFolderSource {
     offers_administrator: bool,
 }
@@ -87,7 +89,7 @@ fn browse(offers_administrator: bool) -> (Rc<Browser>, Rc<RefCell<Vec<BrowserEve
 
 #[test]
 fn opening_a_locked_folder_reopens_it_as_administrator() {
-    let activations: [(&str, fn(&Rc<Browser>)); 3] = [
+    let activations: [(&str, Activation); 3] = [
         ("activate", |browser| browser.activate(0, 0)),
         ("activate in place", |browser| {
             browser.activate_in_place(0, 0)
