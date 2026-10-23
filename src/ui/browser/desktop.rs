@@ -20,7 +20,7 @@ mod tests;
 
 /// GVfs grants an `admin://` mount only to the process that asked for it, so another
 /// application would have to authorize again, or could not read the file at all.
-pub(in crate::ui) const ADMINISTRATOR_OPEN_REFUSAL: &str = "Other apps can't open files in a folder opened as administrator. Preview the file here, or copy it to another folder first.";
+pub(in crate::ui) const ADMINISTRATOR_OPEN_REFUSAL: &str = "Other applications can't open files in a folder opened as administrator. Preview the file here, or copy it to another folder first.";
 
 pub(in crate::ui) fn open_location(
     location: &Location,

@@ -171,6 +171,29 @@ fn a_copy_that_created_nothing_leaves_the_previous_undo_current() {
 }
 
 #[test]
+fn a_copy_into_an_admin_folder_records_no_trash_based_undo() {
+    let browser = Browser::new(Rc::new(FakeFileSource));
+    browser.set_operation_provider(Rc::new(ImmediateOperationProvider));
+    browser.delete(vec![fixture_entry("/fixture/report.txt")], false);
+    let request_id = browser.begin_operation();
+    browser.transfer_operation.set(Some(false));
+    browser
+        .transfer_destination
+        .replace(Some(Location::uri("admin:///srv/archive")));
+    let emit = browser.operation_callback(request_id, false, HashSet::new());
+
+    emit(OperationEvent::Pasted {
+        request_id,
+        locations: vec![Location::uri("admin:///srv/archive/note.txt")],
+    });
+
+    assert_eq!(
+        pending_undo_entry(),
+        Some(trash_undo(vec![Location::local("/fixture/report.txt")]))
+    );
+}
+
+#[test]
 fn undoing_a_copy_removes_only_the_destinations_it_created() {
     let browser = Browser::new(Rc::new(FakeFileSource));
     browser.set_operation_provider(Rc::new(ImmediateOperationProvider));

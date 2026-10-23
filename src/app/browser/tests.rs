@@ -8,6 +8,7 @@ use std::{
 
 use super::*;
 
+mod administrator;
 mod archive_activation;
 mod background_operations;
 mod camera_photos;
