@@ -32,6 +32,8 @@ WITH_FILE_MANAGER=ask
 WITH_FILE_CHOOSER=ask
 WITH_OMARCHY_KEYBINDS=ask
 WITH_UDISKIE_UNLOCK=ask
+REQUESTED_FILE_CHOOSER=no
+REQUESTED_UDISKIE_UNLOCK=no
 COLOR_RESET="" COLOR_BOLD="" COLOR_DIM="" COLOR_ACCENT="" COLOR_SUCCESS="" COLOR_WARNING="" COLOR_ERROR=""
 COLOR_LAYER_ONE="" COLOR_LAYER_TWO=""
 RICH_TERMINAL=no
@@ -90,7 +92,7 @@ case "$(installer_locale)" in
     [invalid_selection]='Choose one of the listed options.'
     [standard]='Install Strata (recommended)'
     [custom]='Customize installation'
-    [standard_hint]='Application + launcher. Your current defaults stay unchanged.'
+    [standard_hint]='Everything this system supports: launcher, folders, file chooser, and optional integrations.'
     [custom_hint]='Choose desktop integrations and optional support.'
     [setup_title]='Choose your setup'
     [launcher]='Application launcher'
@@ -153,7 +155,7 @@ case "$(installer_locale)" in
     [invalid_selection]='Choisissez l’une des options proposées.'
     [standard]='Installer Strata (recommandé)'
     [custom]='Personnaliser l’installation'
-    [standard_hint]='Application et lanceur. Vos réglages par défaut restent inchangés.'
+    [standard_hint]='Tout ce que ce système prend en charge : lanceur, dossiers, sélecteur de fichiers et intégrations optionnelles.'
     [custom_hint]='Choisissez l’intégration au bureau et les fonctions facultatives.'
     [setup_title]='Choisissez votre installation'
     [launcher]='Lanceur d’application'
@@ -216,7 +218,7 @@ case "$(installer_locale)" in
     [invalid_selection]='Wählen Sie eine der aufgeführten Optionen.'
     [standard]='Strata installieren (empfohlen)'
     [custom]='Installation anpassen'
-    [standard_hint]='Anwendung und Starter. Ihre bisherigen Standardeinstellungen bleiben erhalten.'
+    [standard_hint]='Alles, was dieses System unterstützt: Starter, Ordner, Dateiauswahl und optionale Integrationen.'
     [custom_hint]='Desktop-Integration und optionale Unterstützung auswählen.'
     [setup_title]='Einrichtung auswählen'
     [launcher]=Anwendungsstarter
@@ -279,7 +281,7 @@ case "$(installer_locale)" in
     [invalid_selection]='Elige una de las opciones de la lista.'
     [standard]='Instalar Strata (recomendado)'
     [custom]='Personalizar la instalación'
-    [standard_hint]='Aplicación y lanzador. Se conservan tus opciones predeterminadas.'
+    [standard_hint]='Todo lo que admite este sistema: lanzador, carpetas, selector de archivos e integraciones opcionales.'
     [custom_hint]='Elige la integración con el escritorio y las funciones opcionales.'
     [setup_title]='Elige tu instalación'
     [launcher]='Lanzador de aplicaciones'
@@ -342,7 +344,7 @@ case "$(installer_locale)" in
     [invalid_selection]='一覧の選択肢から選んでください。'
     [standard]='Strata をインストール（推奨）'
     [custom]='インストールをカスタマイズ'
-    [standard_hint]='アプリとランチャーを追加します。既定の設定は変更しません。'
+    [standard_hint]='このシステムが対応するすべて: ランチャー、フォルダー、ファイル選択ダイアログ、オプションの統合。'
     [custom_hint]='デスクトップ連携と追加機能を選びます。'
     [setup_title]='インストール方法を選択'
     [launcher]='アプリランチャー'
@@ -405,7 +407,7 @@ case "$(installer_locale)" in
     [invalid_selection]='Escolha uma das opções listadas.'
     [standard]='Instalar o Strata (recomendado)'
     [custom]='Personalizar a instalação'
-    [standard_hint]='Aplicativo e lançador. Suas configurações padrão não mudam.'
+    [standard_hint]='Tudo o que este sistema suporta: lançador, pastas, seletor de arquivos e integrações opcionais.'
     [custom_hint]='Escolha integrações com a área de trabalho e recursos opcionais.'
     [setup_title]='Escolha sua instalação'
     [launcher]='Lançador de aplicativos'
@@ -468,7 +470,7 @@ case "$(installer_locale)" in
     [invalid_selection]='목록에서 항목을 선택하세요.'
     [standard]='Strata 설치 (권장)'
     [custom]='설치 사용자 지정'
-    [standard_hint]='앱과 실행 아이콘을 추가합니다. 기존 기본 설정은 유지됩니다.'
+    [standard_hint]='이 시스템이 지원하는 모든 항목: 런처, 폴더, 파일 선택기, 선택적 통합.'
     [custom_hint]='데스크톱 통합과 추가 지원을 선택합니다.'
     [setup_title]='설치 방식 선택'
     [launcher]='앱 실행 아이콘'
@@ -531,7 +533,7 @@ case "$(installer_locale)" in
     [invalid_selection]='Hãy chọn một trong các mục được liệt kê.'
     [standard]='Cài đặt Strata (đề xuất)'
     [custom]='Tùy chỉnh cài đặt'
-    [standard_hint]='Ứng dụng và biểu tượng khởi chạy. Giữ nguyên các mặc định hiện tại.'
+    [standard_hint]='Mọi thứ hệ thống này hỗ trợ: trình khởi chạy, thư mục, hộp thoại chọn tệp và các tích hợp tùy chọn.'
     [custom_hint]='Chọn tích hợp môi trường làm việc và các tính năng bổ sung.'
     [setup_title]='Chọn cách cài đặt'
     [launcher]='Biểu tượng khởi chạy'
@@ -594,7 +596,7 @@ case "$(installer_locale)" in
     [invalid_selection]='Scegli una delle opzioni elencate.'
     [standard]='Installa Strata (consigliato)'
     [custom]='Personalizza l’installazione'
-    [standard_hint]='Applicazione e lanciatore. Le impostazioni predefinite restano invariate.'
+    [standard_hint]='Tutto ciò che questo sistema supporta: launcher, cartelle, selettore di file e integrazioni opzionali.'
     [custom_hint]='Scegli le integrazioni desktop e le funzionalità opzionali.'
     [setup_title]='Scegli la configurazione'
     [launcher]='Lanciatore dell’applicazione'
@@ -657,7 +659,7 @@ case "$(installer_locale)" in
     [invalid_selection]='Выберите один из предложенных вариантов.'
     [standard]='Установить Strata (рекомендуется)'
     [custom]='Настроить установку'
-    [standard_hint]='Приложение и ярлык запуска. Текущие настройки по умолчанию сохранятся.'
+    [standard_hint]='Всё, что поддерживает эта система: ярлык запуска, папки, диалог выбора файлов и дополнительные интеграции.'
     [custom_hint]='Выберите интеграцию с рабочим столом и дополнительные возможности.'
     [setup_title]='Выберите вариант установки'
     [launcher]='Ярлык запуска'
@@ -720,7 +722,7 @@ case "$(installer_locale)" in
     [invalid_selection]='请选择列表中的选项。'
     [standard]='安装 Strata（推荐）'
     [custom]='自定义安装'
-    [standard_hint]='安装应用和启动图标，保留当前默认设置。'
+    [standard_hint]='此系统支持的全部内容：启动器、文件夹、文件选择器和可选集成。'
     [custom_hint]='选择桌面集成和可选功能。'
     [setup_title]='选择安装方式'
     [launcher]='应用启动图标'
@@ -783,7 +785,7 @@ case "$(installer_locale)" in
     [invalid_selection]='請選擇列出的其中一個選項。'
     [standard]='安裝 Strata（建議）'
     [custom]='自訂安裝'
-    [standard_hint]='安裝應用程式與啟動器，保留目前的預設值。'
+    [standard_hint]='此系統支援的全部內容：啟動器、資料夾、檔案選擇器和選用整合。'
     [custom_hint]='選擇桌面整合與選用支援。'
     [setup_title]='選擇安裝方式'
     [launcher]='應用程式啟動器'
@@ -1252,6 +1254,19 @@ integration_dependencies() {
   fi
 }
 
+# Unspecified integrations default to everything this system supports. Explicit
+# --with/--without flags and the custom menu override that.
+resolve_default_integrations() {
+  local arch_based=$1 omarchy_major=$2 flag
+  local -a supported=(WITH_DESKTOP_ENTRY WITH_FOLDER_ASSOCIATION WITH_FILE_MANAGER WITH_FILE_CHOOSER)
+  [[ $arch_based != yes ]] || supported+=(WITH_SMB WITH_RAW)
+  [[ -z $omarchy_major ]] || supported+=(WITH_OMARCHY_KEYBINDS)
+  if [[ $arch_based == yes ]] && udiskie_on_path; then supported+=(WITH_UDISKIE_UNLOCK); fi
+  for flag in "${supported[@]}"; do
+    [[ ${!flag} != ask ]] || printf -v "$flag" '%s' yes
+  done
+}
+
 choose_installation() {
   local arch_based=$1 omarchy_major=$2 i
   local -a setup_labels=("$(text standard)" "$(text custom)")
@@ -1285,8 +1300,10 @@ choose_installation() {
     option_labels+=("$(text udiskie)")
     option_hints+=("$(text udiskie_hint)")
   fi
-  local -a option_choices=(yes)
-  for ((i = 1; i < ${#option_flags[@]}; i++)); do option_choices+=(no); done
+  local -a option_choices=()
+  for i in "${option_flags[@]}"; do
+    if [[ ${!i} == yes ]]; then option_choices+=(yes); else option_choices+=(no); fi
+  done
   if [[ ${setup_choices[1]} == yes ]]; then
     select_menu "$(text custom_title)" yes option_labels option_hints option_choices integration_dependencies >"$PROMPT_DEVICE"
   fi
@@ -1335,7 +1352,7 @@ Usage: install.sh [options]
 $(text usage_intro)
 
 Options:
-  --non-interactive             Never prompt; install required components only
+  --non-interactive             Never prompt; install every supported integration
   --verbose                     $(text verbose_help)
   --with-smb                    Install SMB network-share support
   --with-raw                    Install broader image and camera RAW support
@@ -1343,13 +1360,22 @@ Options:
   --with-folder-association     Make Strata the default folder handler
   --with-file-manager           Handle "Open file location" requests
   --with-file-chooser           Use Strata for portal Open and Save dialogs
-  --without-file-chooser        Keep the current chooser; suppress the app offer
   --with-omarchy-keybinds       Replace Omarchy's file-manager keybinds
   --with-udiskie-unlock         Use Strata for udiskie encrypted-volume unlock
+  --without-smb                 Skip SMB network-share support
+  --without-raw                 Skip broader image and camera RAW support
+  --without-desktop-entry       Skip the application menu entry and folder handler
+  --without-folder-association  Keep the current default folder handler
+  --without-file-manager        Skip "Open file location" and folder handling
+  --without-file-chooser        Keep the current chooser; suppress the app offer
+  --without-omarchy-keybinds    Keep Omarchy's current file-manager keybinds
+  --without-udiskie-unlock      Keep the current udiskie unlock setup
   -h, --help                    Show this help
 
-Integration flags imply --non-interactive. Folder association also installs the
-required desktop entry and enables "Open file location" integration.
+Integration flags imply --non-interactive. Every integration this system supports
+is installed unless a --without-* flag declines it; a --with-* flag requires it and
+fails when the system or release cannot provide it, where a default is skipped.
+Folder association also installs the desktop entry and "Open file location".
 EOF
 }
 
@@ -1368,10 +1394,17 @@ parse_args() {
         WITH_FILE_MANAGER=yes
         ;;
       --with-file-manager) NON_INTERACTIVE=yes; WITH_FILE_MANAGER=yes ;;
-      --with-file-chooser) NON_INTERACTIVE=yes; WITH_FILE_CHOOSER=yes ;;
+      --with-file-chooser) NON_INTERACTIVE=yes; WITH_FILE_CHOOSER=yes; REQUESTED_FILE_CHOOSER=yes ;;
       --without-file-chooser) NON_INTERACTIVE=yes; WITH_FILE_CHOOSER=no ;;
       --with-omarchy-keybinds) NON_INTERACTIVE=yes; WITH_OMARCHY_KEYBINDS=yes ;;
-      --with-udiskie-unlock) NON_INTERACTIVE=yes; WITH_UDISKIE_UNLOCK=yes ;;
+      --without-omarchy-keybinds) NON_INTERACTIVE=yes; WITH_OMARCHY_KEYBINDS=no ;;
+      --with-udiskie-unlock) NON_INTERACTIVE=yes; WITH_UDISKIE_UNLOCK=yes; REQUESTED_UDISKIE_UNLOCK=yes ;;
+      --without-udiskie-unlock) NON_INTERACTIVE=yes; WITH_UDISKIE_UNLOCK=no ;;
+      --without-smb) NON_INTERACTIVE=yes; WITH_SMB=no ;;
+      --without-raw) NON_INTERACTIVE=yes; WITH_RAW=no ;;
+      --without-desktop-entry) NON_INTERACTIVE=yes; WITH_DESKTOP_ENTRY=no; WITH_FOLDER_ASSOCIATION=no ;;
+      --without-folder-association) NON_INTERACTIVE=yes; WITH_FOLDER_ASSOCIATION=no ;;
+      --without-file-manager) NON_INTERACTIVE=yes; WITH_FILE_MANAGER=no; WITH_FOLDER_ASSOCIATION=no ;;
       -h | --help) usage; exit 0 ;;
       *) die "Unknown option: $1 (run with --help for usage)." ;;
     esac
@@ -1647,6 +1680,7 @@ main() {
     [[ $arch_based == yes ]] && udiskie_on_path \
       || die "$(text udiskie_requires)"
   fi
+  resolve_default_integrations "$arch_based" "$omarchy_major"
   for command in curl tar sha256sum openssl wc install sed; do
     command -v "$command" >/dev/null 2>&1 || die "Required command not found: $command"
   done
@@ -1693,10 +1727,16 @@ main() {
   [[ -r $extracted/$APP_ID.desktop && -r $extracted/$APP_ID.svg ]] \
     || die "The verified archive is missing desktop integration files."
   if [[ $WITH_FILE_CHOOSER == yes && ! -r $extracted/portal/strata.portal ]]; then
-    die "This release does not include file chooser integration. Install a newer release."
+    [[ $REQUESTED_FILE_CHOOSER != yes ]] \
+      || die "This release does not include file chooser integration. Install a newer release."
+    warn "This release does not include file chooser integration; skipping it."
+    WITH_FILE_CHOOSER=no
   fi
   if [[ $WITH_UDISKIE_UNLOCK == yes && ! -r $extracted/udiskie/unlock ]]; then
-    die "This release does not include encrypted-volume integration. Install a newer release."
+    [[ $REQUESTED_UDISKIE_UNLOCK != yes ]] \
+      || die "This release does not include encrypted-volume integration. Install a newer release."
+    warn "This release does not include encrypted-volume integration; skipping it."
+    WITH_UDISKIE_UNLOCK=no
   fi
   if [[ $arch_based == yes ]]; then
     install_arch_dependencies

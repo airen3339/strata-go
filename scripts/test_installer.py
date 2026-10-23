@@ -363,12 +363,12 @@ class InstallerTests(unittest.TestCase):
 
     def test_file_chooser_runs_only_the_permanently_installed_binary_after_consent(self) -> None:
         cases = [
-            (("--non-interactive",), None, []),
-            (("--with-file-manager",), None, []),
+            (("--non-interactive",), None, ["--install-portal"]),
+            (("--with-file-manager",), None, ["--install-portal"]),
             (("--with-file-chooser",), None, ["--install-portal"]),
             (("--without-file-chooser",), None, ["--dismiss-portal-prompt"]),
-            ((), False, ["--dismiss-portal-prompt"]),
-            ((), True, ["--install-portal"]),
+            ((), "recommended", ["--install-portal"]),
+            ((), "deselected", ["--dismiss-portal-prompt"]),
         ]
         for arguments, interactive_choice, expected in cases:
             with self.subTest(arguments=arguments, choice=interactive_choice), InstallerFixture() as fixture:
@@ -381,7 +381,7 @@ class InstallerTests(unittest.TestCase):
                 else:
                     terminal = fixture.terminal(piped=True)
                     terminal.expect("Enter continue")
-                    if interactive_choice:
+                    if interactive_choice == "deselected":
                         terminal.send(b"\033[B\r")
                         terminal.expect("Space toggle")
                         terminal.send(b"\033[B\033[B\033[B \r")
@@ -398,22 +398,44 @@ class InstallerTests(unittest.TestCase):
                     result = fixture.run(*arguments)
                     self.assertEqual(result.returncode == 0, succeeds, result.stderr)
                     self.assertNotIn("No such file", result.stderr)
+                    output = result.stdout + result.stderr
                 else:
-                    terminal = fixture.terminal()
+                    terminal = fixture.terminal(piped=True)
                     terminal.expect("Enter continue")
                     terminal.send(b"\r")
                     self.assertEqual(terminal.finish(), 0, terminal.output)
+                    output = terminal.output
+                self.assertEqual("does not include file chooser integration; skipping it" in output, succeeds)
                 self.assertEqual(fixture.recorded_application_calls(), [])
                 self.assertEqual((fixture.home / ".local/bin/strata").exists(), succeeds)
                 if not succeeds:
                     self.assertFalse(any(call.startswith("sudo") for call in fixture.recorded_calls()))
 
-    def test_non_interactive_mode_declines_unspecified_options(self) -> None:
-        with InstallerFixture() as fixture:
-            result = fixture.run("--non-interactive")
-            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            self.assertEqual(fixture.recorded_application_calls(), [])
-            self.assertFalse(any(call.startswith(("xdg-mime", "gdbus")) for call in fixture.recorded_calls()))
+    def test_non_interactive_mode_installs_everything_unless_declined(self) -> None:
+        for name, arguments, integrated, packages in (
+            ("defaults", ("--non-interactive",), True, {"gvfs-smb", "dcraw", "xdg-desktop-portal"}),
+            (
+                "declined",
+                ("--without-desktop-entry", "--without-file-manager", "--without-file-chooser", "--without-smb", "--without-raw"),
+                False,
+                set(),
+            ),
+        ):
+            with self.subTest(name), InstallerFixture() as fixture:
+                result = fixture.run(*arguments)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                calls = fixture.recorded_calls()
+                transaction = next(call for call in calls if call.startswith("pacman -S"))
+                self.assertEqual({package for package in packages if package in transaction}, packages)
+                self.assertEqual(any(package in transaction for package in ("gvfs-smb", "dcraw", "xdg-desktop-portal")), integrated)
+                self.assertEqual("xdg-mime default io.github.lgse.Strata.desktop inode/directory" in calls, integrated)
+                self.assertEqual((fixture.home / "data/applications/io.github.lgse.Strata.desktop").exists(), integrated)
+                self.assertEqual((fixture.home / "data/dbus-1/services/io.github.lgse.Strata.FileManager1.service").exists(), integrated)
+                self.assertEqual(
+                    fixture.recorded_application_calls(),
+                    [f"{fixture.home}/.local/bin/strata " + ("--install-portal" if integrated else "--dismiss-portal-prompt")],
+                )
+                self.assertFalse((fixture.home / ".config/hypr").exists())
 
     def test_file_manager_service_uses_the_installed_binary(self) -> None:
         for reload_status in (0, 1, None):
@@ -569,7 +591,7 @@ class InstallerTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("requires Omarchy 3 or 4", result.stderr)
 
-    def test_recommended_setup_installs_launcher_without_changing_defaults(self) -> None:
+    def test_recommended_setup_installs_every_supported_integration(self) -> None:
         with InstallerFixture() as fixture:
             terminal = fixture.terminal(piped=True)
             terminal.expect("Enter continue")
@@ -577,9 +599,14 @@ class InstallerTests(unittest.TestCase):
             self.assertEqual(terminal.finish(), 0, terminal.output)
             self.assertTrue((fixture.home / ".local/bin/strata").is_file())
             self.assertTrue((fixture.home / "data/applications/io.github.lgse.Strata.desktop").is_file())
+            self.assertTrue((fixture.home / "data/dbus-1/services/io.github.lgse.Strata.FileManager1.service").is_file())
             calls = fixture.recorded_calls()
-            self.assertFalse(any(call.startswith(("xdg-mime", "gdbus")) for call in calls), calls)
-            self.assertEqual(fixture.recorded_application_calls(), [f"{fixture.home}/.local/bin/strata --dismiss-portal-prompt"])
+            self.assertIn("xdg-mime default io.github.lgse.Strata.desktop inode/directory", calls)
+            transaction = next(call for call in calls if call.startswith("pacman -S"))
+            for package in ("gvfs-smb", "dcraw", "xdg-desktop-portal"):
+                self.assertIn(package, transaction)
+            self.assertEqual(fixture.recorded_application_calls(), [f"{fixture.home}/.local/bin/strata --install-portal"])
+            self.assertNotIn("stay unchanged", terminal.output)
             self.assertIn("Ready to explore", terminal.output)
             self.assertEqual(list((fixture.root / "tmp").glob("*.log")), [])
 
@@ -598,17 +625,21 @@ class InstallerTests(unittest.TestCase):
                 ],
             )
 
-    def test_custom_setup_applies_selected_integrations_and_their_dependencies(self) -> None:
+    def test_custom_setup_starts_with_everything_selected_and_applies_deselections(self) -> None:
         with InstallerFixture() as fixture:
             terminal = fixture.terminal()
             terminal.expect("Enter continue")
             terminal.send(b"\033[B\r")
             terminal.expect("Space toggle")
-            terminal.send(b"\033[B \033[B\033[B \r")
+            terminal.send(b"\033[B \033[B\033[B \033[B \r")
             self.assertEqual(terminal.finish(), 0, terminal.output)
             calls = fixture.recorded_calls()
-            self.assertIn("xdg-mime default io.github.lgse.Strata.desktop inode/directory", calls)
-            self.assertEqual(fixture.recorded_application_calls(), [f"{fixture.home}/.local/bin/strata --install-portal"])
+            self.assertFalse(any(call.startswith("xdg-mime") for call in calls), calls)
+            transaction = next(call for call in calls if call.startswith("pacman -S"))
+            self.assertNotIn("gvfs-smb", transaction)
+            self.assertNotIn("xdg-desktop-portal", transaction)
+            self.assertIn("dcraw", transaction)
+            self.assertEqual(fixture.recorded_application_calls(), [f"{fixture.home}/.local/bin/strata --dismiss-portal-prompt"])
             self.assertTrue((fixture.home / "data/dbus-1/services/io.github.lgse.Strata.FileManager1.service").is_file())
             self.assertTrue((fixture.home / "data/applications/io.github.lgse.Strata.desktop").is_file())
 
@@ -623,6 +654,69 @@ class InstallerTests(unittest.TestCase):
             self.assertFalse((fixture.home / "data/applications/io.github.lgse.Strata.desktop").exists())
             self.assertTrue((fixture.home / "data/dbus-1/services/io.github.lgse.Strata.FileManager1.service").is_file())
             self.assertFalse(any(call.startswith("xdg-mime") for call in fixture.recorded_calls()))
+
+    def test_omarchy_defaults_to_the_file_chooser_and_shortcuts(self) -> None:
+        for name, arguments, expected, integrated in (
+            ("recommended", (), ["--install-portal"], True),
+            ("unattended", ("--non-interactive",), ["--install-portal"], True),
+            ("declined", ("--without-file-chooser", "--without-omarchy-keybinds"), ["--dismiss-portal-prompt"], False),
+        ):
+            with self.subTest(name), InstallerFixture(omarchy=True) as fixture:
+                if arguments:
+                    result = fixture.run(*arguments)
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                    output = result.stdout
+                else:
+                    terminal = fixture.terminal()
+                    terminal.expect("Enter continue")
+                    terminal.send(b"\r")
+                    self.assertEqual(terminal.finish(), 0, terminal.output)
+                    output = terminal.output
+                binary = fixture.home / ".local/bin/strata"
+                self.assertEqual(fixture.recorded_application_calls(), [f"{binary} {argument}" for argument in expected])
+                bindings = fixture.home / ".config/hypr/bindings.lua"
+                self.assertEqual(bindings.exists(), integrated, output)
+                self.assertEqual("Omarchy 4 file-manager shortcuts now open Strata." in output, integrated)
+                self.assertEqual("Open and Save dialogs" in output, integrated)
+
+    def test_without_flags_decline_defaults_and_their_dependents(self) -> None:
+        for flag, expected in (
+            ("--without-smb", "yes no ask ask ask ask ask ask ask"),
+            ("--without-raw", "yes ask no ask ask ask ask ask ask"),
+            ("--without-desktop-entry", "yes ask ask no no ask ask ask ask"),
+            ("--without-folder-association", "yes ask ask ask no ask ask ask ask"),
+            ("--without-file-manager", "yes ask ask ask no no ask ask ask"),
+            ("--without-file-chooser", "yes ask ask ask ask ask no ask ask"),
+            ("--without-omarchy-keybinds", "yes ask ask ask ask ask ask no ask"),
+            ("--without-udiskie-unlock", "yes ask ask ask ask ask ask ask no"),
+        ):
+            with self.subTest(flag=flag):
+                result = bash(
+                    f"parse_args {flag}; "
+                    'printf "%s %s %s %s %s %s %s %s %s" "$NON_INTERACTIVE" "$WITH_SMB" "$WITH_RAW" '
+                    '"$WITH_DESKTOP_ENTRY" "$WITH_FOLDER_ASSOCIATION" "$WITH_FILE_MANAGER" '
+                    '"$WITH_FILE_CHOOSER" "$WITH_OMARCHY_KEYBINDS" "$WITH_UDISKIE_UNLOCK"'
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout, expected)
+
+    def test_defaults_cover_only_integrations_the_system_supports(self) -> None:
+        for arch_based, omarchy, udiskie, expected in (
+            ("no", "", False, "yes yes yes yes ask ask ask ask"),
+            ("yes", "", False, "yes yes yes yes yes yes ask ask"),
+            ("yes", "4", True, "yes yes yes yes yes yes yes yes"),
+            ("yes", "", True, "yes yes yes yes yes yes ask yes"),
+        ):
+            with self.subTest(arch_based=arch_based, omarchy=omarchy, udiskie=udiskie):
+                result = bash(
+                    f"udiskie_on_path() {{ {'true' if udiskie else 'false'}; }}; "
+                    f'resolve_default_integrations {arch_based} "{omarchy}"; '
+                    'printf "%s %s %s %s %s %s %s %s" "$WITH_DESKTOP_ENTRY" "$WITH_FOLDER_ASSOCIATION" '
+                    '"$WITH_FILE_MANAGER" "$WITH_FILE_CHOOSER" "$WITH_SMB" "$WITH_RAW" '
+                    '"$WITH_OMARCHY_KEYBINDS" "$WITH_UDISKIE_UNLOCK"'
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout, expected)
 
     def test_custom_setup_offers_omarchy_only_when_supported(self) -> None:
         for omarchy in (False, True):
@@ -1102,14 +1196,16 @@ exit 23
 
     def test_udiskie_unlock_runs_only_the_permanently_installed_binary_after_consent(self) -> None:
         cases = [
-            ("explicit consent", ("--with-udiskie-unlock",), True, True, True),
-            ("unspecified", ("--non-interactive",), True, True, True),
-            ("declined", (), True, True, True),
-            ("missing udiskie", ("--with-udiskie-unlock",), False, True, False),
-            ("old release declined", (), True, False, True),
-            ("old release requested", ("--with-udiskie-unlock",), True, False, False),
+            ("explicit consent", ("--with-udiskie-unlock",), True, True, True, ["--install-portal", "--install-udiskie-unlock"]),
+            ("unspecified", ("--non-interactive",), True, True, True, ["--install-portal", "--install-udiskie-unlock"]),
+            ("declined", ("--without-udiskie-unlock",), True, True, True, ["--install-portal"]),
+            ("recommended", (), True, True, True, ["--install-portal", "--install-udiskie-unlock"]),
+            ("no udiskie", ("--non-interactive",), False, True, True, ["--install-portal"]),
+            ("missing udiskie", ("--with-udiskie-unlock",), False, True, False, []),
+            ("old release unspecified", ("--non-interactive",), True, False, True, ["--install-portal"]),
+            ("old release requested", ("--with-udiskie-unlock",), True, False, False, []),
         ]
-        for name, arguments, udiskie, marker, succeeds in cases:
+        for name, arguments, udiskie, marker, succeeds, expected in cases:
             with self.subTest(name=name), InstallerFixture(release_files={
                 "udiskie/unlock": "supported\n" if marker else None,
             }) as fixture:
@@ -1124,9 +1220,6 @@ exit 23
                     terminal.send(b"\r")
                     self.assertEqual(terminal.finish(), 0, terminal.output)
                 binary = fixture.home / ".local/bin/strata"
-                expected = ["--install-udiskie-unlock"] if succeeds and "--with-udiskie-unlock" in arguments else []
-                if not arguments:
-                    expected.append("--dismiss-portal-prompt")
                 self.assertEqual(fixture.recorded_application_calls(), [f"{binary} {argument}" for argument in expected])
                 self.assertEqual(binary.exists(), succeeds)
                 self.assertFalse((fixture.home / "config/udiskie").exists())
@@ -1141,12 +1234,12 @@ exit 23
                 terminal.expect("Enter continue")
                 terminal.send(b"\033[B\r")
                 terminal.expect("Space toggle")
-                terminal.send(b"k \r")
+                terminal.send(b"\r")
                 self.assertEqual(terminal.finish(), 0, terminal.output)
             binary = fixture.home / ".local/bin/strata"
             self.assertEqual(fixture.recorded_application_calls(), [f"{binary} {argument}" for argument in (
-                "--dismiss-portal-prompt", "--install-udiskie-unlock",
-                "--dismiss-portal-prompt", "--install-udiskie-unlock",
+                "--install-portal", "--install-udiskie-unlock",
+                "--install-portal", "--install-udiskie-unlock",
             )])
 
     def test_udiskie_unlock_capability_is_the_archive_marker_not_the_binary_string(self) -> None:

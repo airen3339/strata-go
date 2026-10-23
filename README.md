@@ -70,10 +70,13 @@ Arch Linux and Omarchy are the primary supported environments. Current binaries 
 ### Interactive installation
 
 The interactive installer detects the Linux architecture, glibc version, Arch
-Linux, and Omarchy 3 or 4. Choose the recommended installation for Strata and its
-application launcher without changing existing defaults, or customize the desktop,
-file chooser, encrypted-volume unlock, SMB, image/RAW, and shortcut integrations.
-Only options supported by your system are offered:
+Linux, and Omarchy 3 or 4. The recommended installation gives you the full
+experience: Strata with every integration your system supports, which means the
+application launcher, folder handling and "Open file location", the system file
+chooser, SMB and image/RAW support on Arch, the file-manager shortcuts on Omarchy
+3 or 4 (a backup of the previous bindings is kept), and encrypted-volume unlock
+when `udiskie` is installed. Choose **Customize installation** to deselect any of
+them. Only options supported by your system are offered:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/lgse/strata/main/install.sh | bash
@@ -114,34 +117,27 @@ With GitHub CLI, `gh attestation verify install.sh --repo lgse/strata` confirms
 the script was built by the release workflow.
 
 For an unattended Arch or Omarchy installation, pass `--non-interactive`. This
-installs required dependencies and the binary without prompting; optional
-integrations remain disabled unless explicitly selected:
+installs the dependencies, the binary, and every integration the system supports
+without prompting. Decline individual integrations with `--without-*` flags:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/lgse/strata/main/install.sh \
   | bash -s -- --non-interactive \
-      --with-smb \
-      --with-raw \
-      --with-desktop-entry \
-      --with-folder-association
+      --without-smb \
+      --without-file-chooser
 ```
 
-Add `--with-omarchy-keybinds` only on Omarchy 3 or 4. Add
-`--with-udiskie-unlock` only when `udiskie` is already installed on an Arch-based
-system. Unsupported explicit options are rejected before installation begins.
-
-Each `--with-*` flag implies `--non-interactive`, and folder association implies
-the desktop entry and `--with-file-manager`. Use `--with-file-manager` by itself
-to enable only "Open file location" integration. File chooser replacement is
-separate: use `--with-file-chooser` to opt in, or `--without-file-chooser` to keep
-your current chooser and dismiss the one-time in-app offer. Neither folder
-association nor an unattended install enables the chooser automatically.
-Encrypted-volume unlock is offered on Omarchy 3 or 4 (the installer asks; default
-No), and on generic Arch only when `udiskie` is already on `PATH`. The installer
-never installs the `udiskie` package. Unattended installs need
-`--with-udiskie-unlock`; `--non-interactive` alone and other `--with-*` flags
-leave it declined. Restore on Arch with `strata --uninstall-udiskie-unlock`, not
-Settings.
+Each `--with-*` or `--without-*` flag implies `--non-interactive`. A `--with-*`
+flag requires its integration and fails before installing anything when the
+system or the release cannot provide it, whereas a default is skipped with a
+warning. `--with-omarchy-keybinds` is accepted only on Omarchy 3 or 4, and
+`--with-udiskie-unlock` only when `udiskie` is already on `PATH` on an Arch-based
+system. Folder association implies the desktop entry and "Open file location", so
+`--without-desktop-entry` and `--without-file-manager` also drop it. File chooser
+replacement is separate from folder handling: `--without-file-chooser` keeps your
+current chooser and dismisses the one-time in-app offer.
+The installer never installs the `udiskie` package. Restore encrypted-volume
+unlock on Arch with `strata --uninstall-udiskie-unlock`, not Settings.
 
 Non-interactive package installation requires passwordless sudo or cached credentials. Run `./install.sh --help` for the full option list.
 
