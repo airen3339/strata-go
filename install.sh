@@ -10,6 +10,17 @@ REQUIRED_PACKAGES=(
   gst-plugins-base gst-plugins-good gtk4 gtksourceview5 gvfs poppler-glib xdg-utils
 )
 RAW_PREVIEW_PACKAGES=(imagemagick libraw dcraw)
+# Raw Ed25519 public keys; keep in sync with data/update-keys.json, the updater's trust store.
+RELEASE_PUBLIC_KEYS=(
+  1589903225a2dd3c1bc87125884801552b07fd0a09855cfdbde3b84601cebf3c
+)
+MANIFEST_NAME="strata-update-manifest.json"
+SIGNATURES_NAME="strata-update-manifest.signatures.json"
+MAX_MANIFEST_BYTES=32768
+MAX_SIGNATURES_BYTES=8192
+MAX_ARCHIVE_BYTES=$((128 * 1024 * 1024))
+SIGNED_ARCHIVE_SIZE=""
+SIGNED_ARCHIVE_SHA256=""
 
 NON_INTERACTIVE=no
 VERBOSE=no
@@ -71,7 +82,6 @@ case "$(installer_locale)" in
     [details]='Detailed output: %{path}'
     [cancelled]='Installation cancelled. No changes made.'
     [task_failed]='Failed: %{task}'
-    [provenance]='Verify GitHub Actions provenance'
     [read_failed]='Could not read your selection.'
     [keys_toggle]='↑/↓ move · Space toggle · Enter install · Esc cancel'
     [keys_choose]='↑/↓ choose · Enter continue · Esc cancel'
@@ -111,8 +121,10 @@ case "$(installer_locale)" in
     [reinstall]='This replaces %{path}. Your saved settings are kept.'
     [installing]='Installing Strata'
     [download]='Download Strata %{version}'
-    [download_checksums]='Download release checksums'
-    [checksum]='Verify SHA-256 checksum'
+    [download_manifest]='Download the signed release manifest'
+    [download_signatures]='Download the release signatures'
+    [signature]='Verify the release signature'
+    [digest]='Verify the signed SHA-256 digest'
     [unpack]='Unpack the verified release'
     [application]='Install the application'
     [ready]='Ready to explore'
@@ -133,7 +145,6 @@ case "$(installer_locale)" in
     [details]='Journal détaillé : %{path}'
     [cancelled]='Installation annulée. Aucune modification effectuée.'
     [task_failed]='Échec : %{task}'
-    [provenance]='Vérifier la provenance GitHub Actions'
     [read_failed]='Impossible de lire votre choix.'
     [keys_toggle]='↑/↓ déplacer · Espace cocher · Entrée installer · Échap annuler'
     [keys_choose]='↑/↓ choisir · Entrée continuer · Échap annuler'
@@ -173,8 +184,10 @@ case "$(installer_locale)" in
     [reinstall]='Cette opération remplace %{path}. Vos réglages sont conservés.'
     [installing]='Installation de Strata'
     [download]='Télécharger Strata %{version}'
-    [download_checksums]='Télécharger les sommes de contrôle'
-    [checksum]='Vérifier la somme de contrôle SHA-256'
+    [download_manifest]='Télécharger le manifeste signé de la version'
+    [download_signatures]='Télécharger les signatures de la version'
+    [signature]='Vérifier la signature de la version'
+    [digest]='Vérifier l'"'"'empreinte SHA-256 signée'
     [unpack]='Décompresser la version vérifiée'
     [application]='Installer l’application'
     [ready]='Tout est prêt pour explorer'
@@ -195,7 +208,6 @@ case "$(installer_locale)" in
     [details]='Ausführliches Protokoll: %{path}'
     [cancelled]='Installation abgebrochen. Es wurden keine Änderungen vorgenommen.'
     [task_failed]='Fehlgeschlagen: %{task}'
-    [provenance]='GitHub-Actions-Herkunft überprüfen'
     [read_failed]='Die Auswahl konnte nicht gelesen werden.'
     [keys_toggle]='↑/↓ bewegen · Leertaste umschalten · Eingabe installieren · Esc abbrechen'
     [keys_choose]='↑/↓ auswählen · Eingabe fortfahren · Esc abbrechen'
@@ -235,8 +247,10 @@ case "$(installer_locale)" in
     [reinstall]='%{path} wird ersetzt. Ihre gespeicherten Einstellungen bleiben erhalten.'
     [installing]='Strata wird installiert'
     [download]='Strata %{version} herunterladen'
-    [download_checksums]='Prüfsummen der Version herunterladen'
-    [checksum]='SHA-256-Prüfsumme überprüfen'
+    [download_manifest]='Signiertes Versionsmanifest herunterladen'
+    [download_signatures]='Signaturen der Version herunterladen'
+    [signature]='Signatur der Version überprüfen'
+    [digest]='Signierten SHA-256-Hash überprüfen'
     [unpack]='Überprüfte Version entpacken'
     [application]='Anwendung installieren'
     [ready]='Bereit zum Erkunden'
@@ -257,7 +271,6 @@ case "$(installer_locale)" in
     [details]='Registro detallado: %{path}'
     [cancelled]='Instalación cancelada. No se hicieron cambios.'
     [task_failed]='Error: %{task}'
-    [provenance]='Verificar la procedencia de GitHub Actions'
     [read_failed]='No se pudo leer tu selección.'
     [keys_toggle]='↑/↓ mover · Espacio marcar · Intro instalar · Esc cancelar'
     [keys_choose]='↑/↓ elegir · Intro continuar · Esc cancelar'
@@ -297,8 +310,10 @@ case "$(installer_locale)" in
     [reinstall]='Se reemplazará %{path}. Se conservarán tus ajustes guardados.'
     [installing]='Instalando Strata'
     [download]='Descargar Strata %{version}'
-    [download_checksums]='Descargar las sumas de comprobación'
-    [checksum]='Verificar la suma SHA-256'
+    [download_manifest]='Descargar el manifiesto firmado de la versión'
+    [download_signatures]='Descargar las firmas de la versión'
+    [signature]='Verificar la firma de la versión'
+    [digest]='Verificar el resumen SHA-256 firmado'
     [unpack]='Extraer la versión verificada'
     [application]='Instalar la aplicación'
     [ready]='Todo listo para explorar'
@@ -319,7 +334,6 @@ case "$(installer_locale)" in
     [details]='詳細ログ: %{path}'
     [cancelled]='インストールをキャンセルしました。変更は行っていません。'
     [task_failed]='失敗: %{task}'
-    [provenance]='GitHub Actions の来歴を検証'
     [read_failed]='選択内容を読み取れませんでした。'
     [keys_toggle]='↑/↓ 移動 · Space 切替 · Enter インストール · Esc キャンセル'
     [keys_choose]='↑/↓ 選択 · Enter 続行 · Esc キャンセル'
@@ -359,8 +373,10 @@ case "$(installer_locale)" in
     [reinstall]='%{path} を置き換えます。保存済みの設定は保持します。'
     [installing]='Strata をインストール中'
     [download]='Strata %{version} をダウンロード'
-    [download_checksums]='リリースのチェックサムをダウンロード'
-    [checksum]='SHA-256 チェックサムを検証'
+    [download_manifest]='署名済みリリースマニフェストをダウンロード'
+    [download_signatures]='リリースの署名をダウンロード'
+    [signature]='リリースの署名を検証'
+    [digest]='署名済み SHA-256 ダイジェストを検証'
     [unpack]='検証済みリリースを展開'
     [application]='アプリをインストール'
     [ready]='準備ができました'
@@ -381,7 +397,6 @@ case "$(installer_locale)" in
     [details]='Registro detalhado: %{path}'
     [cancelled]='Instalação cancelada. Nenhuma alteração foi feita.'
     [task_failed]='Falha: %{task}'
-    [provenance]='Verificar a procedência do GitHub Actions'
     [read_failed]='Não foi possível ler sua seleção.'
     [keys_toggle]='↑/↓ mover · Espaço marcar · Enter instalar · Esc cancelar'
     [keys_choose]='↑/↓ escolher · Enter continuar · Esc cancelar'
@@ -421,8 +436,10 @@ case "$(installer_locale)" in
     [reinstall]='%{path} será substituído. Suas configurações salvas serão mantidas.'
     [installing]='Instalando o Strata'
     [download]='Baixar o Strata %{version}'
-    [download_checksums]='Baixar as somas de verificação'
-    [checksum]='Verificar a soma SHA-256'
+    [download_manifest]='Baixar o manifesto assinado da versão'
+    [download_signatures]='Baixar as assinaturas da versão'
+    [signature]='Verificar a assinatura da versão'
+    [digest]='Verificar o resumo SHA-256 assinado'
     [unpack]='Extrair a versão verificada'
     [application]='Instalar o aplicativo'
     [ready]='Tudo pronto para explorar'
@@ -443,7 +460,6 @@ case "$(installer_locale)" in
     [details]='상세 로그: %{path}'
     [cancelled]='설치를 취소했습니다. 변경 사항이 없습니다.'
     [task_failed]='실패: %{task}'
-    [provenance]='GitHub Actions 출처 검증'
     [read_failed]='선택 항목을 읽을 수 없습니다.'
     [keys_toggle]='↑/↓ 이동 · Space 선택 · Enter 설치 · Esc 취소'
     [keys_choose]='↑/↓ 선택 · Enter 계속 · Esc 취소'
@@ -483,8 +499,10 @@ case "$(installer_locale)" in
     [reinstall]='%{path} 파일을 교체합니다. 저장된 설정은 유지됩니다.'
     [installing]='Strata 설치 중'
     [download]='Strata %{version} 다운로드'
-    [download_checksums]='릴리스 체크섬 다운로드'
-    [checksum]='SHA-256 체크섬 검증'
+    [download_manifest]='서명된 릴리스 매니페스트 다운로드'
+    [download_signatures]='릴리스 서명 다운로드'
+    [signature]='릴리스 서명 검증'
+    [digest]='서명된 SHA-256 다이제스트 검증'
     [unpack]='검증된 릴리스 압축 풀기'
     [application]='앱 설치'
     [ready]='탐색할 준비가 되었습니다'
@@ -505,7 +523,6 @@ case "$(installer_locale)" in
     [details]='Nhật ký chi tiết: %{path}'
     [cancelled]='Đã hủy cài đặt. Không có thay đổi nào.'
     [task_failed]='Thất bại: %{task}'
-    [provenance]='Xác minh nguồn gốc GitHub Actions'
     [read_failed]='Không thể đọc lựa chọn của bạn.'
     [keys_toggle]='↑/↓ di chuyển · Space chọn · Enter cài đặt · Esc hủy'
     [keys_choose]='↑/↓ chọn · Enter tiếp tục · Esc hủy'
@@ -545,8 +562,10 @@ case "$(installer_locale)" in
     [reinstall]='Sẽ thay thế %{path}. Giữ lại các thiết lập đã lưu.'
     [installing]='Đang cài đặt Strata'
     [download]='Tải Strata %{version}'
-    [download_checksums]='Tải mã kiểm tra của bản phát hành'
-    [checksum]='Xác minh mã kiểm tra SHA-256'
+    [download_manifest]='Tải tệp kê khai bản phát hành đã ký'
+    [download_signatures]='Tải chữ ký của bản phát hành'
+    [signature]='Xác minh chữ ký của bản phát hành'
+    [digest]='Xác minh mã băm SHA-256 đã ký'
     [unpack]='Giải nén bản phát hành đã xác minh'
     [application]='Cài đặt ứng dụng'
     [ready]='Sẵn sàng khám phá'
@@ -567,7 +586,6 @@ case "$(installer_locale)" in
     [details]='Registro dettagliato: %{path}'
     [cancelled]='Installazione annullata. Nessuna modifica effettuata.'
     [task_failed]='Operazione non riuscita: %{task}'
-    [provenance]='Verifica della provenienza GitHub Actions'
     [read_failed]='Impossibile leggere la selezione.'
     [keys_toggle]='↑/↓ sposta · Spazio seleziona · Invio installa · Esc annulla'
     [keys_choose]='↑/↓ scegli · Invio continua · Esc annulla'
@@ -607,8 +625,10 @@ case "$(installer_locale)" in
     [reinstall]='%{path} verrà sostituito. Le impostazioni salvate saranno conservate.'
     [installing]='Installazione di Strata'
     [download]='Scarica Strata %{version}'
-    [download_checksums]='Scarica le somme di controllo'
-    [checksum]='Verifica della somma SHA-256'
+    [download_manifest]='Scarica il manifesto firmato della versione'
+    [download_signatures]='Scarica le firme della versione'
+    [signature]='Verifica della firma della versione'
+    [digest]='Verifica del digest SHA-256 firmato'
     [unpack]='Estrai la versione verificata'
     [application]='Installa l’applicazione'
     [ready]='Pronto per esplorare'
@@ -629,7 +649,6 @@ case "$(installer_locale)" in
     [details]='Подробный журнал: %{path}'
     [cancelled]='Установка отменена. Изменений нет.'
     [task_failed]='Ошибка: %{task}'
-    [provenance]='Проверка происхождения из GitHub Actions'
     [read_failed]='Не удалось прочитать ваш выбор.'
     [keys_toggle]='↑/↓ переход · Пробел выбор · Enter установка · Esc отмена'
     [keys_choose]='↑/↓ выбор · Enter продолжить · Esc отмена'
@@ -669,8 +688,10 @@ case "$(installer_locale)" in
     [reinstall]='%{path} будет заменён. Сохранённые настройки останутся.'
     [installing]='Установка Strata'
     [download]='Загрузка Strata %{version}'
-    [download_checksums]='Загрузка контрольных сумм'
-    [checksum]='Проверка контрольной суммы SHA-256'
+    [download_manifest]='Загрузка подписанного манифеста выпуска'
+    [download_signatures]='Загрузка подписей выпуска'
+    [signature]='Проверка подписи выпуска'
+    [digest]='Проверка подписанной контрольной суммы SHA-256'
     [unpack]='Распаковка проверенного выпуска'
     [application]='Установка приложения'
     [ready]='Всё готово к работе'
@@ -691,7 +712,6 @@ case "$(installer_locale)" in
     [details]='详细日志：%{path}'
     [cancelled]='已取消安装，未做任何更改。'
     [task_failed]='失败：%{task}'
-    [provenance]='验证 GitHub Actions 来源证明'
     [read_failed]='无法读取所选项。'
     [keys_toggle]='↑/↓ 移动 · 空格切换 · Enter 安装 · Esc 取消'
     [keys_choose]='↑/↓ 选择 · Enter 继续 · Esc 取消'
@@ -731,8 +751,10 @@ case "$(installer_locale)" in
     [reinstall]='将替换 %{path}，保留已保存的设置。'
     [installing]='正在安装 Strata'
     [download]='下载 Strata %{version}'
-    [download_checksums]='下载发行版校验和'
-    [checksum]='验证 SHA-256 校验和'
+    [download_manifest]='下载已签名的发行版清单'
+    [download_signatures]='下载发行版签名'
+    [signature]='验证发行版签名'
+    [digest]='验证已签名的 SHA-256 摘要'
     [unpack]='解压已验证的发行版'
     [application]='安装应用'
     [ready]='开始探索吧'
@@ -753,7 +775,6 @@ case "$(installer_locale)" in
     [details]='詳細輸出：%{path}'
     [cancelled]='已取消安裝，未做任何變更。'
     [task_failed]='失敗：%{task}'
-    [provenance]='驗證 GitHub Actions 來源證明'
     [read_failed]='無法讀取你的選擇。'
     [keys_toggle]='↑/↓ 移動 · 空白鍵切換 · Enter 安裝 · Esc 取消'
     [keys_choose]='↑/↓ 選擇 · Enter 繼續 · Esc 取消'
@@ -793,8 +814,10 @@ case "$(installer_locale)" in
     [reinstall]='這會取代 %{path}，並保留你已儲存的設定。'
     [installing]='正在安裝 Strata'
     [download]='下載 Strata %{version}'
-    [download_checksums]='下載發行版本檢查碼'
-    [checksum]='驗證 SHA-256 檢查碼'
+    [download_manifest]='下載已簽署的發行版本清單'
+    [download_signatures]='下載發行版本簽章'
+    [signature]='驗證發行版本簽章'
+    [digest]='驗證已簽署的 SHA-256 摘要'
     [unpack]='解壓縮已驗證的發行版本'
     [application]='安裝應用程式'
     [ready]='開始探索吧'
@@ -986,19 +1009,80 @@ run_task() {
   fi
 }
 
-verify_provenance() {
-  local archive=$1
+hex_to_bytes() {
+  # shellcheck disable=SC2059
+  printf "$(sed 's/../\\x&/g' <<<"$1")"
+}
 
-  if ! command -v gh >/dev/null 2>&1; then
-    note "GitHub CLI is unavailable; continuing after HTTPS download and checksum verification."
-    return
-  fi
-  if ! gh auth status --hostname github.com >/dev/null 2>&1; then
-    note "GitHub CLI is not authenticated; continuing after HTTPS download and checksum verification."
-    return
-  fi
+file_size() {
+  printf '%d' "$(wc -c <"$1")"
+}
 
-  run_task "$(text provenance)" gh attestation verify "$archive" --repo "$REPOSITORY"
+download_release_file() {
+  local label=$1 url=$2 output=$3 limit=$4
+
+  run_task "$label" curl --fail --location --show-error --silent --max-filesize "$limit" \
+    --output "$output" "$url"
+  (($(file_size "$output") <= limit)) \
+    || die "${output##*/} is larger than $limit bytes; refusing to continue."
+}
+
+# The signatures file is the canonical compact JSON written by scripts/sign_update_manifest.py.
+verify_release_signature() {
+  local manifest=$1 signatures=$2 key key_id entry signature
+  local -a entries
+
+  mapfile -t entries < <(grep -oE '\{"key_id":"[0-9a-f]{64}","signature":"[0-9a-f]{128}"\}' "$signatures")
+  { printf 'strata-update-manifest-v1\0'; cat "$manifest"; } >"$TEMP_DIR/signed-message"
+  for key in "${RELEASE_PUBLIC_KEYS[@]}"; do
+    key_id=$(hex_to_bytes "$key" | sha256sum | sed 's/ .*//')
+    hex_to_bytes "302a300506032b6570032100$key" >"$TEMP_DIR/release-key.der"
+    for entry in "${entries[@]}"; do
+      [[ $entry == "{\"key_id\":\"$key_id\","* ]] || continue
+      signature=${entry#*\"signature\":\"}
+      hex_to_bytes "${signature%\"\}}" >"$TEMP_DIR/release-signature"
+      if openssl pkeyutl -verify -rawin -pubin -keyform DER -inkey "$TEMP_DIR/release-key.der" \
+          -sigfile "$TEMP_DIR/release-signature" -in "$TEMP_DIR/signed-message"; then
+        return 0
+      fi
+    done
+  done
+  echo "No trusted release key signed $MANIFEST_NAME." >&2
+  return 1
+}
+
+read_signed_artifact() {
+  local manifest=$1 version=$2 target=$3 archive=$4 content pattern
+
+  content=$(<"$manifest")
+  pattern="^\\{\"artifacts\":\\[.*\\],\"repository\":\"$REPOSITORY\",\"schema\":1,"
+  pattern+="\"source_commit\":\"[0-9a-f]{40}\",\"tag\":\"v${version//./\\.}\"\\}$"
+  [[ $content =~ $pattern ]] \
+    || die "The signed manifest does not describe Strata $version from $REPOSITORY."
+  pattern="\\{\"name\":\"${archive//./\\.}\",\"sha256\":\"([0-9a-f]{64})\",\"size\":([1-9][0-9]*),"
+  pattern+="\"target\":\"$target\"\\}"
+  [[ $content =~ $pattern ]] \
+    || die "The signed manifest does not list $archive for $target."
+  SIGNED_ARCHIVE_SHA256=${BASH_REMATCH[1]}
+  SIGNED_ARCHIVE_SIZE=${BASH_REMATCH[2]}
+  ((SIGNED_ARCHIVE_SIZE <= MAX_ARCHIVE_BYTES)) \
+    || die "The signed manifest lists an archive larger than $MAX_ARCHIVE_BYTES bytes."
+}
+
+verify_archive_digest() {
+  local archive=$1 size digest
+
+  size=$(file_size "$archive")
+  if ((size != SIGNED_ARCHIVE_SIZE)); then
+    echo "${archive##*/} is $size bytes; the signed manifest expects $SIGNED_ARCHIVE_SIZE." >&2
+    return 1
+  fi
+  digest=$(sha256sum "$archive" | sed 's/ .*//')
+  if [[ $digest != "$SIGNED_ARCHIVE_SHA256" ]]; then
+    echo "${archive##*/} has SHA-256 $digest; the signed manifest expects $SIGNED_ARCHIVE_SHA256." >&2
+    return 1
+  fi
+  echo "${archive##*/}: OK"
 }
 
 show_banner() {
@@ -1563,7 +1647,7 @@ main() {
     [[ $arch_based == yes ]] && udiskie_on_path \
       || die "$(text udiskie_requires)"
   fi
-  for command in curl tar sha256sum install sed; do
+  for command in curl tar sha256sum openssl wc install sed; do
     command -v "$command" >/dev/null 2>&1 || die "Required command not found: $command"
   done
 
@@ -1591,15 +1675,17 @@ main() {
   version=$(latest_stable_version)
   archive="strata-$version-$target.tar.gz"
   url="https://github.com/$REPOSITORY/releases/download/v$version"
+  download_release_file "$(text download_manifest)" "$url/$MANIFEST_NAME" \
+    "$TEMP_DIR/$MANIFEST_NAME" "$MAX_MANIFEST_BYTES"
+  download_release_file "$(text download_signatures)" "$url/$SIGNATURES_NAME" \
+    "$TEMP_DIR/$SIGNATURES_NAME" "$MAX_SIGNATURES_BYTES"
+  run_task "$(text signature)" verify_release_signature "$TEMP_DIR/$MANIFEST_NAME" "$TEMP_DIR/$SIGNATURES_NAME"
+  read_signed_artifact "$TEMP_DIR/$MANIFEST_NAME" "$version" "$target" "$archive"
   local -a download_flags=(--silent)
   if [[ $RICH_TERMINAL == yes && $VERBOSE == no ]]; then download_flags=(--progress-bar); fi
   TASK_PROGRESS=yes run_task "$(text download "version=$version")" curl --fail --location --show-error \
-    "${download_flags[@]}" --output "$TEMP_DIR/$archive" "$url/$archive"
-  run_task "$(text download_checksums)" curl --fail --location --show-error --silent \
-    --output "$TEMP_DIR/$archive.sha256" "$url/$archive.sha256"
-  run_task "$(text checksum)" bash -euc 'cd "$1"; exec sha256sum --check "$2"' \
-    bash "$TEMP_DIR" "$archive.sha256"
-  verify_provenance "$TEMP_DIR/$archive"
+    "${download_flags[@]}" --max-filesize "$SIGNED_ARCHIVE_SIZE" --output "$TEMP_DIR/$archive" "$url/$archive"
+  run_task "$(text digest)" verify_archive_digest "$TEMP_DIR/$archive"
   run_task "$(text unpack)" tar -xzf "$TEMP_DIR/$archive" -C "$TEMP_DIR"
 
   extracted=$TEMP_DIR/${archive%.tar.gz}
