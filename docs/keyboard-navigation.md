@@ -58,9 +58,19 @@ The Material-style strip appears when there is more than one tab. The plus and
 window-close controls move into it and return to the normal header when only
 one tab remains. Scroll the strip horizontally (or use the wheel) when it
 outgrows the window; selecting a tab brings it into view without a scrollbar.
-Drag a tab label to reorder tabs. Drop files on a tab to transfer into its
-current directory, or hover there during a file drag to switch tabs and choose
-a folder in its listing. Existing copy/move modifiers and conflict handling apply.
+Drag a tab label to reorder tabs; an accent-colored insertion line shows where
+it will land. Sidebar locations offer **Open in New Tab** in their context menu
+and open in a new tab on middle-click. Dragging a sidebar location temporarily
+reveals the strip if it was hidden, with the insertion line marking where a new
+tab will open. The strip stays visible throughout the sidebar drag. Drop into it
+to create the tab at that position; **+** also accepts these drags. Dropping or
+cancelling restores the strip's normal visibility.
+This opens the location without moving files or reordering sidebar pins.
+These tab actions are not offered in file choosers.
+
+Drop files from a listing on a tab to transfer into its current directory, or
+hover there during a file drag to switch tabs and choose a folder in its listing.
+Existing copy/move modifiers and conflict handling apply.
 
 ## Input precedence
 

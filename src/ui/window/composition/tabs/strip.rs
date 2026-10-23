@@ -19,6 +19,9 @@ use crate::ui::{
 
 use super::{TabWindow, layout};
 
+mod drop;
+pub(super) use drop::install_new_tab_drop;
+
 struct Header {
     id: u64,
     widget: gtk::Box,
@@ -124,6 +127,9 @@ pub(super) struct TabStrip {
     line: gtk::DrawingArea,
     headers: Rc<RefCell<Vec<Header>>>,
     indicator: Rc<Indicator>,
+    insertion: Rc<Cell<Option<usize>>>,
+    drag_source: glib::WeakRef<gtk::DragSource>,
+    sidebar_drag: Cell<bool>,
     pub(super) actions: gtk::Box,
     pub(super) end: gtk::Box,
 }
@@ -166,6 +172,9 @@ impl TabStrip {
         widget.append(&content);
         let headers = Rc::new(RefCell::new(Vec::<Header>::new()));
         let indicator = Rc::new(Indicator::default());
+        let insertion = Rc::new(Cell::new(None::<usize>));
+        let drop_position = insertion.clone();
+        let drop_headers = headers.clone();
         let drawing = indicator.clone();
         line.set_draw_func(move |area, context, _, height| {
             let (x, width) = drawing.position.get();
@@ -178,6 +187,21 @@ impl TabStrip {
             );
             context.rectangle(x, height as f64 - 3.0, width, 3.0);
             let _ = context.fill();
+            if let Some(index) = drop_position.get() {
+                let headers = drop_headers.borrow();
+                let edge = headers
+                    .get(index)
+                    .map(|header| (&header.widget, false))
+                    .or_else(|| headers.last().map(|header| (&header.widget, true)));
+                if let Some((widget, after)) = edge
+                    && let Some(bounds) = widget.compute_bounds(area)
+                {
+                    let x = bounds.x() + if after { bounds.width() } else { 0.0 };
+                    let x = f64::from(x).clamp(1.0, f64::from(area.width()).max(2.0) - 1.0);
+                    context.rectangle(x - 1.0, 4.0, 2.0, (height as f64 - 8.0).max(0.0));
+                    let _ = context.fill();
+                }
+            }
         });
         let layout_headers = headers.clone();
         let layout_indicator = indicator.clone();
@@ -209,6 +233,9 @@ impl TabStrip {
             line,
             headers,
             indicator,
+            insertion,
+            drag_source: glib::WeakRef::new(),
+            sidebar_drag: Cell::new(false),
             actions,
             end,
         }
@@ -216,6 +243,44 @@ impl TabStrip {
 
     pub(super) fn widget(&self) -> &gtk::Box {
         &self.widget
+    }
+
+    pub(super) fn install_drop(&self, state: &Rc<TabWindow>) {
+        drop::install(state, self.overlay.upcast_ref(), false);
+    }
+
+    pub(super) fn refresh_visibility(&self) {
+        self.widget
+            .set_visible(self.headers.borrow().len() > 1 || self.sidebar_drag.get());
+    }
+
+    pub(super) fn show_open_drop(&self, show: bool) {
+        self.sidebar_drag.set(show);
+        self.refresh_visibility();
+        self.mark_insertion(show.then(|| self.headers.borrow().len()));
+    }
+
+    pub(super) fn cancel_drag(&self) -> bool {
+        let source = self
+            .drag_source
+            .upgrade()
+            .filter(|source| source.drag().is_some())
+            .or_else(|| {
+                crate::ui::window::pinned_drop::active_drag_source()
+                    .filter(|source| source.drag().is_some())
+            });
+        let Some(source) = source else {
+            return false;
+        };
+        source.drag_cancel();
+        self.show_open_drop(false);
+        true
+    }
+
+    fn mark_insertion(&self, index: Option<usize>) {
+        if self.insertion.replace(index) != index {
+            self.line.queue_draw();
+        }
     }
 
     pub(super) fn add(&self, state: &Rc<TabWindow>, id: u64, browser: &BrowserView) {
@@ -445,42 +510,30 @@ impl TabStrip {
 }
 
 fn install_reordering(state: &Rc<TabWindow>, id: u64, widget: &gtk::Button, label: &gtk::Label) {
-    let prefix = format!("strata-tab-{}:", state.drag_token);
-    let value = format!("{prefix}{id}");
+    let value = format!("strata-tab-{}:{id}", state.drag_token);
     let source = gtk::DragSource::new();
     source.set_actions(gdk::DragAction::MOVE);
     let drag_label = label.downgrade();
     source.connect_prepare(move |source, _, _| {
         let label = drag_label.upgrade()?;
-        source.set_icon(Some(&gtk::WidgetPaintable::new(Some(&label))), 0, 0);
+        let icon = gtk::WidgetPaintable::new(Some(&label)).current_image();
+        source.set_icon(Some(&icon), 0, 0);
         Some(gdk::ContentProvider::for_value(&value.to_value()))
     });
-    widget.add_controller(source);
-    let target = gtk::DropTarget::new(String::static_type(), gdk::DragAction::MOVE);
-    target.connect_accept(|_, drop| {
-        let formats = drop.formats();
-        formats.contains_type(String::static_type())
-            && !formats.contains_type(gdk::FileList::static_type())
-            && !formats.contain_mime_type("text/uri-list")
+    let weak = Rc::downgrade(state);
+    source.connect_drag_begin(move |source, _| {
+        if let Some(state) = weak.upgrade() {
+            state.strip.drag_source.set(Some(source));
+        }
     });
     let weak = Rc::downgrade(state);
-    target.connect_drop(move |_, value, _, _| {
-        let Some(state) = weak.upgrade() else {
-            return false;
-        };
-        let Ok(value) = value.get::<String>() else {
-            return false;
-        };
-        let Some(source) = value
-            .strip_prefix(&prefix)
-            .and_then(|id| id.parse::<u64>().ok())
-        else {
-            return false;
-        };
-        state.reorder(source, id);
-        true
+    source.connect_drag_end(move |_, _, _| {
+        if let Some(state) = weak.upgrade() {
+            state.strip.drag_source.set(None::<&gtk::DragSource>);
+            state.strip.mark_insertion(None);
+        }
     });
-    widget.add_controller(target);
+    widget.add_controller(source);
 }
 
 fn install_file_drop(state: &Rc<TabWindow>, id: u64, widget: &gtk::Box, browser: &BrowserView) {
