@@ -118,6 +118,8 @@ pub struct BrowserColumnSnapshot {
     pub selected_positions: Vec<usize>,
     pub loading: bool,
     pub error: Option<String>,
+    /// Offered beside `error` when only permissions kept the user out.
+    pub administrator: Option<Location>,
     pub truncated: bool,
     pub reveal_pending: bool,
     pub not_responding: bool,
@@ -206,6 +208,8 @@ pub enum BrowserEvent {
     LoadFailed {
         depth: usize,
         message: String,
+        /// The folder's `admin://` form when only permissions kept the user out.
+        administrator: Option<Location>,
     },
     PeekStarted {
         location: Location,
@@ -356,9 +360,11 @@ pub enum BrowserEvent {
     },
     NavigationRejected {
         parent_depth: usize,
+        location: Location,
         error: LocationValidationError,
     },
     LocationNavigationRejected {
+        location: Location,
         error: LocationValidationError,
     },
     LocationRevealFailed {
@@ -1417,6 +1423,7 @@ impl Browser {
                         );
                     }
                     None => browser.emit(BrowserEvent::LocationNavigationRejected {
+                        location: pending_location.clone(),
                         error: LocationValidationError::NotDirectory,
                     }),
                 },
@@ -1432,7 +1439,10 @@ impl Browser {
                             .deferred_reveal
                             .replace(Some((pending_location.clone(), reveal.clone())));
                     }
-                    browser.emit(BrowserEvent::LocationNavigationRejected { error });
+                    browser.emit(BrowserEvent::LocationNavigationRejected {
+                        location: pending_location.clone(),
+                        error,
+                    });
                 }
             }
         });
@@ -1778,6 +1788,7 @@ impl Browser {
                 Err(error) => {
                     browser.emit(BrowserEvent::NavigationRejected {
                         parent_depth,
+                        location: pending_location.clone(),
                         error,
                     });
                     browser.focus_active();
@@ -2441,7 +2452,16 @@ impl Browser {
             selected_positions: state.selected_positions(depth),
             loading: column.load_state == crate::app::navigation::LoadState::Loading,
             error: match &column.load_state {
-                crate::app::navigation::LoadState::Error(message) => Some(message.clone()),
+                crate::app::navigation::LoadState::Error(message)
+                | crate::app::navigation::LoadState::Denied { message, .. } => {
+                    Some(message.clone())
+                }
+                _ => None,
+            },
+            administrator: match &column.load_state {
+                crate::app::navigation::LoadState::Denied { administrator, .. } => {
+                    Some(administrator.clone())
+                }
                 _ => None,
             },
             truncated: column.truncated,
@@ -3717,7 +3737,10 @@ impl Browser {
             return;
         }
         self.select(depth, position);
-        if entry.is_directory() {
+        if entry.is_locked_folder() {
+            // Its load error offers `admin://` in place; a click never prompts.
+            self.show_child(depth, entry.location);
+        } else if entry.is_directory() {
             self.descend(depth, entry.location);
         } else {
             self.close_column(depth + 1);
@@ -3752,7 +3775,9 @@ impl Browser {
 
     pub fn activate(self: &Rc<Self>, depth: usize, position: usize) {
         let open_child = self.entry_at(depth, position).is_some_and(|entry| {
-            entry.is_directory() && self.is_open_child(depth, &entry.location)
+            entry.is_directory()
+                && !entry.is_locked_folder()
+                && self.is_open_child(depth, &entry.location)
         });
         self.select(depth, position);
         if open_child {
@@ -3805,6 +3830,9 @@ impl Browser {
         let Some(entry) = self.entry_at(depth, position) else {
             return;
         };
+        if self.open_locked_folder(&entry, select_first) {
+            return;
+        }
         if entry.is_directory() {
             self.navigate_location(entry.location, select_first);
         } else if self.should_extract_on_activate(&entry) {
@@ -3922,6 +3950,27 @@ impl Browser {
         self.activate_focused_with_selection(true);
     }
 
+    /// `admin://` for a native folder the user can't read, when the source offers it.
+    pub(crate) fn administrator_alternative(&self, location: &Location) -> Option<Location> {
+        if !self.source.offers_administrator_access() {
+            return None;
+        }
+        location.as_administrator()
+    }
+
+    /// Opening a folder the user can't read goes through `admin://`, as in GNOME Files.
+    fn open_locked_folder(self: &Rc<Self>, entry: &FileEntry, select_first: bool) -> bool {
+        let Some(administrator) = entry
+            .is_locked_folder()
+            .then(|| self.administrator_alternative(&entry.location))
+            .flatten()
+        else {
+            return false;
+        };
+        self.navigate_location(administrator, select_first);
+        true
+    }
+
     fn activate_focused_with_selection(self: &Rc<Self>, select_first: bool) {
         let focused = self.state.borrow().focused_entry();
         let Some((depth, _, entry)) = focused else {
@@ -3929,6 +3978,9 @@ impl Browser {
             return;
         };
 
+        if self.open_locked_folder(&entry, select_first) {
+            return;
+        }
         if entry.is_directory() {
             if self.is_open_child(depth, &entry.location) {
                 self.focus_child();
@@ -5062,7 +5114,16 @@ fn location_from_input_with_home(
     let normalized = scheme.to_ascii_lowercase();
     if !matches!(
         normalized.as_str(),
-        "smb" | "sftp" | "ftp" | "ftps" | "dav" | "davs" | "trash" | "network" | "recent"
+        "smb"
+            | "sftp"
+            | "ftp"
+            | "ftps"
+            | "dav"
+            | "davs"
+            | "trash"
+            | "network"
+            | "recent"
+            | crate::model::ADMIN_SCHEME
     ) {
         return Err(LocationValidationError::UnsupportedScheme(
             scheme.to_owned(),

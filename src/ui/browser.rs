@@ -115,7 +115,7 @@ pub(super) use crate::ui::browser::pane_header::{
 };
 pub(super) use crate::ui::browser::paths::is_trash_root;
 pub use crate::ui::browser::peek::PeekBehavior;
-pub(super) use crate::ui::browser::presentation::not_responding_notice;
+pub(super) use crate::ui::browser::presentation::{administrator_notice, not_responding_notice};
 pub use crate::ui::browser::properties::format_permissions;
 pub(super) use crate::ui::modal::{
     animate_in, animate_out, dismiss_modal_layer, modal_layer, show_error_dialog, slide_out,
@@ -2156,6 +2156,7 @@ impl BrowserView {
                         image_dimensions: crate::model::MetadataValue::Unknown,
                         child_count: crate::model::MetadataValue::Unknown,
                         duration_seconds: crate::model::MetadataValue::Unknown,
+                        listable: crate::model::MetadataValue::Unknown,
                         recent_uri: None,
                     }
                 })

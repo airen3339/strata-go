@@ -22,6 +22,7 @@ fn a_completed_trash_operation_can_be_undone_once() {
         image_dimensions: MetadataValue::Unknown,
         child_count: MetadataValue::Unknown,
         duration_seconds: MetadataValue::Unknown,
+        listable: MetadataValue::Unknown,
         recent_uri: None,
     };
 
@@ -54,6 +55,7 @@ fn pending_trash_undo_reports_original_locations_until_claimed() {
         image_dimensions: MetadataValue::Unknown,
         child_count: MetadataValue::Unknown,
         duration_seconds: MetadataValue::Unknown,
+        listable: MetadataValue::Unknown,
         recent_uri: None,
     };
 
@@ -85,6 +87,7 @@ fn another_browser_can_undo_the_latest_trash_operation() {
         image_dimensions: MetadataValue::Unknown,
         child_count: MetadataValue::Unknown,
         duration_seconds: MetadataValue::Unknown,
+        listable: MetadataValue::Unknown,
         recent_uri: None,
     };
 
@@ -562,6 +565,7 @@ fn permanent_delete_preserves_the_previous_trash_undo() {
         image_dimensions: MetadataValue::Unknown,
         child_count: MetadataValue::Unknown,
         duration_seconds: MetadataValue::Unknown,
+        listable: MetadataValue::Unknown,
         recent_uri: None,
     };
     let permanently_deleted = FileEntry {
@@ -572,6 +576,7 @@ fn permanent_delete_preserves_the_previous_trash_undo() {
         image_dimensions: MetadataValue::Unknown,
         child_count: MetadataValue::Unknown,
         duration_seconds: MetadataValue::Unknown,
+        listable: MetadataValue::Unknown,
         ..trashed.clone()
     };
 

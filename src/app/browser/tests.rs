@@ -195,6 +195,7 @@ impl FileSource for WatchingFileSource {
                 image_dimensions: MetadataValue::Unknown,
                 child_count: MetadataValue::Unknown,
                 duration_seconds: MetadataValue::Unknown,
+                listable: MetadataValue::Unknown,
                 recent_uri: None,
             }],
         });
@@ -261,6 +262,7 @@ impl FileSource for RetryFileSource {
                 request_id: request.id,
                 message: "temporarily unavailable".into(),
                 refused: false,
+                denied: false,
             });
         } else {
             emit(DirectoryEvent::Batch {
@@ -279,6 +281,7 @@ impl FileSource for RetryFileSource {
                     image_dimensions: MetadataValue::Unknown,
                     child_count: MetadataValue::Unknown,
                     duration_seconds: MetadataValue::Unknown,
+                    listable: MetadataValue::Unknown,
                     recent_uri: None,
                 }],
             });
@@ -343,6 +346,7 @@ impl FileSource for FilePreviewSource {
                 image_dimensions: MetadataValue::Unknown,
                 child_count: MetadataValue::Unknown,
                 duration_seconds: MetadataValue::Unknown,
+                listable: MetadataValue::Unknown,
                 recent_uri: None,
             }],
         });
@@ -381,6 +385,7 @@ impl FileSource for ArchiveFileSource {
                     image_dimensions: MetadataValue::Unknown,
                     child_count: MetadataValue::Unknown,
                     duration_seconds: MetadataValue::Unknown,
+                    listable: MetadataValue::Unknown,
                     recent_uri: None,
                 },
                 FileEntry {
@@ -397,6 +402,7 @@ impl FileSource for ArchiveFileSource {
                     image_dimensions: MetadataValue::Unknown,
                     child_count: MetadataValue::Unknown,
                     duration_seconds: MetadataValue::Unknown,
+                    listable: MetadataValue::Unknown,
                     recent_uri: None,
                 },
                 FileEntry {
@@ -413,6 +419,7 @@ impl FileSource for ArchiveFileSource {
                     image_dimensions: MetadataValue::Unknown,
                     child_count: MetadataValue::Unknown,
                     duration_seconds: MetadataValue::Unknown,
+                    listable: MetadataValue::Unknown,
                     recent_uri: None,
                 },
                 FileEntry {
@@ -429,6 +436,7 @@ impl FileSource for ArchiveFileSource {
                     image_dimensions: MetadataValue::Unknown,
                     child_count: MetadataValue::Unknown,
                     duration_seconds: MetadataValue::Unknown,
+                    listable: MetadataValue::Unknown,
                     recent_uri: None,
                 },
             ],
@@ -465,6 +473,7 @@ impl FileSource for OpenChildBesideFileSource {
                     image_dimensions: MetadataValue::Unknown,
                     child_count: MetadataValue::Unknown,
                     duration_seconds: MetadataValue::Unknown,
+                    listable: MetadataValue::Unknown,
                     recent_uri: None,
                 },
                 FileEntry {
@@ -481,6 +490,7 @@ impl FileSource for OpenChildBesideFileSource {
                     image_dimensions: MetadataValue::Unknown,
                     child_count: MetadataValue::Unknown,
                     duration_seconds: MetadataValue::Unknown,
+                    listable: MetadataValue::Unknown,
                     recent_uri: None,
                 },
             ]
@@ -521,6 +531,7 @@ impl FileSource for RestoredSortingSource {
             image_dimensions: MetadataValue::Unknown,
             child_count: MetadataValue::Unknown,
             duration_seconds: MetadataValue::Unknown,
+            listable: MetadataValue::Unknown,
             recent_uri: None,
         };
         emit(DirectoryEvent::Batch {
@@ -559,6 +570,7 @@ impl FileSource for FakeFileSource {
                 image_dimensions: MetadataValue::Unknown,
                 child_count: MetadataValue::Unknown,
                 duration_seconds: MetadataValue::Unknown,
+                listable: MetadataValue::Unknown,
                 recent_uri: None,
             }],
         });
@@ -596,6 +608,7 @@ impl FileSource for TrashFileSource {
                 image_dimensions: MetadataValue::Unknown,
                 child_count: MetadataValue::Unknown,
                 duration_seconds: MetadataValue::Unknown,
+                listable: MetadataValue::Unknown,
                 recent_uri: None,
             }],
         });
@@ -1023,6 +1036,7 @@ fn fixture_entry(path: &str) -> FileEntry {
         image_dimensions: MetadataValue::Unknown,
         child_count: MetadataValue::Unknown,
         duration_seconds: MetadataValue::Unknown,
+        listable: MetadataValue::Unknown,
         recent_uri: None,
     }
 }
@@ -1068,6 +1082,7 @@ fn batch_entry(name: &str) -> FileEntry {
         image_dimensions: MetadataValue::Unknown,
         child_count: MetadataValue::Unknown,
         duration_seconds: MetadataValue::Unknown,
+        listable: MetadataValue::Unknown,
         recent_uri: None,
     }
 }
@@ -1078,6 +1093,7 @@ fn trash_entry(name: &str) -> FileEntry {
         image_dimensions: MetadataValue::Unknown,
         child_count: MetadataValue::Unknown,
         duration_seconds: MetadataValue::Unknown,
+        listable: MetadataValue::Unknown,
         ..batch_entry(name)
     }
 }
@@ -1126,6 +1142,7 @@ impl FileSource for SortFillSource {
                         image_dimensions: MetadataValue::Unknown,
                         child_count: MetadataValue::Unknown,
                         duration_seconds: MetadataValue::Unknown,
+                        listable: MetadataValue::Unknown,
                     }
                 })
                 .collect(),
@@ -1229,6 +1246,7 @@ impl ScriptedSource {
             image_dimensions: MetadataValue::Unknown,
             child_count: MetadataValue::Unknown,
             duration_seconds: MetadataValue::Unknown,
+            listable: MetadataValue::Unknown,
             recent_uri: None,
         }
     }
@@ -1254,6 +1272,7 @@ impl ScriptedSource {
                     image_dimensions: MetadataValue::Unknown,
                     child_count: MetadataValue::Unknown,
                     duration_seconds: MetadataValue::Unknown,
+                    listable: MetadataValue::Unknown,
                 })
                 .collect(),
         };
@@ -1520,6 +1539,7 @@ impl FileSource for MixedPeekFileSource {
                     image_dimensions: MetadataValue::Unknown,
                     child_count: MetadataValue::Unknown,
                     duration_seconds: MetadataValue::Unknown,
+                    listable: MetadataValue::Unknown,
                     recent_uri: None,
                 },
                 FileEntry {
@@ -1536,6 +1556,7 @@ impl FileSource for MixedPeekFileSource {
                     image_dimensions: MetadataValue::Unknown,
                     child_count: MetadataValue::Unknown,
                     duration_seconds: MetadataValue::Unknown,
+                    listable: MetadataValue::Unknown,
                     recent_uri: None,
                 },
             ],
