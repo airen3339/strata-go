@@ -129,7 +129,7 @@ pub(super) struct TabStrip {
     indicator: Rc<Indicator>,
     insertion: Rc<Cell<Option<usize>>>,
     drag_source: glib::WeakRef<gtk::DragSource>,
-    sidebar_drag: Cell<bool>,
+    location_drag: Cell<bool>,
     pub(super) actions: gtk::Box,
     pub(super) end: gtk::Box,
 }
@@ -235,7 +235,7 @@ impl TabStrip {
             indicator,
             insertion,
             drag_source: glib::WeakRef::new(),
-            sidebar_drag: Cell::new(false),
+            location_drag: Cell::new(false),
             actions,
             end,
         }
@@ -247,15 +247,16 @@ impl TabStrip {
 
     pub(super) fn install_drop(&self, state: &Rc<TabWindow>) {
         drop::install(state, self.overlay.upcast_ref(), false);
+        drop::reveal_for_folder_drag(state);
     }
 
     pub(super) fn refresh_visibility(&self) {
         self.widget
-            .set_visible(self.headers.borrow().len() > 1 || self.sidebar_drag.get());
+            .set_visible(self.headers.borrow().len() > 1 || self.location_drag.get());
     }
 
     pub(super) fn show_open_drop(&self, show: bool) {
-        self.sidebar_drag.set(show);
+        self.location_drag.set(show);
         self.refresh_visibility();
         self.mark_insertion(show.then(|| self.headers.borrow().len()));
     }
@@ -544,6 +545,7 @@ fn install_file_drop(state: &Rc<TabWindow>, id: u64, widget: &gtk::Box, browser:
     } = prepare_file_drop_target(move || {
         destination_browser.upgrade()?.browser().active_location()
     });
+    target.connect_accept(|_, drag| drop::folder_locations(drag).is_none());
     let hover = Rc::new(Cell::new(0_u64));
     let enter_hover = hover.clone();
     let weak = Rc::downgrade(state);
@@ -579,7 +581,13 @@ fn install_file_drop(state: &Rc<TabWindow>, id: u64, widget: &gtk::Box, browser:
         let (Some(state), Some(browser)) = (weak.upgrade(), weak_browser.upgrade()) else {
             return false;
         };
-        if state.blocked() {
+        if state.blocked()
+            || target
+                .current_drop()
+                .as_ref()
+                .and_then(drop::folder_locations)
+                .is_some()
+        {
             return false;
         }
         let Some(destination) = browser.browser().active_location() else {

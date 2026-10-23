@@ -5,11 +5,64 @@ use std::{cell::Cell, rc::Rc};
 use gtk::{gdk, glib, prelude::*};
 
 use super::super::TabWindow;
-use crate::{model::Location, ui::window::pinned_drop};
+use crate::{
+    model::Location,
+    ui::{browser::active_drag_snapshot, window::pinned_drop},
+};
 
 enum Intent {
     Reorder(u64),
-    Open(Location),
+    Open(Rc<[Location]>),
+}
+
+pub(super) fn folder_locations(drop: &gdk::Drop) -> Option<Rc<[Location]>> {
+    let snapshot = active_drag_snapshot(drop)?;
+    snapshot.folders.filter(|folders| !folders.is_empty())?;
+    Some(snapshot.locations)
+}
+
+pub(super) fn reveal_for_folder_drag(state: &Rc<TabWindow>) {
+    let Some(window) = state.window.upgrade() else {
+        return;
+    };
+    let motion = gtk::DropControllerMotion::new();
+    let active = Rc::new(glib::WeakRef::<gdk::Drag>::new());
+    let weak = Rc::downgrade(state);
+    motion.connect_enter(move |motion, _, _| {
+        let Some(state) = weak.upgrade().filter(|state| !state.blocked()) else {
+            return;
+        };
+        let Some(drop) = motion
+            .drop()
+            .filter(|drop| folder_locations(drop).is_some())
+        else {
+            return;
+        };
+        let Some(drag) = drop.drag() else {
+            return;
+        };
+        if active.upgrade().as_ref() == Some(&drag) {
+            return;
+        }
+        active.set(Some(&drag));
+        state.strip.show_open_drop(true);
+        let weak = Rc::downgrade(&state);
+        let active = active.clone();
+        let finish = Rc::new(move |drag: &gdk::Drag| {
+            if active.upgrade().as_ref() != Some(drag) {
+                return;
+            }
+            active.set(None::<&gdk::Drag>);
+            if let Some(state) = weak.upgrade() {
+                state.strip.show_open_drop(false);
+            }
+        });
+        let cancelled = finish.clone();
+        drag.connect_cancel(move |drag, _| cancelled(drag));
+        drag.connect_dnd_finished(move |drag| finish(drag));
+    });
+    // Leaving the window must not hide the strip and relayout a live drag.
+    window.add_controller(motion);
 }
 
 fn intent(
@@ -25,7 +78,10 @@ fn intent(
         .as_ref()
         .and_then(pinned_drop::dragged_location)
     {
-        return Some(Intent::Open(location));
+        return Some(Intent::Open(vec![location].into()));
+    }
+    if let Some(locations) = target.current_drop().as_ref().and_then(folder_locations) {
+        return Some(Intent::Open(locations));
     }
     let value = value?.get::<String>().ok()?;
     let source = value
@@ -62,9 +118,17 @@ fn clear(state: &TabWindow, target: &gtk::DropTarget) {
 }
 
 pub(super) fn install(state: &Rc<TabWindow>, widget: &gtk::Widget, append: bool) {
-    let target = gtk::DropTarget::new(String::static_type(), gdk::DragAction::MOVE);
+    let target = gtk::DropTarget::new(
+        String::static_type(),
+        gdk::DragAction::COPY | gdk::DragAction::MOVE,
+    );
+    target.set_types(&[String::static_type(), gdk::FileList::static_type()]);
+    target.set_propagation_phase(gtk::PropagationPhase::Capture);
     target.set_preload(true);
     target.connect_accept(|_, drop| {
+        if folder_locations(drop).is_some() {
+            return true;
+        }
         let formats = drop.formats();
         let decoded = formats.clone().union_deserialize_types();
         decoded.contains_type(String::static_type())
@@ -93,7 +157,14 @@ pub(super) fn install(state: &Rc<TabWindow>, widget: &gtk::Widget, append: bool)
         if append && let Some(widget) = target.widget() {
             widget.add_css_class("tab-drop-hover");
         }
-        gdk::DragAction::MOVE
+        if target
+            .current_drop()
+            .is_some_and(|drop| drop.actions().contains(gdk::DragAction::COPY))
+        {
+            gdk::DragAction::COPY
+        } else {
+            gdk::DragAction::MOVE
+        }
     });
     let enter_update = update.clone();
     let enter_x = hover_x.clone();
@@ -130,9 +201,11 @@ pub(super) fn install(state: &Rc<TabWindow>, widget: &gtk::Widget, append: bool)
         clear(&state, target);
         match intent {
             Some(Intent::Reorder(source)) => state.reorder_at(source, insertion),
-            Some(Intent::Open(location)) => {
-                state.open_in_new_tab(location);
-                state.reorder_at(state.active.get(), insertion);
+            Some(Intent::Open(locations)) => {
+                for (offset, location) in locations.iter().enumerate() {
+                    state.open_in_new_tab(location.clone());
+                    state.reorder_at(state.active.get(), insertion + offset);
+                }
             }
             None => return false,
         }
