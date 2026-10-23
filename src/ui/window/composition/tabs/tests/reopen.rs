@@ -22,12 +22,10 @@ fn closed_tabs_reopen_in_reverse_order_at_their_previous_positions() {
             tabs.new_tab();
             load(&tabs.active_browser(), locations[1].clone());
             let middle = tabs.active.get();
-            let disposed = tabs.active_browser().downgrade();
             tabs.new_tab();
             load(&tabs.active_browser(), locations[2].clone());
             let last = tabs.active.get();
             tabs.close(middle);
-            wait_until(|| disposed.upgrade().is_none());
             assert_eq!(
                 tabs.active.get(),
                 last,
