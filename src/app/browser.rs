@@ -3753,10 +3753,7 @@ impl Browser {
             return;
         }
         self.select(depth, position);
-        if entry.is_locked_folder() {
-            // Its load error offers `admin://` in place; a click never prompts.
-            self.show_child(depth, entry.location);
-        } else if entry.is_directory() {
+        if entry.is_directory() {
             self.descend(depth, entry.location);
         } else {
             self.close_column(depth + 1);

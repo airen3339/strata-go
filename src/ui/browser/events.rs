@@ -226,7 +226,7 @@ impl ViewState {
                         .collect();
                     if !filled.is_empty() {
                         column.bound_rows.borrow_mut().retain(|bound| {
-                            let (Some(item), Some(_row)) =
+                            let (Some(item), Some(row)) =
                                 (bound.item.upgrade(), bound.row.upgrade())
                             else {
                                 return false;
@@ -235,6 +235,21 @@ impl ViewState {
                             if let Some(position) = position
                                 && let Some(&entry) = filled.get(&position)
                             {
+                                if entry.is_locked_folder() {
+                                    if let Some(icon) =
+                                        row.first_child()
+                                            .and_downcast::<crate::ui::thumbnail::ThumbnailSlot>()
+                                    {
+                                        crate::ui::thumbnail::show_locked_folder(&icon);
+                                    }
+                                    if let Some(label) = bound.rename_label.upgrade() {
+                                        crate::ui::accessibility::describe_entry(
+                                            &item,
+                                            &label.label(),
+                                            Some(entry),
+                                        );
+                                    }
+                                }
                                 let size = &bound.size;
                                 let text = column_size_text(Some(entry));
                                 let actively_renaming = bound.edit.is_editing();

@@ -90,7 +90,10 @@ fn remote_permission_denials_are_treated_as_authentication_failures() {
 fn a_refused_polkit_prompt_neither_asks_for_credentials_nor_reports_an_error() {
     let administrator = Location::uri("admin:///run/media/user/drive/backups");
     let denied = glib::Error::new(gio::IOErrorEnum::PermissionDenied, "Permission denied");
-    assert!(!mount_error_is_authentication_failure(&administrator, &denied));
+    assert!(!mount_error_is_authentication_failure(
+        &administrator,
+        &denied
+    ));
     assert_eq!(mount_failure_message(&administrator, &denied), None);
 
     let failed = glib::Error::new(gio::IOErrorEnum::Failed, "helper crashed");

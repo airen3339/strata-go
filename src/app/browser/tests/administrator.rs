@@ -89,7 +89,9 @@ fn browse(offers_administrator: bool) -> (Rc<Browser>, Rc<RefCell<Vec<BrowserEve
 fn opening_a_locked_folder_reopens_it_as_administrator() {
     let activations: [(&str, fn(&Rc<Browser>)); 3] = [
         ("activate", |browser| browser.activate(0, 0)),
-        ("activate in place", |browser| browser.activate_in_place(0, 0)),
+        ("activate in place", |browser| {
+            browser.activate_in_place(0, 0)
+        }),
         ("activate focused", |browser| {
             browser.select(0, 0);
             browser.activate_focused();
@@ -126,7 +128,10 @@ fn opening_a_locked_folder_reopens_it_as_administrator() {
                 }
             )
         });
-        assert!(rejected || failed, "{route} should report the permission error");
+        assert!(
+            rejected || failed,
+            "{route} should report the permission error"
+        );
         assert!(
             !browser
                 .active_location()
@@ -137,12 +142,13 @@ fn opening_a_locked_folder_reopens_it_as_administrator() {
 }
 
 #[test]
-fn selecting_a_locked_folder_offers_administrator_access_without_prompting() {
+fn moving_onto_a_locked_folder_offers_administrator_access_without_prompting() {
     for offers_administrator in [true, false] {
         let (browser, events) = browse(offers_administrator);
         let expected = offers_administrator.then(|| Location::uri(ADMIN_LOCKED));
 
-        browser.preview(0, 0);
+        browser.select(0, 0);
+        browser.show_child(0, Location::local(LOCKED));
 
         assert_eq!(browser.location_at(1), Some(Location::local(LOCKED)));
         assert!(
@@ -151,7 +157,7 @@ fn selecting_a_locked_folder_offers_administrator_access_without_prompting() {
                 BrowserEvent::NavigationRejected { .. }
                     | BrowserEvent::LocationNavigationRejected { .. }
             )),
-            "a click must not validate, so it never opens the error dialog"
+            "moving the selection must not validate, so it never opens the error dialog"
         );
         assert!(events.borrow().iter().any(|event| matches!(
             event,

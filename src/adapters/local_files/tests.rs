@@ -2682,8 +2682,14 @@ fn metadata_marks_folders_the_user_cannot_open() {
     let locked_access = MetadataValue::Known(rustix::process::geteuid().is_root());
     for listable in [scanned, filled] {
         assert_eq!(listable[&Location::local(&locked)], locked_access);
-        assert_eq!(listable[&Location::local(&open)], MetadataValue::Known(true));
-        assert_eq!(listable[&Location::local(&file)], MetadataValue::Unavailable);
+        assert_eq!(
+            listable[&Location::local(&open)],
+            MetadataValue::Known(true)
+        );
+        assert_eq!(
+            listable[&Location::local(&file)],
+            MetadataValue::Unavailable
+        );
     }
 }
 

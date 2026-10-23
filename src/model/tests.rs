@@ -144,7 +144,10 @@ fn native_folders_reopen_through_admin_with_their_path_escaped() {
             std::ffi::OsStr::new("/run/media/user/Photos RAW/100%"),
             "admin:///run/media/user/Photos%20RAW/100%25",
         ),
-        (std::ffi::OsStr::from_bytes(b"/srv/caf\xe9"), "admin:///srv/caf%E9"),
+        (
+            std::ffi::OsStr::from_bytes(b"/srv/caf\xe9"),
+            "admin:///srv/caf%E9",
+        ),
     ] {
         let administrator = Location::local(path).as_administrator().expect(uri);
         assert_eq!(administrator.uri_value(), Some(uri));

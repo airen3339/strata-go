@@ -10,10 +10,11 @@ A folder the user can't read or enter shows a lock icon, and assistive technolog
 "Folder that requires administrator access". Strata learns this with the rest of the folder's
 metadata, using `access(2)` so that ACLs count.
 
-- **Opening it** with double-click, <kbd>Enter</kbd>, <kbd>→</kbd> or the context menu's Open
-  switches the tab to the folder's `admin://` form, such as
-  `admin:///run/media/user/drive/backups`. GNOME Files does the same.
-- **Selecting it** in Columns, with a click or the arrow keys, never prompts. The next column
+- **Opening it** switches the tab to the folder's `admin://` form, such as
+  `admin:///run/media/user/drive/backups`, as GNOME Files does. Opening means the click that opens
+  folders in that view (set under **Settings → General → Opening items**; a single click in
+  Columns by default), <kbd>Enter</kbd>, <kbd>→</kbd> or the context menu's Open.
+- **Moving the selection onto it** with the arrow keys never prompts. In Columns the next column
   shows the permission error with **Open as Administrator** and Retry.
 - **Typed paths, sidebar places, bookmarks, pins and command-line arguments** keep the permission
   error. Its dialog, column or pane offers **Open as Administrator**.

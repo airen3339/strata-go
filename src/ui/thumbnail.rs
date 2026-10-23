@@ -1305,6 +1305,36 @@ pub(super) fn show_fallback_icon(image: &ThumbnailSlot, icon: &str, size: i32) {
     set_fallback_icon(image, None, icon, size);
 }
 
+/// A metadata fill can find that a bound folder needs administrator access; a
+/// folder the user customized keeps its icon, as a fresh bind would.
+pub(super) fn show_locked_folder(image: &ThumbnailSlot) {
+    use crate::assets::icons::{FOLDER, FOLDER_LOCK};
+    if image.fallback_icon().as_deref() != Some(FOLDER) {
+        return;
+    }
+    let customized = TRACKED_CUSTOMIZED_ICONS.with_borrow_mut(|icons| {
+        match icons.get_mut(&(image.as_ptr() as usize)) {
+            Some(tracked) if tracked.customized => true,
+            Some(tracked) => {
+                tracked.icon = FOLDER_LOCK.to_owned();
+                false
+            }
+            None => false,
+        }
+    });
+    if customized {
+        return;
+    }
+    let (texture, _) = path_icon_texture(
+        None,
+        FOLDER_LOCK,
+        image.icon_pixel_size(),
+        image.scale_factor(),
+        image.icon_context(),
+    );
+    image.set_fallback(FOLDER_LOCK, texture.as_ref());
+}
+
 pub(super) fn show_customized_icon(
     image: &ThumbnailSlot,
     path: &Path,
