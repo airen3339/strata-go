@@ -818,8 +818,7 @@ impl ViewState {
         // Merge stays copy-only: undoing a merged move cannot tell which
         // destination contents the source actually owned. It stages what it
         // overwrites in Trash, which `admin://` lacks.
-        let allow_merge =
-            collision.mergeable && !move_sources && !destination.is_administrator();
+        let allow_merge = collision.mergeable && !move_sources && !destination.is_administrator();
         let explanation = conflict_explanation(&collision, &destination, allow_merge);
         let without_trash = destination.is_administrator()
             || destination

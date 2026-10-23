@@ -407,6 +407,11 @@ pub(super) fn set_thumbnail_or_icon(
     thumbnail_size: i32,
 ) {
     super::file_providers::bind(image, entry.location.native_path());
+    // A thumbnail of a root-only file would persist in the user's cache.
+    if entry.location.is_administrator() {
+        show_fallback_icon(image, fallback_icon, icon_size);
+        return;
+    }
     let Some(path) = entry.local_thumbnail_path() else {
         if entry.location.backend_name() == "gphoto2"
             && !entry.is_directory()
