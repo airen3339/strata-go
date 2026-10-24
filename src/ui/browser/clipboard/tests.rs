@@ -1083,6 +1083,7 @@ fn directory_drag_snapshot_uses_entry_metadata_without_touching_paths() {
         || {
             use crate::model::EntryKind;
             let fixture = tempfile::tempdir().expect("fixture");
+            let source = gtk::DragSource::new();
             for (kinds, expected) in [
                 (
                     vec![EntryKind::Directory, EntryKind::DirectorySymbolicLink],
@@ -1103,7 +1104,7 @@ fn directory_drag_snapshot_uses_entry_metadata_without_touching_paths() {
                         entry
                     })
                     .collect::<Vec<_>>();
-                let content = file_drag_content(&entries).expect("drag content");
+                let content = file_drag_content(&source, &entries).expect("drag content");
                 let snapshot = drag_snapshot_for_content(&content).expect("trusted snapshot");
                 assert_eq!(
                     &*snapshot.locations,
@@ -1136,10 +1137,15 @@ fn a_cached_internal_drag_never_replaces_another_drops_sources() {
         "ui::browser::clipboard::tests::a_cached_internal_drag_never_replaces_another_drops_sources",
         || {
             let dragged = crate::test_support::operations::entry(Location::local("/fixture/a.txt"));
-            let _content = file_drag_content(&[dragged]).expect("drag content");
+            let source = gtk::DragSource::new();
+            let _content = file_drag_content(&source, &[dragged]).expect("drag content");
             let prepared = prepare_file_drop_target(|| Some(Location::local("/fixture/dest")));
 
             assert!(prepared.state.sources(&prepared.target).is_empty());
+            assert!(
+                !cancel_file_drag(),
+                "preparing content is not an active drag"
+            );
         },
     );
 }

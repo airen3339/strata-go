@@ -218,6 +218,7 @@ pub(crate) struct DragSnapshot {
 }
 
 struct ActiveDrag {
+    source: glib::WeakRef<gtk::DragSource>,
     content: glib::WeakRef<gtk::gdk::ContentProvider>,
     snapshot: DragSnapshot,
 }
@@ -249,6 +250,18 @@ pub(crate) fn clear_active_drag() {
     ACTIVE_DRAG.with(|cell| {
         cell.borrow_mut().take();
     });
+}
+
+pub(in crate::ui) fn cancel_file_drag() -> bool {
+    let drag = ACTIVE_DRAG
+        .with(|cell| cell.borrow_mut().take())
+        .and_then(|active| active.source.upgrade()?.drag());
+    let Some(drag) = drag else {
+        return false;
+    };
+    // DragSource::drag_cancel() does not release the native X11 drag grab.
+    drag.emit_by_name::<()>("cancel", &[&gtk::gdk::DragCancelReason::UserCancelled]);
+    true
 }
 
 pub(crate) const SPRING_LOAD_NAVIGATE_DELAY: Duration = Duration::from_millis(750);
@@ -805,7 +818,10 @@ pub(crate) fn locations_from_file_list_value(value: &glib::Value) -> Option<Vec<
     (!locations.is_empty()).then_some(locations)
 }
 
-pub(in crate::ui) fn file_drag_content(entries: &[FileEntry]) -> Option<gtk::gdk::ContentProvider> {
+pub(in crate::ui) fn file_drag_content(
+    source: &gtk::DragSource,
+    entries: &[FileEntry],
+) -> Option<gtk::gdk::ContentProvider> {
     if entries.is_empty() {
         return None;
     }
@@ -828,6 +844,7 @@ pub(in crate::ui) fn file_drag_content(entries: &[FileEntry]) -> Option<gtk::gdk
     let locations = entries.iter().map(|entry| entry.location.clone()).collect();
     ACTIVE_DRAG.with(|cell| {
         *cell.borrow_mut() = Some(ActiveDrag {
+            source: source.downgrade(),
             content: content.downgrade(),
             snapshot: DragSnapshot {
                 locations,
