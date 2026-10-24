@@ -6,7 +6,7 @@ use std::{
     path::{Path, PathBuf},
     process::{Child, Command, ExitStatus, Stdio},
     sync::{
-        Arc,
+        Arc, Once,
         atomic::{AtomicBool, AtomicU64, Ordering},
     },
     thread,
@@ -1328,14 +1328,20 @@ fn read_metadata(path: &Path) -> (i32, i32) {
     (values.next().unwrap_or(0), values.next().unwrap_or(0))
 }
 
+const PRIVATE_OUTPUT_PREFIX: &str = "strata-preview-";
+
 struct PrivateOutput(PathBuf);
 
 impl PrivateOutput {
     fn create() -> io::Result<Self> {
         use std::os::unix::fs::DirBuilderExt;
 
+        static SWEEP: Once = Once::new();
+        SWEEP.call_once(|| {
+            thread::spawn(|| prune_orphaned_private_outputs(&std::env::temp_dir()));
+        });
         let path = std::env::temp_dir().join(format!(
-            "strata-preview-{}-{}",
+            "{PRIVATE_OUTPUT_PREFIX}{}-{}",
             std::process::id(),
             NEXT_DIRECTORY.fetch_add(1, Ordering::Relaxed)
         ));
@@ -1352,6 +1358,44 @@ impl Drop for PrivateOutput {
     fn drop(&mut self) {
         let _removed = fs::remove_dir_all(&self.0);
     }
+}
+
+// Worker pools and detached threads still own their output when the process exits, and
+// a killed process never drops it, so earlier runs leave directories behind. The owner's
+// pid is in the name.
+fn prune_orphaned_private_outputs(tmp: &Path) {
+    use std::os::unix::fs::MetadataExt;
+
+    let Ok(entries) = fs::read_dir(tmp) else {
+        return;
+    };
+    let uid = rustix::process::geteuid().as_raw();
+    let all_digits =
+        |text: &str| !text.is_empty() && text.bytes().all(|byte| byte.is_ascii_digit());
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(owner) = name
+            .to_str()
+            .and_then(|name| name.strip_prefix(PRIVATE_OUTPUT_PREFIX))
+            .and_then(|rest| rest.split_once('-'))
+            .filter(|(pid, sequence)| all_digits(pid) && all_digits(sequence))
+            .and_then(|(pid, _)| pid.parse::<i32>().ok())
+        else {
+            continue;
+        };
+        let ours = entry.file_type().is_ok_and(|kind| kind.is_dir())
+            && entry.metadata().is_ok_and(|metadata| metadata.uid() == uid);
+        if ours && !process_exists(owner) {
+            let _ignored = fs::remove_dir_all(entry.path());
+        }
+    }
+}
+
+fn process_exists(pid: i32) -> bool {
+    let Some(pid) = Pid::from_raw(pid) else {
+        return false;
+    };
+    rustix::process::test_kill_process(pid) != Err(rustix::io::Errno::SRCH)
 }
 
 #[cfg(test)]

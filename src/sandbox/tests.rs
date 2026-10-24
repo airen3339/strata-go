@@ -1180,3 +1180,47 @@ fn a_sandbox_is_waited_for_until_the_init_of_its_namespace_has_exited() {
         assert!(started.elapsed() < Duration::from_secs(2), "{row}");
     }
 }
+
+#[test]
+fn preview_directories_of_exited_processes_are_swept_and_everything_else_stays() {
+    let tmp = tempfile::tempdir().expect("scratch directory");
+    let mut exited = Command::new("true").spawn().expect("spawn a short process");
+    let dead = exited.id();
+    exited.wait().expect("reap the process");
+    let live = std::process::id();
+    let orphaned = format!("strata-preview-{dead}-1");
+    let in_use = format!("strata-preview-{live}-2");
+    for name in [
+        orphaned.as_str(),
+        in_use.as_str(),
+        "strata-preview-bogus-3",
+        "strata-preview-7",
+        "unrelated",
+    ] {
+        fs::create_dir(tmp.path().join(name)).expect("fixture directory");
+    }
+    fs::write(tmp.path().join(format!("strata-preview-{dead}-9")), b"").expect("fixture file");
+
+    super::prune_orphaned_private_outputs(tmp.path());
+
+    let mut remaining: Vec<_> = fs::read_dir(tmp.path())
+        .expect("list scratch directory")
+        .map(|entry| {
+            entry
+                .expect("entry")
+                .file_name()
+                .to_string_lossy()
+                .into_owned()
+        })
+        .collect();
+    remaining.sort();
+    let mut expected = vec![
+        in_use,
+        format!("strata-preview-{dead}-9"),
+        "strata-preview-7".to_owned(),
+        "strata-preview-bogus-3".to_owned(),
+        "unrelated".to_owned(),
+    ];
+    expected.sort();
+    assert_eq!(remaining, expected);
+}
