@@ -679,6 +679,13 @@ button.appearance-density-snap:focus-visible {
   color: @strata_text;
 }
 
+.breadcrumb:drop(active) {
+  background: alpha(@strata_accent, 0.15);
+  color: @strata_text;
+  border-color: transparent;
+  box-shadow: inset 0 0 0 1px alpha(@strata_accent, 0.72);
+}
+
 .breadcrumb:not(.current):active {
   transform: scale(0.97);
 }
