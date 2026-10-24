@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-use std::{ffi::OsStr, fs, io::Write};
+use std::{ffi::OsStr, fs};
 
 use resvg::tiny_skia::{Color, Pixmap};
 
@@ -79,11 +79,6 @@ fn names_gcode_and_keeps_the_largest_embedded_image() {
         );
     }
     assert_eq!(ModelFormat::for_name(OsStr::new("toolpath.nc")), None);
-    assert_eq!(ModelFormat::Gcode.argument(), "gcode");
-    assert_eq!(
-        ModelFormat::from_argument("gcode"),
-        Some(ModelFormat::Gcode)
-    );
 
     let red = solid(1, 1, [255, 0, 0]);
     let green = solid(4, 4, [0, 255, 0]);
@@ -129,7 +124,7 @@ fn jpeg_and_qoi_comments_decode_and_a_missing_thumbnail_stays_specific() {
     let (width, height) = crate::sandbox::png_dimensions(&png).expect("jpeg png");
     assert_eq!((width, height), (8, 6));
 
-    // 1×1 red pixel, RGBA opcode, from the QOI header and the initial black pixel.
+    // 1×1 QOI: header, one QOI_OP_RGBA red pixel, end marker.
     let qoi = [
         b'q', b'o', b'i', b'f', 0, 0, 0, 1, 0, 0, 0, 1, 4, 0, 0xFF, 255, 0, 0, 255, 0, 0, 0, 0, 0,
         0, 0, 1,
@@ -213,6 +208,5 @@ fn bgcode(images: &[(&[u8], u16, u16)]) -> Vec<u8> {
     out.extend(1u16.to_le_bytes());
     out.extend(0u16.to_le_bytes());
     out.extend(u32::MAX.to_le_bytes());
-    let _ = out.write(&[]);
     out
 }

@@ -18,9 +18,8 @@ pub(crate) const MAX_MODEL_VERTICES: usize = 2_000_000;
 pub(crate) const MAX_MODEL_COMPONENT_REFERENCES: usize = 100_000;
 pub(crate) const MAX_MODEL_COMPONENT_EXPANSIONS: usize = 100_000;
 pub(crate) const MAX_MODEL_RASTER_WORK: u64 = 100_000_000;
-/// Text G-code is scanned only until the first command, and only this far.
-/// A thumbnail block that has already started may run past this cap; the
-/// toolpath itself is never read. Binary G-code stops at the first G-code block.
+/// Text G-code is scanned until the first command, at most this far; a
+/// thumbnail block that has already started may run past it.
 pub(crate) const MAX_GCODE_HEADER_BYTES: u64 = 2 * 1024 * 1024;
 pub(crate) const NO_GCODE_THUMBNAIL: &str = "This G-code file has no usable embedded thumbnail";
 
