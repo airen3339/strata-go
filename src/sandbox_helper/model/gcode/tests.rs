@@ -19,15 +19,13 @@ fn solid(width: u32, height: u32, color: [u8; 3]) -> Vec<u8> {
 fn base64(bytes: &[u8]) -> String {
     const TABLE: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut encoded = String::new();
-    let mut chunks = bytes.chunks_exact(3);
-    for chunk in chunks.by_ref() {
-        let value =
-            (u32::from(chunk[0]) << 16) | (u32::from(chunk[1]) << 8) | u32::from(chunk[2]);
+    let (chunks, rest) = bytes.as_chunks::<3>();
+    for chunk in chunks {
+        let value = (u32::from(chunk[0]) << 16) | (u32::from(chunk[1]) << 8) | u32::from(chunk[2]);
         for shift in [18, 12, 6, 0] {
             encoded.push(TABLE[((value >> shift) & 63) as usize] as char);
         }
     }
-    let rest = chunks.remainder();
     if rest.len() == 1 {
         let value = u32::from(rest[0]) << 16;
         encoded.push(TABLE[((value >> 18) & 63) as usize] as char);
@@ -119,28 +117,22 @@ fn corrupt_larger_image_falls_through_and_crlf_comments_still_decode() {
 
 #[test]
 fn jpeg_and_qoi_comments_decode_and_a_missing_thumbnail_stays_specific() {
-    let image = image::DynamicImage::ImageRgb8(image::RgbImage::from_pixel(
-        8,
-        6,
-        image::Rgb([20, 40, 60]),
-    ));
+    let image =
+        image::DynamicImage::ImageRgb8(image::RgbImage::from_pixel(8, 6, image::Rgb([20, 40, 60])));
     let mut jpeg = std::io::Cursor::new(Vec::new());
     image
         .write_to(&mut jpeg, image::ImageFormat::Jpeg)
         .expect("jpeg");
     let jpeg = jpeg.into_inner();
-    let png = rendered(
-        "jpeg.gcode",
-        block("thumbnail_JPG", 8, 6, &jpeg).as_bytes(),
-    )
-    .expect("jpeg thumbnail");
+    let png = rendered("jpeg.gcode", block("thumbnail_JPG", 8, 6, &jpeg).as_bytes())
+        .expect("jpeg thumbnail");
     let (width, height) = crate::sandbox::png_dimensions(&png).expect("jpeg png");
     assert_eq!((width, height), (8, 6));
 
     // 1×1 red pixel, RGBA opcode, from the QOI header and the initial black pixel.
     let qoi = [
-        b'q', b'o', b'i', b'f', 0, 0, 0, 1, 0, 0, 0, 1, 4, 0, 0xFF, 255, 0, 0, 255, 0, 0, 0, 0,
-        0, 0, 0, 1,
+        b'q', b'o', b'i', b'f', 0, 0, 0, 1, 0, 0, 0, 1, 4, 0, 0xFF, 255, 0, 0, 255, 0, 0, 0, 0, 0,
+        0, 0, 1,
     ];
     let png = rendered("qoi.gco", block("thumbnail_QOI", 1, 1, &qoi).as_bytes()).expect("qoi");
     assert_eq!(red_channel(&png), 255);

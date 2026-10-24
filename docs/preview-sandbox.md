@@ -161,7 +161,7 @@ leaves the normal file icon. Multipart geometry is not rendered.
 G-code uses the slicer thumbnail in the file header. Text files store PNG, JPEG,
 or QOI images as base64 comments (`; thumbnail begin`, including the `_PNG`,
 `_JPG`, and `_QOI` forms). Binary `.bgcode` stores the same images in thumbnail
-blocks. Several sizes are normal, unlike two usable PNGs in a 3MF package; Quick
+blocks. Several sizes are normal, unlike two usable PNG images in a 3MF package; Quick
 Preview shows the largest image that decodes. There is no toolpath render.
 A text file with no usable thumbnail keeps the ordinary text preview. A binary
 file with none reports “This G-code file has no usable embedded thumbnail”.

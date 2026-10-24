@@ -22,8 +22,7 @@ pub(crate) const MAX_MODEL_RASTER_WORK: u64 = 100_000_000;
 /// A thumbnail block that has already started may run past this cap; the
 /// toolpath itself is never read. Binary G-code stops at the first G-code block.
 pub(crate) const MAX_GCODE_HEADER_BYTES: u64 = 2 * 1024 * 1024;
-pub(crate) const NO_GCODE_THUMBNAIL: &str =
-    "This G-code file has no usable embedded thumbnail";
+pub(crate) const NO_GCODE_THUMBNAIL: &str = "This G-code file has no usable embedded thumbnail";
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum ModelFormat {

@@ -46,7 +46,7 @@ pub(super) fn thumbnail(
     if found.is_empty() {
         return Err(NO_THUMBNAIL.to_owned());
     }
-    found.sort_by(|left, right| right.pixels.cmp(&left.pixels));
+    found.sort_by_key(|candidate| std::cmp::Reverse(candidate.pixels));
     progress(ModelPreviewStage::Thumbnail);
     for candidate in found {
         if let Ok(png) = raster_png(&candidate.bytes, width, height) {
@@ -190,10 +190,10 @@ fn text_candidates(file: &mut File) -> Result<Vec<Candidate>, String> {
                     });
                 }
                 Marker::End => {
-                    if let Some(Block::Keep { pixels, encoded }) = block.take() {
-                        if let Some(bytes) = decode_base64(&encoded) {
-                            consider(&mut candidates, bytes, pixels);
-                        }
+                    if let Some(Block::Keep { pixels, encoded }) = block.take()
+                        && let Some(bytes) = decode_base64(&encoded)
+                    {
+                        consider(&mut candidates, bytes, pixels);
                     }
                 }
             }
@@ -279,7 +279,10 @@ fn next_line(reader: &mut impl std::io::BufRead, budget: u64) -> Result<Option<T
         text.pop();
     }
     let text = String::from_utf8(text).ok();
-    let usable = usable && text.as_ref().is_some_and(|text| !text.as_bytes().contains(&0));
+    let usable = usable
+        && text
+            .as_ref()
+            .is_some_and(|text| !text.as_bytes().contains(&0));
     Ok(Some(TextLine {
         text: text.unwrap_or_default(),
         bytes,
@@ -297,9 +300,7 @@ fn marker(body: &str) -> Option<Marker> {
     let kind = parts.next()?;
     let action = parts.next()?.to_ascii_lowercase();
     let lowered = kind.to_ascii_lowercase();
-    let Some(suffix) = lowered.strip_prefix("thumbnail") else {
-        return None;
-    };
+    let suffix = lowered.strip_prefix("thumbnail")?;
     if !matches!(suffix, "" | "_png" | "_jpg" | "_jpeg" | "_qoi") {
         return None;
     }
@@ -352,11 +353,11 @@ fn decode_base64(input: &str) -> Option<Vec<u8>> {
         return None;
     }
     let mut padded = input.as_bytes().to_vec();
-    while padded.len() % 4 != 0 {
+    while !padded.len().is_multiple_of(4) {
         padded.push(b'=');
     }
     let mut output = Vec::with_capacity(padded.len() / 4 * 3);
-    for (index, chunk) in padded.chunks_exact(4).enumerate() {
+    for (index, chunk) in padded.as_chunks::<4>().0.iter().enumerate() {
         let last = index + 1 == padded.len() / 4;
         let (a, b, c, d) = (chunk[0], chunk[1], chunk[2], chunk[3]);
         if (c == b'=' && d != b'=') || ((c == b'=' || d == b'=') && !last) {
@@ -392,9 +393,13 @@ fn consider(candidates: &mut Vec<Candidate>, bytes: Vec<u8>, declared: u64) {
         None => declared,
     };
     let mut discard = Vec::new();
-    let mut total: usize = candidates.iter().map(|candidate| candidate.bytes.len()).sum();
+    let mut total: usize = candidates
+        .iter()
+        .map(|candidate| candidate.bytes.len())
+        .sum();
     let mut count = candidates.len();
-    while count >= MAX_THUMBNAIL_CANDIDATES || total + bytes.len() > MAX_TOTAL_THUMBNAIL_BYTES as usize
+    while count >= MAX_THUMBNAIL_CANDIDATES
+        || total + bytes.len() > MAX_TOTAL_THUMBNAIL_BYTES as usize
     {
         let Some((index, candidate)) = candidates
             .iter()
@@ -509,12 +514,8 @@ fn qoi_pixmap(data: &[u8]) -> Result<Pixmap, String> {
             } else if opcode & 0xC0 == 0x00 {
                 pixel = index[(opcode & 0x3F) as usize];
             } else if opcode & 0xC0 == 0x40 {
-                pixel[0] = pixel[0]
-                    .wrapping_add((opcode >> 4) & 0x03)
-                    .wrapping_sub(2);
-                pixel[1] = pixel[1]
-                    .wrapping_add((opcode >> 2) & 0x03)
-                    .wrapping_sub(2);
+                pixel[0] = pixel[0].wrapping_add((opcode >> 4) & 0x03).wrapping_sub(2);
+                pixel[1] = pixel[1].wrapping_add((opcode >> 2) & 0x03).wrapping_sub(2);
                 pixel[2] = pixel[2].wrapping_add(opcode & 0x03).wrapping_sub(2);
             } else if opcode & 0xC0 == 0x80 {
                 if cursor >= data.len() {
@@ -561,7 +562,7 @@ fn pixmap_from_rgba(image: image::RgbaImage) -> Option<Pixmap> {
 }
 
 fn premultiply(pixels: &mut [u8]) {
-    for pixel in pixels.chunks_exact_mut(4) {
+    for pixel in pixels.as_chunks_mut::<4>().0 {
         let alpha = u32::from(pixel[3]);
         if alpha == 255 {
             continue;
