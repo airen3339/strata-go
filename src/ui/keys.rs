@@ -11,6 +11,14 @@ use gtk::{
 };
 
 pub(crate) mod bindings;
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "handlers match binding constants until they resolve commands"
+    )
+)]
+mod command;
 mod composition;
 mod label;
 

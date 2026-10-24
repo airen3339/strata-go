@@ -53,6 +53,11 @@ impl Digits {
         }
     }
 
+    #[cfg(test)]
+    pub(crate) const fn prefix(self) -> Option<Binding> {
+        self.prefix
+    }
+
     pub(crate) const fn modifiers(self) -> Modifiers {
         self.modifiers
     }
