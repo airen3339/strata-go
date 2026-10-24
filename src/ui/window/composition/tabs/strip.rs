@@ -545,7 +545,14 @@ fn install_file_drop(state: &Rc<TabWindow>, id: u64, widget: &gtk::Box, browser:
     } = prepare_file_drop_target(move || {
         destination_browser.upgrade()?.browser().active_location()
     });
-    target.connect_accept(|_, drag| drop::folder_locations(drag).is_none());
+    target.connect_accept(|target, offered| {
+        drop::folder_locations(offered).is_none()
+            && offered.actions().intersects(target.actions())
+            && offered
+                .formats()
+                .union_deserialize_types()
+                .contains_type(gdk::FileList::static_type())
+    });
     let hover = Rc::new(Cell::new(0_u64));
     let enter_hover = hover.clone();
     let weak = Rc::downgrade(state);
