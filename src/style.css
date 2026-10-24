@@ -3464,24 +3464,33 @@ paned > separator {
   margin-top: 6px;
 }
 
-.preview-archive-password-row button.suggested-action {
+.preview-feedback-action {
+  margin-top: 6px;
+}
+
+.preview-archive-password-row button.suggested-action,
+.preview-feedback button.suggested-action {
   background-color: @strata_accent;
   background-image: none;
   color: @strata_bg;
 }
 
-.preview-archive-password-row button.suggested-action:hover {
+.preview-archive-password-row button.suggested-action:hover,
+.preview-feedback button.suggested-action:hover {
   background-color: shade(@strata_accent, 1.07);
   background-image: none;
 }
 
 .preview-archive-password-row button.suggested-action:active,
-.preview-archive-password-row button.suggested-action:checked {
+.preview-archive-password-row button.suggested-action:checked,
+.preview-feedback button.suggested-action:active,
+.preview-feedback button.suggested-action:checked {
   background-color: shade(@strata_accent, 0.92);
   background-image: none;
 }
 
-.preview-archive-password-row button.suggested-action:disabled {
+.preview-archive-password-row button.suggested-action:disabled,
+.preview-feedback button.suggested-action:disabled {
   background-color: alpha(@strata_accent, 0.5);
   background-image: none;
   color: alpha(@strata_bg, 0.7);

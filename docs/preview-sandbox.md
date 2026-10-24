@@ -122,9 +122,10 @@ isolation, resource limits, or the other narrow optional runtime mounts.
 
 Quick Preview shows **Preview unavailable** with **This PDF is password
 protected.** when Poppler reports that opening the document requires a password.
-Use the existing **Open in default application** button to unlock and read it in
-a PDF reader; Strata does not prompt for, store, or submit PDF passwords or create
-an unlocked copy. PDFs that open without a password, including owner-restricted
+An **Open** button under the message hands the file to the default PDF reader,
+where it can be unlocked; Strata does not prompt for, store, or submit PDF
+passwords or create an unlocked copy. The file chooser, which never opens files
+externally, shows the explanation alone. PDFs that open without a password, including owner-restricted
 PDFs with an empty user password, still preview normally. Other rendering failures
 keep their existing error behavior.
 

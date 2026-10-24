@@ -73,6 +73,8 @@ pub(crate) enum PdfPreviewError {
     PasswordProtected,
 }
 
+pub(crate) const PDF_PASSWORD_PROTECTED: &str = "This PDF is password protected.";
+
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(crate) struct PdfRenderSize {
     pub(crate) width: i32,
@@ -614,7 +616,7 @@ fn parse_canonical(
         {
             if matches!(operation, ParseOperation::PreviewPdf(_)) {
                 if let Ok(PdfPreviewError::PasswordProtected) = serde_json::from_slice(&data) {
-                    return Err("This PDF is password protected.".to_owned());
+                    return Err(PDF_PASSWORD_PROTECTED.to_owned());
                 }
             } else if let Ok(message) = String::from_utf8(data) {
                 return Err(message);
