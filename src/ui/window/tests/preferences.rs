@@ -872,6 +872,78 @@ fn saved_sidebar_collapsed_restores_and_ctrl_b_updates_both_windows() {
 }
 
 #[test]
+fn override_change_reaches_two_windows() {
+    gtk_test(
+        "ui::window::tests::preferences::override_change_reaches_two_windows",
+        || {
+            use crate::ui::keys::{Binding, Map, bindings};
+            use gtk::gdk::{Key, ModifierType};
+            let manager = PreferenceManager::shared();
+            let first = OpenWindow::open();
+            let second = OpenWindow::open();
+            let tooltip = |open: &OpenWindow| {
+                open.content
+                    .sidebar_toggle()
+                    .tooltip_text()
+                    .unwrap_or_default()
+                    .to_string()
+            };
+            let footer_button = |open: &OpenWindow| {
+                let mut text = None;
+                walk(open.window.upcast_ref(), &mut |widget| {
+                    if let Some(label) = widget.downcast_ref::<gtk::Label>()
+                        && label.text().ends_with(" Shortcuts")
+                    {
+                        text = Some(label.text().to_string());
+                    }
+                });
+                text.expect("footer shortcuts button")
+            };
+            assert!(tooltip(&second).contains("Ctrl+B"), "{}", tooltip(&second));
+            assert_eq!(footer_button(&second), "F1 Shortcuts");
+
+            manager.set_bindings(Map::Default, bindings::SIDEBAR, vec![Binding::ctrl(Key::g)]);
+            manager.set_bindings(
+                Map::Default,
+                bindings::REFERENCE,
+                vec![Binding::plain(Key::F12)],
+            );
+            settle();
+            for open in [&first, &second] {
+                assert!(tooltip(open).contains("Ctrl+G"), "{}", tooltip(open));
+                assert_eq!(footer_button(open), "F12 Shortcuts");
+            }
+            assert!(manager.sidebar_expanded() && !manager.sidebar_compact());
+            press(&second.window, Key::b, ModifierType::CONTROL_MASK);
+            settle();
+            assert!(
+                !manager.sidebar_compact(),
+                "Ctrl+B no longer steps the sidebar"
+            );
+            press(&second.window, Key::g, ModifierType::CONTROL_MASK);
+            settle();
+            assert!(manager.sidebar_compact(), "Ctrl+G steps the sidebar");
+            for open in [&first, &second] {
+                wait_until_or(
+                    || open.content.sidebar.state.rail.get(),
+                    || sidebar_report(&[&first, &second], &manager),
+                );
+            }
+
+            manager.reset_binding(Map::Default, bindings::SIDEBAR);
+            manager.reset_map(Map::Default);
+            settle();
+            for open in [&first, &second] {
+                assert!(tooltip(open).contains("Ctrl+B"), "{}", tooltip(open));
+                assert_eq!(footer_button(open), "F1 Shortcuts");
+            }
+            first.window.close();
+            second.window.close();
+        },
+    );
+}
+
+#[test]
 fn toggle_leaves_tenxer_everywhere_and_shift_q_closes_only_the_current_window() {
     gtk_test(
         "ui::window::tests::preferences::toggle_leaves_tenxer_everywhere_and_shift_q_closes_only_the_current_window",

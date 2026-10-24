@@ -40,7 +40,8 @@ use sidebar::{SidebarChord, activate_sidebar_focus, move_sidebar_focus, sidebar_
 type KeyResult = Option<Propagation>;
 
 /// Window actions that run once every other stage yields the key. The flag
-/// marks those 10xer mode leaves unbound.
+/// marks those that do not run here in 10xer mode, even where a 10xer entry
+/// binds them, as terminal's does for the file list and sidebar.
 const WINDOW_ACTIONS: [(Command, &str, bool); 5] = [
     (SEARCH, "search", false),
     (JUMP_TO_FOLDER, "jump-folder", true),

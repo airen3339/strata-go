@@ -139,14 +139,16 @@ impl PathCompletion {
         content_box.append(&scroll);
 
         let shortcuts = gtk::Label::new(None);
-        shortcuts.set_markup(&crate::ui::shortcut_reference::legend_markup(&[
-            (Keys::One(COMPLETE.shown()), "completion.complete"),
-            (
-                Keys::Any(crate::ui::keys::shown![UP.alternate(0), DOWN.alternate(0)]),
-                "Choose",
-            ),
-            (Keys::One(ENTER.shown()), "Open"),
-        ]));
+        crate::ui::shortcut_reference::follow_keys(&shortcuts, |shortcuts| {
+            shortcuts.set_markup(&crate::ui::shortcut_reference::legend_markup(&[
+                (Keys::One(COMPLETE.shown()), "completion.complete"),
+                (
+                    Keys::Any(crate::ui::keys::shown![UP.alternate(0), DOWN.alternate(0)]),
+                    "Choose",
+                ),
+                (Keys::One(ENTER.shown()), "Open"),
+            ]));
+        });
         shortcuts.set_xalign(0.0);
         shortcuts.add_css_class("path-completion-shortcuts");
         content_box.append(&shortcuts);

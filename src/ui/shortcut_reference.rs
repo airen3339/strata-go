@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-use gtk::gdk::ModifierType as Modifiers;
+use gtk::{gdk::ModifierType as Modifiers, prelude::*};
 
 use super::{
     browser_modes::BrowserMode,
@@ -159,6 +159,35 @@ pub(crate) fn with_keys(message: &str, keys: Keys) -> String {
     rust_i18n::t!(message, keys = keys::label(&keys)).into_owned()
 }
 
+/// Runs `render` now and whenever the active map or its keys change, for text
+/// that shows shortcuts on a widget built once.
+pub(crate) fn follow_keys<W: IsA<gtk::Widget>>(widget: &W, render: impl Fn(&W) + 'static) {
+    let preferences = super::preferences::PreferenceManager::shared();
+    preferences.bind_preference(
+        widget,
+        super::preferences::PreferenceManager::shown_keys,
+        move |widget, _| render(widget.downcast_ref::<W>().expect("widget that shows keys")),
+    );
+}
+
+/// An icon-only button's tooltip that names its shortcut.
+pub(crate) fn follow_tooltip(widget: &impl IsA<gtk::Widget>, message: &'static str, keys: Keys) {
+    follow_keys(widget.upcast_ref::<gtk::Widget>(), move |widget| {
+        widget.set_tooltip_text(Some(&with_keys(message, keys)));
+    });
+}
+
+/// An accessible description that names a shortcut.
+pub(crate) fn follow_description(
+    widget: &impl IsA<gtk::Widget>,
+    message: &'static str,
+    keys: Keys,
+) {
+    follow_keys(widget.upcast_ref::<gtk::Widget>(), move |widget| {
+        super::accessibility::set_description(widget, Some(&with_keys(message, keys)));
+    });
+}
+
 /// Pango markup for a legend: each shortcut in bold before its action.
 pub(crate) fn legend_markup(hints: &[(Keys, &str)]) -> String {
     hints
@@ -210,12 +239,18 @@ pub(crate) enum ContextHint {
 
 /// Only the 10xer map honors `scope.chooser`: portal choosers show the footer
 /// and dispatch F1 only in 10xer mode, so the default map has no chooser view.
+/// Rows whose keys the user unbound are left out.
 pub(crate) fn reference_sections(scope: ReferenceScope) -> Vec<ReferenceSection> {
-    if super::tenxer_mode::chrome_suppressed() {
+    let mut sections = if super::tenxer_mode::chrome_suppressed() {
         tenxer_sections(scope.mode, scope.chooser)
     } else {
         default_sections(scope.mode)
+    };
+    for section in &mut sections {
+        section.rows.retain(|row| row.keys.is_bound());
     }
+    sections.retain(|section| !section.rows.is_empty());
+    sections
 }
 
 pub(crate) fn context_hint_for(
@@ -1272,15 +1307,25 @@ const MEDIA: &[Shortcut] = &[
 ];
 
 fn default_hint(hint: ContextHint, type_to_search: bool) -> Option<Keys> {
+    // Type-to-search takes the plain keys these ship with.
+    let typed_only = |command: keys::Command| {
+        command
+            .bindings_in(keys::Map::Default)
+            .iter()
+            .all(|binding| binding.is_typed())
+    };
     Some(One(match hint {
         ContextHint::None
         | ContextHint::MoveTo
         | ContextHint::CopyTo
         | ContextHint::Restore
         | ContextHint::RemoveFromRecent => return None,
-        ContextHint::CopyPath | ContextHint::CopyPaths | ContextHint::Pin if type_to_search => {
+        ContextHint::CopyPath | ContextHint::CopyPaths
+            if type_to_search && typed_only(COPY_PATH) =>
+        {
             return None;
         }
+        ContextHint::Pin if type_to_search && typed_only(PIN) => return None,
         ContextHint::Preview | ContextHint::ChooserPreview => PREVIEW.shown(),
         ContextHint::CopyPath | ContextHint::CopyPaths => COPY_PATH.shown(),
         ContextHint::Pin => PIN.shown(),

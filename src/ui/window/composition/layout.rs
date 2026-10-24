@@ -71,12 +71,11 @@ impl Header {
         }
         let location = browser.location_widget();
         location.set_hexpand(true);
-        let search = header_action(
-            icons::SEARCH,
-            &crate::ui::shortcut_reference::with_keys(
-                "Search (%{keys})",
-                crate::ui::keys::Keys::One(crate::ui::keys::bindings::SEARCH.shown()),
-            ),
+        let search = header_action(icons::SEARCH, "");
+        crate::ui::shortcut_reference::follow_tooltip(
+            &search,
+            "Search (%{keys})",
+            crate::ui::keys::Keys::One(crate::ui::keys::bindings::SEARCH.shown()),
         );
         crate::ui::tenxer_mode::hide_while_enabled(&search);
         let appearance =
@@ -124,12 +123,11 @@ impl Header {
         }
         let actions = gtk::Box::new(gtk::Orientation::Horizontal, 0);
         actions.add_css_class("header-actions");
-        let new_tab = header_action(
-            icons::PLUS,
-            &crate::ui::shortcut_reference::with_keys(
-                "New tab (%{keys})",
-                crate::ui::keys::Keys::One(crate::ui::keys::bindings::TAB_NEW.shown()),
-            ),
+        let new_tab = header_action(icons::PLUS, "");
+        crate::ui::shortcut_reference::follow_tooltip(
+            &new_tab,
+            "New tab (%{keys})",
+            crate::ui::keys::Keys::One(crate::ui::keys::bindings::TAB_NEW.shown()),
         );
         crate::ui::accessibility::set_label(&new_tab, &crate::i18n::tr("New tab"));
         actions.append(&new_tab);
@@ -347,7 +345,7 @@ fn bind_sidebar_modes(
     toggle.connect_toggled(move |_| on_toggled());
     let on_rail = describe.clone();
     sidebar.state.connect_rail_changed(move |_| on_rail());
-    preferences.bind_preference(toggle, PreferenceManager::tenxer_mode, move |_, _| {
+    preferences.bind_preference(toggle, PreferenceManager::shown_keys, move |_, _| {
         describe();
     });
 }

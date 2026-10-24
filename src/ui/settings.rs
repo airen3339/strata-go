@@ -3330,12 +3330,12 @@ fn settings_option(title: &str, description: &str, active: bool) -> (gtk::Box, g
     let copy = gtk::Box::new(gtk::Orientation::Vertical, 2);
     copy.set_hexpand(true);
     copy.set_valign(gtk::Align::Center);
-    let title_label = gtk::Label::new(Some(&translated(title)));
+    let title_label = gtk::Label::new(None);
     title_label.set_xalign(0.0);
     title_label.set_wrap(true);
     title_label.set_wrap_mode(gtk::pango::WrapMode::WordChar);
     title_label.add_css_class("settings-option-title");
-    let description_label = gtk::Label::new(Some(&translated(description)));
+    let description_label = gtk::Label::new(None);
     description_label.set_xalign(0.0);
     description_label.set_wrap(true);
     description_label.add_css_class("settings-option-description");
@@ -3347,10 +3347,28 @@ fn settings_option(title: &str, description: &str, active: bool) -> (gtk::Box, g
         .halign(gtk::Align::End)
         .valign(gtk::Align::Center)
         .build();
-    toggle.update_property(&[
-        gtk::accessible::Property::Label(&translated(title)),
-        gtk::accessible::Property::Description(&translated(description)),
-    ]);
+    let keyed = [title, description]
+        .iter()
+        .any(|message| message.contains("_keys}"));
+    let (title, description) = (title.to_owned(), description.to_owned());
+    let (title_label, description_label) = (title_label.downgrade(), description_label.downgrade());
+    let render = move |toggle: &gtk::Switch| {
+        if let Some(label) = title_label.upgrade() {
+            label.set_text(&translated(&title));
+        }
+        if let Some(label) = description_label.upgrade() {
+            label.set_text(&translated(&description));
+        }
+        toggle.update_property(&[
+            gtk::accessible::Property::Label(&translated(&title)),
+            gtk::accessible::Property::Description(&translated(&description)),
+        ]);
+    };
+    if keyed {
+        super::shortcut_reference::follow_keys(&toggle, render);
+    } else {
+        render(&toggle);
+    }
     row.append(&copy);
     row.append(&toggle);
     (row, toggle)

@@ -15,7 +15,7 @@ use crate::{
     model::{Location, SortDirection, SortKey},
     ui::{
         browser::{ConflictFocus, Yank},
-        keys::{KeyPress, Match, bindings::*},
+        keys::{Binding, Command, KeyPress, bindings::*},
         tenxer_mode::{Chord, Prompt},
         window::visible_modal_layer,
     },
@@ -41,22 +41,33 @@ pub(super) struct ArmedActions {
     ids: Vec<String>,
 }
 
+/// Shift with a step reverses it, on whatever key the step is bound to. A key
+/// bound to a step itself wins over another step's reversed key.
 fn sort_choice(press: &KeyPress) -> Option<(SortKey, SortDirection)> {
-    use SortDirection::{Ascending, Descending};
-    let choices: [(&dyn Match, _); 8] = [
-        (&SORT_BY_NAME, (SortKey::Name, Ascending)),
-        (&SORT_BY_NAME_REVERSED, (SortKey::Name, Descending)),
-        (&SORT_BY_MODIFIED, (SortKey::Modified, Ascending)),
-        (&SORT_BY_MODIFIED_REVERSED, (SortKey::Modified, Descending)),
-        (&SORT_BY_SIZE, (SortKey::Size, Ascending)),
-        (&SORT_BY_SIZE_REVERSED, (SortKey::Size, Descending)),
-        (&SORT_BY_TYPE, (SortKey::Type, Ascending)),
-        (&SORT_BY_TYPE_REVERSED, (SortKey::Type, Descending)),
+    const STEPS: [(Command, SortKey); 4] = [
+        (SORT_BY_NAME, SortKey::Name),
+        (SORT_BY_MODIFIED, SortKey::Modified),
+        (SORT_BY_SIZE, SortKey::Size),
+        (SORT_BY_TYPE, SortKey::Type),
     ];
-    choices
+    let reversed = |step: Command| {
+        step.bindings().into_iter().any(|binding| {
+            press.is(Binding::new(
+                binding.key(),
+                binding.modifiers() | gtk::gdk::ModifierType::SHIFT_MASK,
+            ))
+        })
+    };
+    STEPS
         .into_iter()
-        .find(|(key, _)| press.is(key))
-        .map(|(_, choice)| choice)
+        .find(|(step, _)| press.is(*step))
+        .map(|(_, sort_key)| (sort_key, SortDirection::Ascending))
+        .or_else(|| {
+            STEPS
+                .into_iter()
+                .find(|(step, _)| reversed(*step))
+                .map(|(_, sort_key)| (sort_key, SortDirection::Descending))
+        })
 }
 
 /// 0 is slot 10.

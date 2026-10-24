@@ -107,6 +107,7 @@ control that might be midway through synchronization.
 | Theme, Omarchy following/variant, text size | `ThemeManager` applies shared CSS when theme selection, Omarchy following, Omarchy variant, text size, or element glow change; controls and theme-card selections bind to preferences through `ThemeManager::bind_theme_preference`. Newly saved custom themes appear in other open theme pages. Missing themes/Omarchy use the existing fallback policy. |
 | Language | Initialized before application UI from the saved manual language or system locale priorities. The selection and Restart button synchronize across Settings windows, but the running interface keeps its startup language until a full restart. This deliberate restart-to-apply exception avoids rebuilding active browsers, dialogs, and operations. |
 | Interface renderer | GTK selects the renderer at process startup. The saved GTK default or Cairo choice is read before GTK initializes; GTK default is selected for new installs. The control and Restart button synchronize across Settings windows, but changes take effect only after restarting Strata (via the button or after fully quitting and reopening). An explicit `GSK_RENDERER` always overrides the saved choice. |
+| Keymap overrides | Every key dispatcher, the portal chooser included, reads the tables built from the saved overrides at press time, before Settings opens; labels that show shortcuts follow changes live across windows. See [Keymap](#keymap). Not exposed in Settings yet. |
 | Keybinding hints | Navigation hints and the shortcuts button bind immediately and live. When hidden, the status bar appears only while the clipboard badge or F1 reference needs it; otherwise the empty bar is hidden. |
 | Show thumbnails | Enabled by default. **Settings → Appearance → File icons** switches file thumbnails to the existing file-type icons. Applies before Settings opens and live across browser windows, the portal chooser, searches, peeks, and rebuilt views. Disabling cancels pending thumbnail requests and prevents cache reads and decoding for new requests; re-enabling restores thumbnails for still-bound entries. Live thumbnail changes preserve pending dimensions and duration metadata; rebinding or unbinding a row still discards stale updates. Custom icons and the preview panel are unchanged. |
 | Thumbnail workers | Browser construction binds the shared decoder limit before Settings opens. Changes apply across windows and rebuilt views; lowering the limit lets active work finish and retires excess idle supervisors. |
@@ -475,6 +476,69 @@ Columns the cursor opens the folder or preview under it. **i** opens the next
 Miller column without focusing it, or toggles the folder-peek popover in List
 and Icons. See
 [10xer mode](10xer-mode.md) for the keymap.
+
+## Keymap
+
+`settings.toml` stores keyboard shortcut overrides only, one table per map:
+`[keymap.default]` and `[keymap.tenxer]` (10xer mode). Each entry names a
+command by its stable id from `ui::keys::bindings` and lists its accelerators,
+primary first; the primary is the one menus show, and all of them work. A file
+without overrides has no `keymap` tables, so existing files save unchanged.
+
+```toml
+[keymap.default]
+rename = ["F2"]
+duplicate = []
+
+[keymap.tenxer]
+"go.home" = ["<Shift>h"]
+toggle_sidebar = ["<Control>b", "<Control>n"]
+```
+
+- An entry replaces that map's whole entry for the command; the other map keeps
+  its own. An empty list unbinds the command, so its key reaches GTK. A
+  structural key (`escape`, `activate`, `focus_next`, `focus_previous`, `up`,
+  `down`, `left`, `right`) with an empty list leaves Strata's handlers, while
+  GTK widgets keep their own handling of the physical key, and physical Escape
+  always cancels.
+- Accelerators use GTK's syntax, as `Binding::accelerator` writes them: Ctrl,
+  Alt, Shift and Super only, Shift written out (`<Shift>g`; a letter's case does
+  not matter), digits by digit-row position, keypad keys as the main keys they
+  act as. A plain digit also accepts Shift, which AZERTY needs.
+- A plain printable key (no Ctrl, Alt or Super) that an entry adds acts only
+  where nothing owns typing: a focused text field or popover, and
+  type-to-search while it is on, keep the key, as they keep structural
+  alternates. Such a key on `shortcut_reference` opens the reference wherever
+  it would not type, as 10xer's **~** does. Repeated accelerators in one entry
+  count once.
+- Chord steps such as `go.home` match only while their trigger is pending.
+  Shift with a Sort step reverses it on whatever key the step is bound to; a
+  key bound to a step itself, such as `<Shift>a`, picks that step instead.
+  Digit ranges are not commands and keep their keys. Quote ids that contain a
+  dot: unquoted, TOML reads `go.home = [..]` as a table, which is logged and
+  left out.
+- An entry whose id names no command, that is not a list, or that holds an
+  accelerator Strata cannot read is logged once with the file's path, kept
+  verbatim in the file, and left out of the tables, so that command keeps its
+  shipped keys and a newer version's entries survive an older version's save.
+  A map that is not a table is dropped without touching the other map.
+- `PreferenceManager` builds the tables (`keymap()`) on first use and rebuilds
+  them on every change through `set_bindings`, `reset_binding` and `reset_map`;
+  saving the shipped keys removes the entry, and `reset_map` keeps unknown ids.
+  `keys::active_keymap()` reads these tables, so dispatch in every window and
+  the portal file chooser follows the file loaded at startup before Settings
+  opens. Text built once that shows shortcuts binds to `shown_keys` (10xer mode
+  and `keymap_revision()`) through `shortcut_reference::follow_keys`: footer
+  hints, the F1 reference, sidebar keycaps, tooltips, Settings copy that names
+  keys, and context-menu hints with their native `accel` attributes follow a
+  change in every open window.
+- Where 10xer key presses fall through to default-map stages (text fields,
+  popovers, the file chooser's own keys, thumbnail resizing), the default
+  table's overrides apply in both modes; a `[keymap.tenxer]` entry changes only
+  what the 10xer stages claim.
+
+Like other preferences, hand edits made while Strata runs are read on the next
+launch.
 
 ## Adding a preference
 

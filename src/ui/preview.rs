@@ -322,7 +322,7 @@ impl PreviewDrawer {
         let close = gtk::Button::builder().valign(gtk::Align::Center).build();
         super::preferences::PreferenceManager::shared().bind_preference(
             &close,
-            super::preferences::PreferenceManager::tenxer_mode,
+            super::preferences::PreferenceManager::shown_keys,
             |close, _| {
                 close.set_tooltip_text(Some(&crate::ui::shortcut_reference::with_keys(
                     "Close preview (%{keys})",
@@ -2690,10 +2690,11 @@ impl PreviewState {
         let pause_icon = crate::assets::primary_icon(crate::assets::icons::PAUSE, 18);
         let play_button = gtk::Button::new();
         play_button.add_css_class("preview-media-button");
-        play_button.set_tooltip_text(Some(&crate::ui::shortcut_reference::with_keys(
+        crate::ui::shortcut_reference::follow_tooltip(
+            &play_button,
             "Play/Pause (%{keys})",
             keys::Keys::One(MEDIA_PLAY_PAUSE.shown()),
-        )));
+        );
         play_button.set_child(Some(if media.is_playing() {
             &pause_icon
         } else {
@@ -3269,10 +3270,11 @@ impl VolumeControls {
     ) -> Self {
         let toggle = gtk::Button::new();
         toggle.add_css_class("preview-media-button");
-        toggle.set_tooltip_text(Some(&crate::ui::shortcut_reference::with_keys(
+        crate::ui::shortcut_reference::follow_tooltip(
+            &toggle,
             "Mute/unmute (%{keys})",
             keys::Keys::One(MEDIA_MUTE.shown()),
-        )));
+        );
         let muted = preferences.preview_muted();
         let icon = crate::assets::primary_icon(
             if muted {

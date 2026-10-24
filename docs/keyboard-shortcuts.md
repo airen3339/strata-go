@@ -215,12 +215,22 @@ each map, the default map and the 10xer map. Each map's entry is an ordered list
 of alternates, primary first: Rename is **F2 / Ctrl+R** in the default map and
 **r / F2** in 10xer. A press matches a command through the table of the map
 10xer mode selects at that moment, so an alternate bound in one map never
-matches in the other. `command.ignoring(modifiers)` applies to each of its
-bindings, and `command.in_map(map)` matches another map's bindings for a stage
-that claims them: 10xer swallowing default-map keys it leaves unbound, and the
-default-map stages that 10xer key presses fall through to from text fields,
-popovers and the file chooser. `command.alternate(index)` is one binding of the
-entry, for a label that shows that alternate alone; it does not match presses.
+matches in the other. Each table starts from the catalog's defaults, and
+overrides saved in `settings.toml` replace whole entries (see
+[Keymap](preferences.md#keymap)). A plain printable key an override adds
+yields to a focused text field, a popover and active type-to-search.
+`command.ignoring(modifiers)` also matches while those modifiers are held
+beside each binding's own, which stay required:
+refresh rebound to **Ctrl+R** still needs Ctrl. `command.in_map(map)` matches
+another map's bindings for a stage that claims them: 10xer swallowing
+default-map keys it leaves unbound, and the default-map stages that 10xer key
+presses fall through to from text fields, popovers, the file chooser,
+thumbnail resizing and the filter button's tooltip. Those stages read the
+default table, its overrides included, in both modes; a 10xer override changes
+only what the 10xer stages claim. `command.alternate(index)` is one binding of
+the shipped entry, for a label that shows that alternate alone; once a user
+changes the entry, the first alternate shows all of it and the others nothing,
+so a row never hides a key the user added. It does not match presses.
 Backspace, GTK-owned keys, and generic keys that many surfaces read for their
 own job (Space, and Home, End and the page keys outside the file listing) stay
 fixed `Binding` constants.
@@ -297,6 +307,10 @@ Ctrl+Shift**), and `digit_label` one member of a digit range. Key names come fro
 one translated table (`keys.name.*` in every catalog). Context templates such as
 `%{keys} in header` stay translatable and receive the formatted label;
 `shortcut_reference::with_keys` fills one, as tooltips and accessible names do.
+Text built once, such as a tooltip or keycap, renders through
+`shortcut_reference::follow_keys` (or `follow_tooltip` / `follow_description`),
+which re-renders it when 10xer mode or a keymap override changes; the F1
+reference rebuilds itself and leaves out rows whose keys are unbound.
 
 Alternatives that share their modifiers write them once (**Ctrl+Alt+← / →**)
 unless a key is a letter (**Ctrl+U / Ctrl+D**). Minus is shown as **−**.
@@ -378,8 +392,10 @@ the window dispatcher, not GTK application accelerators. The dispatcher checks
 them after its own stages yield the key and activates the same guarded `win.*`
 actions; the key is consumed whenever the action is enabled.
 `add_guarded_window_action` still decides whether they run while a modal or an
-inline edit owns input. 10xer mode leaves jump to folder, open terminal, and
-arrow scope unbound, which the dispatcher checks when the key arrives.
+inline edit owns input. 10xer mode leaves jump to folder and arrow scope
+unbound. Open terminal keeps **Ctrl+Alt+T** in the 10xer map, where the file
+list and sidebar run it, but this after-yield path does not, so in a text field
+it does nothing; the dispatcher checks when the key arrives.
 
 ### Text fields
 

@@ -318,7 +318,7 @@ impl PreviewDrawer {
         let button = self.state.find_button.downgrade();
         preferences.bind_preference(
             &self.state.find_button,
-            super::super::preferences::PreferenceManager::tenxer_mode,
+            super::super::preferences::PreferenceManager::shown_keys,
             move |_, _| {
                 let Some(button) = button.upgrade() else {
                     return;

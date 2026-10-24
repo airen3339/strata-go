@@ -18,7 +18,7 @@ impl Shown {
     pub(crate) fn bindings(self, map: Map) -> Vec<Binding> {
         match self {
             Self::Command(command) => command.bindings_in(map),
-            Self::Alternate(alternate) => alternate.binding_in(map).into_iter().collect(),
+            Self::Alternate(alternate) => alternate.bindings_in(map),
             Self::Binding(binding) => vec![binding],
         }
     }
@@ -59,6 +59,12 @@ impl Keys {
     /// Whether the keys resolve to the same bindings in both maps.
     pub(crate) fn same_in_both_maps(&self) -> bool {
         self.resolved(Map::Default) == self.resolved(Map::Tenxer)
+    }
+
+    /// Whether the active map binds what the label needs: any alternative, and
+    /// every step of a chord. An unbound row is left out rather than shown blank.
+    pub(crate) fn is_bound(&self) -> bool {
+        !label_in_map("en", self, Map::active()).is_empty()
     }
 
     fn resolved(&self, map: Map) -> Vec<Binding> {
@@ -201,7 +207,9 @@ pub(crate) fn digit_label(digits: Digits, digit: u8) -> String {
     let locale = rust_i18n::locale();
     let digit = digit.to_string();
     match digits.prefix {
-        Some(prefix) => format!("{} {digit}", primary_label(&locale, prefix, Map::active())),
+        Some(prefix) => primary_label(&locale, prefix, Map::active())
+            .map(|prefix| format!("{prefix} {digit}"))
+            .unwrap_or_default(),
         None => with_modifiers(&locale, digits.modifiers, &digit),
     }
 }
@@ -211,6 +219,8 @@ pub(crate) fn label_in(locale: &str, keys: &Keys) -> String {
     label_in_map(locale, keys, Map::active())
 }
 
+/// Empty when nothing it shows is bound in `map`, as for a chord with an
+/// unbound step.
 pub(crate) fn label_in_map(locale: &str, keys: &Keys, map: Map) -> String {
     match keys {
         Keys::One(shown) => alternatives(locale, &shown.bindings(map)),
@@ -218,22 +228,23 @@ pub(crate) fn label_in_map(locale: &str, keys: &Keys, map: Map) -> String {
         Keys::Chord(steps) => steps
             .iter()
             .map(|step| primary_label(locale, *step, map))
-            .collect::<Vec<_>>()
-            .join(" "),
-        Keys::Digits(digits) => digits_label(locale, digits, map),
+            .collect::<Option<Vec<_>>>()
+            .map(|steps| steps.join(" "))
+            .unwrap_or_default(),
+        Keys::Digits(digits) => digits_label(locale, digits, map).unwrap_or_default(),
         Keys::Mixed(keys) => keys
             .iter()
             .map(|keys| label_in_map(locale, keys, map))
+            .filter(|label| !label.is_empty())
             .collect::<Vec<_>>()
             .join(" / "),
     }
 }
 
-fn primary_label(locale: &str, shown: Shown, map: Map) -> String {
+fn primary_label(locale: &str, shown: Shown, map: Map) -> Option<String> {
     shown
         .primary_in(map)
         .map(|binding| binding_label(locale, binding))
-        .unwrap_or_default()
 }
 
 /// Alternatives that share their modifiers write them once (**Ctrl+Alt+← / →**),
@@ -261,11 +272,11 @@ fn alternatives(locale: &str, bindings: &[Binding]) -> String {
         .join(" / ")
 }
 
-fn digits_label(locale: &str, digits: &Digits, map: Map) -> String {
+fn digits_label(locale: &str, digits: &Digits, map: Map) -> Option<String> {
     let range = format!("1\u{2013}{}", digits.last);
-    match digits.prefix {
+    Some(match digits.prefix {
         Some(prefix) => {
-            let prefix = primary_label(locale, prefix, map);
+            let prefix = primary_label(locale, prefix, map)?;
             if digits.zero {
                 format!("{prefix} {range} / {prefix} 0")
             } else {
@@ -280,7 +291,7 @@ fn digits_label(locale: &str, digits: &Digits, map: Map) -> String {
             };
             with_modifiers(locale, digits.modifiers, &keys)
         }
-    }
+    })
 }
 
 fn binding_label(locale: &str, binding: Binding) -> String {

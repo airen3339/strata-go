@@ -1677,12 +1677,12 @@ fn build_chooser_hosted(
     header_content.set_valign(gtk::Align::Center);
     header_content.append(&sidebar_toggle);
     header_content.append(&location);
-    let close = gtk::Button::builder()
-        .tooltip_text(crate::ui::shortcut_reference::with_keys(
-            "Cancel file selection (%{keys})",
-            crate::ui::keys::Keys::One(crate::ui::keys::bindings::ESCAPE.shown()),
-        ))
-        .build();
+    let close = gtk::Button::new();
+    crate::ui::shortcut_reference::follow_tooltip(
+        &close,
+        "Cancel file selection (%{keys})",
+        crate::ui::keys::Keys::One(crate::ui::keys::bindings::ESCAPE.shown()),
+    );
     close.set_child(Some(&crate::assets::chrome_icon(crate::assets::icons::X)));
     close.add_css_class("header-action");
     let closing_window = window.downgrade();
@@ -1854,12 +1854,10 @@ fn build_chooser_hosted(
             ..
         }
     ) {
-        crate::ui::accessibility::set_description(
+        crate::ui::shortcut_reference::follow_description(
             &accept,
-            Some(&crate::ui::shortcut_reference::with_keys(
-                "Select folder (%{keys})",
-                crate::ui::keys::Keys::One(crate::ui::keys::bindings::CHOOSE_FOLDER.shown()),
-            )),
+            "Select folder (%{keys})",
+            crate::ui::keys::Keys::One(crate::ui::keys::bindings::CHOOSE_FOLDER.shown()),
         );
     }
     let actions = gtk::Box::new(gtk::Orientation::Horizontal, 8);
@@ -2274,12 +2272,16 @@ fn save_hints(kind: &ChooserKind, preferences: &Rc<PreferenceManager>) -> Option
     row.add_css_class("chooser-save-hints");
     row.set_valign(gtk::Align::Center);
     for (index, (binding, action)) in hints.iter().enumerate() {
-        // Built once and shown only in 10xer mode, so it shows that map.
-        let keycap = gtk::Label::new(Some(&keys::label_in_map(
-            &rust_i18n::locale(),
-            &Keys::One(*binding),
-            Map::Tenxer,
-        )));
+        // Shown only in 10xer mode, so it shows that map.
+        let keycap = gtk::Label::new(None);
+        let shown = *binding;
+        crate::ui::shortcut_reference::follow_keys(&keycap, move |keycap| {
+            keycap.set_text(&keys::label_in_map(
+                &rust_i18n::locale(),
+                &Keys::One(shown),
+                Map::Tenxer,
+            ));
+        });
         keycap.add_css_class("sidebar-keycap");
         if index > 0 {
             keycap.set_margin_start(10);
@@ -2367,7 +2369,7 @@ fn bind_chooser_sidebar_modes(
     toggle.connect_toggled(move |_| on_toggled());
     let on_rail = describe.clone();
     sidebar.state.connect_rail_changed(move |_| on_rail());
-    preferences.bind_preference(toggle, PreferenceManager::tenxer_mode, move |_, _| {
+    preferences.bind_preference(toggle, PreferenceManager::shown_keys, move |_, _| {
         describe();
     });
 }

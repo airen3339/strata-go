@@ -429,19 +429,12 @@ impl Dispatcher {
         if let Some(change) = ThumbnailResize::for_tenxer_key(press) {
             return self.view.resize_icons_thumbnails(change);
         }
-        let held = press.modifiers();
-        if search && !held.is_empty() {
-            return match held {
-                Modifiers::CONTROL_MASK => {
-                    (press.is(INVERT_SELECTION) && self.view.invert_filter_results())
-                        || (self.view.listing_search_active() && self.tenxer_control_page(press))
-                }
-                SHIFT => {
-                    (press.is_any(&[LAST_ITEM, VISUAL_UNSET]) || press.is_any(&EXTEND_KEYS))
-                        && self.tenxer_shifted(press)
-                }
-                _ => false,
-            };
+        // Of the modified keys, only these act on hits, whatever keys they are bound to.
+        if search && !press.modifiers().is_empty() {
+            return (press.is(INVERT_SELECTION) && self.view.invert_filter_results())
+                || (self.view.listing_search_active() && self.tenxer_control_page(press))
+                || ((press.is_any(&[LAST_ITEM, VISUAL_UNSET]) || press.is_any(&EXTEND_KEYS))
+                    && self.tenxer_shifted(press));
         }
         if self.tenxer_control_page(press)
             || self.tenxer_first_or_last(press)

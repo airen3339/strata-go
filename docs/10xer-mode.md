@@ -743,12 +743,14 @@ stopping at either end of the strip.
 **Ctrl+Shift+1–9 / 0** selects a tab directly. Hold **Ctrl+Shift** to show tab
 numbers. See [browser tabs](keyboard-navigation.md#browser-tabs).
 
-These default-map shortcuts are unbound or remapped while the mode is on:
+These default-map shortcuts are unbound or remapped while the mode is on. The
+table lists the shipped keys; overrides saved under `[keymap.tenxer]` change
+them (see [Keymap](preferences.md#keymap)):
 
 | Default-map key | In 10xer mode |
 | --- | --- |
 | **Ctrl+Shift+K** | Unbound. Use **z** / **Z**. |
-| **Ctrl+Alt+T** | Unbound. Use **;** **t** or the context menu. |
+| **Ctrl+Alt+T** | Opens a terminal from the file list and the sidebar, as in the default map; elsewhere, such as in a text field, it does nothing. **;** **t** opens one in the keyboard-focused folder. |
 | **Ctrl+\\** | Unbound. Arrows never leave the file list. |
 | **Ctrl+D** | Half page down. Duplicate is dropped. |
 | **Ctrl+F** | Full page down. Filter is **f**. |

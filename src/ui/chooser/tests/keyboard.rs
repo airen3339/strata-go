@@ -967,6 +967,39 @@ fn default_map_enter_returns_only_the_files_of_a_fill_with_a_folder() {
     );
 }
 
+/// The portal process loads the settings file when its chooser opens, keymap
+/// overrides included.
+#[test]
+fn saved_overrides_reach_the_chooser_dispatcher() {
+    crate::test_support::gtk_test(
+        "ui::chooser::tests::keyboard::saved_overrides_reach_the_chooser_dispatcher",
+        || {
+            let settings = crate::ui::preferences::config_directory().join("settings.toml");
+            std::fs::create_dir_all(settings.parent().expect("settings directory"))
+                .expect("settings directory");
+            std::fs::write(
+                &settings,
+                "[keymap.default]\ntoggle_hidden_files = [\"<Control><Alt>h\"]\n",
+            )
+            .expect("saved override");
+            let chooser = Chooser::open_with(single_file(), BrowserMode::List, &["a.txt"], false);
+            chooser.focus_files();
+            let browser = chooser.state.view.browser();
+            let hidden = browser.preferences().show_hidden;
+            chooser.press_with(Key::h, ModifierType::CONTROL_MASK);
+            assert_eq!(
+                browser.preferences().show_hidden,
+                hidden,
+                "Ctrl+H is unbound"
+            );
+            assert!(
+                chooser.press_with(Key::h, ModifierType::CONTROL_MASK | ModifierType::ALT_MASK)
+            );
+            assert_eq!(browser.preferences().show_hidden, !hidden);
+        },
+    );
+}
+
 #[test]
 fn default_map_enter_keeps_single_selection_and_folder_navigation() {
     crate::test_support::gtk_test(

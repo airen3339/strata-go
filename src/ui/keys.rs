@@ -20,9 +20,9 @@ mod label;
 mod tests;
 
 pub(crate) use alias::install_native as install_native_aliases;
-pub(crate) use command::{Command, Map, Matcher};
+pub(crate) use command::{Command, Keymap, Map, Matcher, Rejected};
 #[cfg(test)]
-pub(crate) use command::{Keymap, use_keymap};
+pub(crate) use command::{registry, use_keymap};
 pub(crate) use label::{
     Digits, Keys, Shown, digit_label, label, label_in, label_in_map, modifiers_label,
     modifiers_label_in, search_text, shown,
@@ -104,9 +104,45 @@ impl Binding {
         self.modifiers
     }
 
-    /// The string for a menu item's `accel` attribute.
+    /// The string for a menu item's `accel` attribute, and the one settings
+    /// files store.
     pub(crate) fn accelerator(self) -> glib::GString {
         gtk::accelerator_name(self.key, self.modifiers)
+    }
+
+    /// The form a saved binding takes: a plain digit also matches with Shift,
+    /// which AZERTY needs to type digits, as chord digit steps do.
+    pub(crate) fn normalized(self) -> Self {
+        if self.modifiers.is_empty() && digit_value(self.key).is_some() {
+            self.ignoring(Modifiers::SHIFT_MASK)
+        } else {
+            self
+        }
+    }
+
+    /// Reads an accelerator such as `<Control>e`, the form [`Self::accelerator`]
+    /// writes, as [`Self::normalized`]. As in GTK, a letter's case does not
+    /// matter and Shift is written out (`<Shift>g`). A digit means its digit-row
+    /// position and a keypad key the main key it acts as. Only Ctrl, Alt, Shift
+    /// and Super may be held.
+    pub(crate) fn parse(accelerator: &str) -> Option<Self> {
+        let (key, mut modifiers) = gtk::accelerator_parse(accelerator)?;
+        if !SHORTCUT_MODIFIERS.contains(modifiers)
+            || key.into_glib() == 0
+            || key == Key::VoidSymbol
+            || MODIFIER_KEYS.contains(&key)
+        {
+            return None;
+        }
+        let key = if key == Key::ISO_Left_Tab {
+            modifiers.insert(Modifiers::SHIFT_MASK);
+            Key::Tab
+        } else if let Some(digit) = KEYPAD_DIGITS.iter().position(|digit| *digit == key) {
+            DIGITS[digit]
+        } else {
+            main_key(key.to_lower())
+        };
+        Some(Self::new(key, modifiers).normalized())
     }
 
     pub(crate) const fn shown(self) -> Shown {

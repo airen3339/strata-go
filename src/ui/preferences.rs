@@ -33,12 +33,14 @@ pub(in crate::ui) mod fixtures;
 mod folder_view_settings;
 mod folder_views;
 mod item_customizations;
+mod keymap;
 mod save_notice;
 mod text_size;
 mod trashed;
 pub(in crate::ui) use bindings::notify_live;
 pub use corner_roundness::CornerRoundness;
 pub(crate) use folder_view_settings::flush_pending_folder_views;
+use keymap::KeymapOverrides;
 pub use text_size::TextSize;
 
 thread_local! {
@@ -237,6 +239,8 @@ pub(in crate::ui) struct Preferences {
     list_column_order: Vec<ListColumnId>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     list_hidden_columns: Vec<ListColumnId>,
+    #[serde(default, skip_serializing_if = "KeymapOverrides::is_empty")]
+    keymap: KeymapOverrides,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq, Hash)]
@@ -431,6 +435,7 @@ impl Default for Preferences {
             browser_list_columns: None,
             list_column_order: default_list_column_order(),
             list_hidden_columns: Vec::new(),
+            keymap: KeymapOverrides::default(),
         }
     }
 }
@@ -597,6 +602,8 @@ pub struct PreferenceManager {
     folder_sorts_revision: Cell<u64>,
     folder_save_notices: save_notice::SaveNotices,
     item_customizations: item_customizations::ItemCustomizationState,
+    keymap: RefCell<Option<Rc<crate::ui::keys::Keymap>>>,
+    keymap_revision: Cell<u64>,
 }
 
 impl PreferenceManager {
@@ -669,6 +676,8 @@ impl PreferenceManager {
             folder_sorts_revision: Cell::new(0),
             folder_save_notices: save_notice::SaveNotices::for_folder_views(),
             item_customizations: Default::default(),
+            keymap: RefCell::new(None),
+            keymap_revision: Cell::new(0),
             preferences: RefCell::new(preferences),
         });
         manager.folder_view_store();

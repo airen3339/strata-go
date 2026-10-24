@@ -76,11 +76,4 @@ catalog! {
         TAB_CHORD_PREVIOUS: Command "tabs.previous" step(Tabs) = Binding::plain(Key::t);
         TAB_CHORD_NUMBERS: Digits = Digits::after(TAB_CHORD.shown(), 9, true);
     }
-    unlisted {
-        // The reference shows these as "Shift reverses" beside the sort chord.
-        SORT_BY_NAME_REVERSED: Binding = Binding::shift(Key::a);
-        SORT_BY_MODIFIED_REVERSED: Binding = Binding::shift(Key::m);
-        SORT_BY_SIZE_REVERSED: Binding = Binding::shift(Key::s);
-        SORT_BY_TYPE_REVERSED: Binding = Binding::shift(Key::e);
-    }
 }

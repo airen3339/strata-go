@@ -409,11 +409,14 @@ fn append_text_size_option(content: &gtk::Box, preferences: &Rc<PreferenceManage
     keys.set_halign(gtk::Align::Start);
     keys.set_hexpand(false);
     keys.set_valign(gtk::Align::Center);
-    {
+    crate::ui::shortcut_reference::follow_keys(&keys, |keys| {
         use crate::ui::keys::{
             self as shortcuts, Binding, Keys,
             bindings::{TEXT_LARGER, TEXT_RESET, TEXT_SMALLER},
         };
+        while let Some(child) = keys.first_child() {
+            child.unparent();
+        }
         let keycap = |text: &str, class| {
             let label = gtk::Label::new(Some(text));
             label.add_css_class("settings-nowrap");
@@ -424,23 +427,34 @@ fn append_text_size_option(content: &gtk::Box, preferences: &Rc<PreferenceManage
             .into_iter()
             .filter_map(|command| command.primary())
             .collect();
-        // The three bindings share their modifiers, shown once.
-        if let Some(first) = bindings.first() {
-            keycap(
-                &shortcuts::modifiers_label(first.modifiers()),
-                "settings-keycap",
-            );
+        // Shared modifiers, as the shipped bindings have, are shown once.
+        let shared = bindings
+            .first()
+            .map(|first| first.modifiers())
+            .filter(|modifiers| {
+                !modifiers.is_empty()
+                    && bindings
+                        .iter()
+                        .all(|binding| binding.modifiers() == *modifiers)
+            });
+        if let Some(modifiers) = shared {
+            keycap(&shortcuts::modifiers_label(modifiers), "settings-keycap");
         }
         for (index, binding) in bindings.into_iter().enumerate() {
             if index > 0 {
                 keycap("/", "keycap-separator");
             }
+            let shown = if shared.is_some() {
+                Binding::plain(binding.key())
+            } else {
+                binding
+            };
             keycap(
-                &shortcuts::label(&Keys::One(Binding::plain(binding.key()).shown())),
+                &shortcuts::label(&Keys::One(shown.shown())),
                 "settings-keycap",
             );
         }
-    }
+    });
     description.append(&keys);
     text_size_copy.append(&text_size_title);
     text_size_copy.append(&description);

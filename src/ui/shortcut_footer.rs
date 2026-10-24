@@ -134,7 +134,9 @@ impl ChordIndicator {
         self.set_with(None, Vec::new());
     }
 
-    fn set_with(&self, chord: Option<Chord>, rows: Vec<(String, String)>) {
+    /// Rows whose keys are unbound are left out.
+    fn set_with(&self, chord: Option<Chord>, mut rows: Vec<(String, String)>) {
+        rows.retain(|(keys, _)| !keys.is_empty());
         let previous = self.armed.replace(chord);
         if let Some(mark) = self.mark.upgrade() {
             mark.set_text(&chord.map(Chord::mark).unwrap_or_default());
@@ -640,13 +642,15 @@ impl ShortcutFooter {
         count.set_visible(false);
         let paste = gtk::Label::new(Some(&crate::i18n::tr("Files on clipboard")));
         paste.add_css_class("shortcut-footer-paste");
-        crate::ui::accessibility::set_description(
-            &paste,
-            Some(&with_keys(
-                "Press %{keys} to paste into a supported directory.",
-                Keys::One(bindings::PASTE.shown()),
-            )),
-        );
+        crate::ui::shortcut_reference::follow_keys(&paste, |paste| {
+            crate::ui::accessibility::set_description(
+                paste,
+                Some(&with_keys(
+                    "Press %{keys} to paste into a supported directory.",
+                    Keys::One(bindings::PASTE.shown()),
+                )),
+            );
+        });
         paste.set_visible(false);
         let tag = gtk::Label::new(Some(crate::ui::tenxer_mode::TAG_TEXT));
         tag.add_css_class("tenxer-tag");
@@ -688,18 +692,25 @@ impl ShortcutFooter {
         let show_hints = Rc::new(Cell::new(true));
 
         let more = gtk::ToggleButton::new();
-        let reference = Keys::One(bindings::REFERENCE.alternate(0).shown());
-        let more_label = with_keys("%{keys} Shortcuts", reference);
-        more.set_child(Some(&gtk::Label::new(Some(&more_label))));
+        let more_text = gtk::Label::new(None);
+        more.set_child(Some(&more_text));
         more.add_css_class("shortcut-footer-button");
-        super::accessibility::set_label(&more, &more_label);
-        crate::ui::accessibility::set_description(
-            &more,
-            Some(&with_keys(
-                "Show all file-view shortcuts (%{keys})",
-                reference,
-            )),
-        );
+        let more_text = more_text.downgrade();
+        crate::ui::shortcut_reference::follow_keys(&more, move |more| {
+            let reference = Keys::One(bindings::REFERENCE.alternate(0).shown());
+            let more_label = with_keys("%{keys} Shortcuts", reference);
+            if let Some(text) = more_text.upgrade() {
+                text.set_text(&more_label);
+            }
+            super::accessibility::set_label(more, &more_label);
+            crate::ui::accessibility::set_description(
+                more,
+                Some(&with_keys(
+                    "Show all file-view shortcuts (%{keys})",
+                    reference,
+                )),
+            );
+        });
         status.prepend(&more);
         let spacer = gtk::Box::new(gtk::Orientation::Horizontal, 0);
         spacer.set_hexpand(true);
@@ -753,9 +764,17 @@ impl ShortcutFooter {
         content.append(&body);
         let footer_note = gtk::Box::new(gtk::Orientation::Horizontal, 12);
         footer_note.add_css_class("shortcut-reference-footer");
-        let note_text = reference_note();
-        let note = gtk::Label::new(Some(&note_text));
-        note.set_attributes(Some(&hint_note_attributes(&note_text)));
+        let note = gtk::Label::new(None);
+        // The panel is outside the window until it opens, so the footer
+        // anchors the binding and a closed window releases it.
+        let noted = note.downgrade();
+        crate::ui::shortcut_reference::follow_keys(&root, move |_| {
+            if let Some(note) = noted.upgrade() {
+                let note_text = reference_note();
+                note.set_text(&note_text);
+                note.set_attributes(Some(&hint_note_attributes(&note_text)));
+            }
+        });
         note.set_wrap(true);
         note.add_css_class("shortcut-reference-note");
         note.set_hexpand(true);
@@ -961,6 +980,37 @@ impl ShortcutFooter {
                 if let (Some(categories), Some(search), Some(scroll)) =
                     (categories.upgrade(), search.upgrade(), scroll.upgrade())
                 {
+                    rebuild_reference(
+                        &reference,
+                        &categories,
+                        &search,
+                        &scroll,
+                        &selected,
+                        &reference_scope,
+                    );
+                }
+            },
+        );
+        let reference = self.reference.downgrade();
+        let categories = self.categories.downgrade();
+        let search = self.search.downgrade();
+        let scroll = self.scroll.downgrade();
+        let selected = self.selected_category.clone();
+        let reference_scope = self.reference_scope.clone();
+        let primed = Cell::new(false);
+        manager.bind_preference(
+            &self.root,
+            super::preferences::PreferenceManager::keymap_revision,
+            move |_, _| {
+                if !primed.replace(true) {
+                    return;
+                }
+                if let (Some(reference), Some(categories), Some(search), Some(scroll)) = (
+                    reference.upgrade(),
+                    categories.upgrade(),
+                    search.upgrade(),
+                    scroll.upgrade(),
+                ) {
                     rebuild_reference(
                         &reference,
                         &categories,
@@ -1366,11 +1416,11 @@ impl ShortcutFooter {
         // A key that types, as 10xer's ~ does, toggles only where it would not type.
         let typed = press.text().is_some();
         let f1 = press.is(REFERENCE) && !typed;
-        let tilde = typed && self.tilde_toggles(press, reference_open);
-        if self.prompt_has_focus() && !f1 && !tilde && !reference_open {
+        let typed_toggle = typed && self.typed_key_toggles(press, reference_open);
+        if self.prompt_has_focus() && !f1 && !typed_toggle && !reference_open {
             return None;
         }
-        if f1 || tilde {
+        if f1 || typed_toggle {
             if reference_open {
                 self.session.close();
             } else {
@@ -1557,8 +1607,8 @@ impl ShortcutFooter {
         true
     }
 
-    fn tilde_toggles(&self, press: &KeyPress, reference_open: bool) -> bool {
-        if !super::preferences::PreferenceManager::shared().tenxer_mode() || !press.is(REFERENCE) {
+    fn typed_key_toggles(&self, press: &KeyPress, reference_open: bool) -> bool {
+        if !press.is(REFERENCE) {
             return false;
         }
         if reference_open {
