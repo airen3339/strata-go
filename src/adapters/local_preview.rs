@@ -198,7 +198,7 @@ impl LocalPreviewProvider {
 impl PreviewProvider for LocalPreviewProvider {
     fn load(&self, request: PreviewRequest, emit: Rc<dyn Fn(PreviewEvent)>) -> LoadHandle {
         use futures_lite::StreamExt;
-        if !crate::services::is_model(&request.entry.native_name) {
+        if !crate::services::is_model(&request.entry) {
             return self.load_with_renderer(request, emit, crate::sandbox::parse);
         }
         let (send, mut receive) = futures_channel::mpsc::channel(8);
@@ -278,11 +278,11 @@ impl LocalPreviewProvider {
             let (mut content_type, uncertain) =
                 crate::services::guess_content_type(Path::new(&entry.native_name));
             let mut content = content_family(&content_type);
-            if crate::services::is_model(&entry.native_name) {
+            if crate::services::is_model(&entry) {
                 content = PreviewContent::Unsupported;
             }
 
-            if !crate::services::is_model(&entry.native_name)
+            if !crate::services::is_model(&entry)
                 && matches!(content, PreviewContent::Unsupported)
             {
                 if gio::content_type_is_a(&content_type, "text/plain") {
@@ -299,7 +299,7 @@ impl LocalPreviewProvider {
                 }
             }
 
-            if !crate::services::is_model(&entry.native_name) && matches!(content, PreviewContent::Unsupported)
+            if !crate::services::is_model(&entry) && matches!(content, PreviewContent::Unsupported)
                 && (uncertain || entry.native_name.is_empty())
             {
                 let file = gio_file_for_location(&entry.location);
@@ -344,7 +344,7 @@ impl LocalPreviewProvider {
             }
             let sample_is_text = sample.as_deref().map(looks_like_text);
             if let Some(sample) = &sample
-                && !crate::services::is_model(&entry.native_name)
+                && !crate::services::is_model(&entry)
             {
                 reconcile_with_sample(&mut content_type, &mut content, sample);
             }
@@ -543,7 +543,7 @@ impl LocalPreviewProvider {
                 return;
             }
 
-            let model = ModelFormat::for_name(&entry.native_name).map(|format| ModelRender {
+            let model = crate::services::model_format(&entry).map(|format| ModelRender {
                     purpose: crate::services::ModelRenderPurpose::Preview,
                 format,
                 size: MediaPreviewSize::new(request.media_size.width.min(800), request.media_size.height.min(800)),

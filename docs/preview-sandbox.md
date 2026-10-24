@@ -180,6 +180,7 @@ blocks. Several sizes are normal, unlike two usable PNG images in a 3MF package;
 Preview shows the largest image that decodes. There is no toolpath render.
 A text file with no usable thumbnail keeps the ordinary text preview. A binary
 file with none reports “This G-code file has no usable embedded thumbnail”.
+Remote G-code is not staged for a thumbnail and keeps the text preview.
 
 The reader does not scan the toolpath. Text is read only until the first command,
 and only through `MAX_GCODE_HEADER_BYTES` (2 MiB), plus the rest of a thumbnail

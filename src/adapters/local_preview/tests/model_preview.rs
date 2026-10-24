@@ -123,20 +123,23 @@ fn gcode_without_a_thumbnail_keeps_text_and_binary_reports_the_gap() {
 
     let text_path = directory.path().join("plate.gcode");
     fs::write(&text_path, b"; header\nG1 X0 ; TOOLPATH-MARKER\n").expect("text gcode");
-    let text_events = load_gcode(
-        &context,
-        &provider,
-        gcode_entry(&text_path, "plate.gcode"),
-        palette,
-        1,
-    );
-    assert!(matches!(
-        text_events.as_slice(),
-        [PreviewEvent::Ready(Preview {
-            content: PreviewContent::Text { content, truncated: false },
-            ..
-        })] if content.contains("TOOLPATH-MARKER")
-    ));
+    let remote = Location::uri(gio::File::for_path(&text_path).uri());
+    for (id, location) in [(1, Location::local(&text_path)), (3, remote)] {
+        let text_events = load_gcode(
+            &context,
+            &provider,
+            gcode_entry(location, "plate.gcode"),
+            palette,
+            id,
+        );
+        assert!(matches!(
+            text_events.as_slice(),
+            [PreviewEvent::Ready(Preview {
+                content: PreviewContent::Text { content, truncated: false },
+                ..
+            })] if content.contains("TOOLPATH-MARKER")
+        ));
+    }
 
     let binary_path = directory.path().join("plate.bgcode");
     let mut binary = b"; bgcode\n".to_vec();
@@ -146,7 +149,7 @@ fn gcode_without_a_thumbnail_keeps_text_and_binary_reports_the_gap() {
     let binary_events = load_gcode(
         &context,
         &provider,
-        gcode_entry(&binary_path, "plate.bgcode"),
+        gcode_entry(Location::local(&binary_path), "plate.bgcode"),
         palette,
         2,
     );
@@ -157,9 +160,9 @@ fn gcode_without_a_thumbnail_keeps_text_and_binary_reports_the_gap() {
     ));
 }
 
-fn gcode_entry(path: &std::path::Path, name: &str) -> FileEntry {
+fn gcode_entry(location: Location, name: &str) -> FileEntry {
     FileEntry {
-        location: Location::local(path),
+        location,
         thumbnail_path: None,
         native_name: name.into(),
         display_name: name.into(),
