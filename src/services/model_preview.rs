@@ -18,12 +18,19 @@ pub(crate) const MAX_MODEL_VERTICES: usize = 2_000_000;
 pub(crate) const MAX_MODEL_COMPONENT_REFERENCES: usize = 100_000;
 pub(crate) const MAX_MODEL_COMPONENT_EXPANSIONS: usize = 100_000;
 pub(crate) const MAX_MODEL_RASTER_WORK: u64 = 100_000_000;
+/// Text G-code is scanned only until the first command, and only this far.
+/// A thumbnail block that has already started may run past this cap; the
+/// toolpath itself is never read. Binary G-code stops at the first G-code block.
+pub(crate) const MAX_GCODE_HEADER_BYTES: u64 = 2 * 1024 * 1024;
+pub(crate) const NO_GCODE_THUMBNAIL: &str =
+    "This G-code file has no usable embedded thumbnail";
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum ModelFormat {
     Stl,
     ThreeMf,
     FreeCad,
+    Gcode,
 }
 
 impl ModelFormat {
@@ -37,6 +44,7 @@ impl ModelFormat {
             "stl" => Some(Self::Stl),
             "3mf" => Some(Self::ThreeMf),
             "fcstd" => Some(Self::FreeCad),
+            "gcode" | "gco" | "bgcode" => Some(Self::Gcode),
             _ => None,
         }
     }
@@ -46,6 +54,7 @@ impl ModelFormat {
             Self::Stl => "stl",
             Self::ThreeMf => "3mf",
             Self::FreeCad => "fcstd",
+            Self::Gcode => "gcode",
         }
     }
 
@@ -54,6 +63,7 @@ impl ModelFormat {
             "stl" => Some(Self::Stl),
             "3mf" => Some(Self::ThreeMf),
             "fcstd" => Some(Self::FreeCad),
+            "gcode" => Some(Self::Gcode),
             _ => None,
         }
     }

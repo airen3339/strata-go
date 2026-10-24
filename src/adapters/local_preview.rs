@@ -682,48 +682,75 @@ impl LocalPreviewProvider {
                 if cancellation_for_task.is_cancelled() {
                     return;
                 }
-                content = match render {
-                    Ok(Ok(output)) if model.is_some() => PreviewContent::Model {
-                        png: output.data,
-                        mesh: output.model_mesh,
-                    },
-                    Ok(Ok(output)) if matches!(operation, ParseOperation::PreviewPdf(_)) => {
-                        if let Some(mtime) = modified
-                            && request.pdf_page == 0
-                        {
-                            thumbnail_to_store = Some((path.clone(), mtime, output.data.clone()));
-                        }
-                        PreviewContent::Pdf {
-                            png: output.data,
-                            page: output.page,
-                            pages: output.pages,
-                            text_layer: output.text_layer.map(std::sync::Arc::new),
-                        }
-                    }
-                    Ok(Ok(output)) => {
-                        if let Some(mtime) = modified.filter(|_| !matches!(operation, ParseOperation::PreviewCover(_))) {
-                            thumbnail_to_store = Some((path.clone(), mtime, output.data.clone()));
-                        }
-                        PreviewContent::Rasterized { png: output.data }
-                    }
-                    Ok(Err(message)) => {
-                        emit(PreviewEvent::Failed {
-                            request_id,
-                            entry,
-                            message,
-                        });
-                        return;
-                    }
-                    Err(_) => {
-                        if cancellation_for_task.is_cancelled() {
+                let missing_gcode_thumbnail = matches!(
+                    (&render, model.map(|item| item.format)),
+                    (Ok(Err(message)), Some(ModelFormat::Gcode))
+                        if message == crate::services::model_preview::NO_GCODE_THUMBNAIL
+                            && sample_is_text == Some(true)
+                );
+                content = if missing_gcode_thumbnail {
+                    let file = gio_file_for_location(&entry.location);
+                    let native_path = entry.location.native_path().map(ToOwned::to_owned);
+                    match read_text(&file, native_path.as_deref(), request.text_byte_limit).await {
+                        Ok((source, truncated)) => PreviewContent::Text {
+                            content: source,
+                            truncated,
+                        },
+                        Err(error) => {
+                            emit(PreviewEvent::Failed {
+                                request_id,
+                                entry,
+                                message: crate::services::gio_error_message(&error),
+                            });
                             return;
                         }
-                        emit(PreviewEvent::Failed {
-                            request_id,
-                            entry,
-                            message: "The preview worker stopped unexpectedly.".to_owned(),
-                        });
-                        return;
+                    }
+                } else {
+                    match render {
+                        Ok(Ok(output)) if model.is_some() => PreviewContent::Model {
+                            png: output.data,
+                            mesh: output.model_mesh,
+                        },
+                        Ok(Ok(output)) if matches!(operation, ParseOperation::PreviewPdf(_)) => {
+                            if let Some(mtime) = modified && request.pdf_page == 0 {
+                                thumbnail_to_store =
+                                    Some((path.clone(), mtime, output.data.clone()));
+                            }
+                            PreviewContent::Pdf {
+                                png: output.data,
+                                page: output.page,
+                                pages: output.pages,
+                                text_layer: output.text_layer.map(std::sync::Arc::new),
+                            }
+                        }
+                        Ok(Ok(output)) => {
+                            if let Some(mtime) = modified
+                                .filter(|_| !matches!(operation, ParseOperation::PreviewCover(_)))
+                            {
+                                thumbnail_to_store =
+                                    Some((path.clone(), mtime, output.data.clone()));
+                            }
+                            PreviewContent::Rasterized { png: output.data }
+                        }
+                        Ok(Err(message)) => {
+                            emit(PreviewEvent::Failed {
+                                request_id,
+                                entry,
+                                message,
+                            });
+                            return;
+                        }
+                        Err(_) => {
+                            if cancellation_for_task.is_cancelled() {
+                                return;
+                            }
+                            emit(PreviewEvent::Failed {
+                                request_id,
+                                entry,
+                                message: "The preview worker stopped unexpectedly.".to_owned(),
+                            });
+                            return;
+                        }
                     }
                 };
                 drop(heavy_permit);
