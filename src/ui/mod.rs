@@ -42,6 +42,7 @@ mod progress_dock;
 mod raw_details;
 mod recent_apps;
 mod resize_feedback;
+mod run_script;
 mod scrolling;
 mod search;
 mod search_session;

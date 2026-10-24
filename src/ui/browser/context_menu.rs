@@ -387,6 +387,11 @@ pub(in crate::ui) fn install_folder_context_menu(
         "Open With…",
         ContextHint::None,
     );
+    let run_script = context_menu_option(
+        crate::assets::icons::FILE_CODE,
+        "Run Script…",
+        ContextHint::None,
+    );
     let open_terminal = context_menu_option(
         crate::assets::icons::TERMINAL,
         "Open in Terminal",
@@ -435,6 +440,7 @@ pub(in crate::ui) fn install_folder_context_menu(
     new_folder.set_visible(directory_actions);
     new_file.set_visible(directory_actions);
     open_with.set_visible(directory_actions);
+    run_script.set_visible(directory_actions && crate::ui::run_script::has_scripts());
     open_terminal.set_visible(directory_actions);
     paste.set_visible(directory_actions);
     properties.set_visible(!in_recent);
@@ -443,6 +449,7 @@ pub(in crate::ui) fn install_folder_context_menu(
     content.append(&paste);
     content.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
     content.append(&open_with);
+    content.append(&run_script);
     content.append(&open_terminal);
     content.set_visible(directory_actions);
     remaining.append(&select_all);
@@ -585,6 +592,33 @@ pub(in crate::ui) fn install_folder_context_menu(
             vec!["inode/directory".to_string()],
             choices,
             crate::ui::open_with::OpenWithContext::Explicit,
+            Rc::new(move || {
+                if let Some(browser) = browser.upgrade() {
+                    browser.focus_active();
+                }
+            }),
+        );
+    });
+    let run_script_popover = popover.downgrade();
+    let run_script_location = location.clone();
+    let run_script_state = Rc::downgrade(state);
+    run_script.connect_clicked(move |_| {
+        if let Some(popover) = run_script_popover.upgrade() {
+            popover.popdown();
+        }
+        let (Some(state), Some(folder)) = (
+            run_script_state.upgrade(),
+            run_script_location
+                .native_path()
+                .map(std::path::PathBuf::from),
+        ) else {
+            return;
+        };
+        let browser = Rc::downgrade(&state.browser);
+        crate::ui::run_script::show(
+            &state.overlay,
+            Vec::new(),
+            folder,
             Rc::new(move || {
                 if let Some(browser) = browser.upgrade() {
                     browser.focus_active();
@@ -860,6 +894,11 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
         "Open With…",
         ContextHint::None,
     );
+    let run_script = item_context_option(
+        crate::assets::icons::FILE_CODE,
+        "Run Script…",
+        ContextHint::None,
+    );
     let open_file_location = item_context_option(
         crate::assets::icons::FOLDER_OPEN,
         "Open file location",
@@ -989,6 +1028,7 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
     single_open.append(&group_separator);
     single_open.append(&open);
     single_open.append(&open_with);
+    single_open.append(&run_script);
     single_open.append(&preview);
     single_open.append(&open_file_location);
     single_open.append(&run);
@@ -1054,6 +1094,11 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
     let open_with_multiple = item_context_option(
         crate::assets::icons::APP_WINDOW,
         "Open With…",
+        ContextHint::None,
+    );
+    let run_script_multiple = item_context_option(
+        crate::assets::icons::FILE_CODE,
+        "Run Script…",
         ContextHint::None,
     );
     let restore_multiple = item_context_option(
@@ -1142,6 +1187,7 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
     multiple_open.append(&group_multiple_separator);
     multiple_open.append(&open_multiple);
     multiple_open.append(&open_with_multiple);
+    multiple_open.append(&run_script_multiple);
     multiple_open.append(&open_in_multiple_submenu);
     multiple_open.append(&restore_multiple);
     multiple_open.append(&remove_from_recent_multiple);
@@ -1319,6 +1365,86 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
                 }),
             );
         }
+    });
+    let run_script_target = target.clone();
+    let run_script_state = Rc::downgrade(state);
+    let run_script_popover = popover.downgrade();
+    let run_script_selection = open_with_selection.clone();
+    run_script.connect_clicked(move |_| {
+        if let Some(popover) = run_script_popover.upgrade() {
+            popover.popdown();
+        }
+        let Some(state) = run_script_state.upgrade() else {
+            return;
+        };
+        let Some(selection) = run_script_selection.borrow().clone() else {
+            return;
+        };
+        if !selection.entries_match_target(&context_entries(&state, &run_script_target)) {
+            return;
+        }
+        let paths: Vec<PathBuf> = selection
+            .files
+            .iter()
+            .filter_map(|file| file.path())
+            .collect();
+        let Some(folder) = paths
+            .first()
+            .and_then(|path| path.parent().map(|parent| parent.to_path_buf()))
+        else {
+            return;
+        };
+        let browser = Rc::downgrade(&state.browser);
+        crate::ui::run_script::show(
+            &state.overlay,
+            paths,
+            folder,
+            Rc::new(move || {
+                if let Some(browser) = browser.upgrade() {
+                    browser.focus_active();
+                }
+            }),
+        );
+    });
+    let run_script_multiple_target = target.clone();
+    let run_script_multiple_state = Rc::downgrade(state);
+    let run_script_multiple_popover = popover.downgrade();
+    let run_script_multiple_selection = open_with_selection.clone();
+    run_script_multiple.connect_clicked(move |_| {
+        if let Some(popover) = run_script_multiple_popover.upgrade() {
+            popover.popdown();
+        }
+        let Some(state) = run_script_multiple_state.upgrade() else {
+            return;
+        };
+        let Some(selection) = run_script_multiple_selection.borrow().clone() else {
+            return;
+        };
+        if !selection.entries_match_target(&context_entries(&state, &run_script_multiple_target)) {
+            return;
+        }
+        let paths: Vec<PathBuf> = selection
+            .files
+            .iter()
+            .filter_map(|file| file.path())
+            .collect();
+        let Some(folder) = paths
+            .first()
+            .and_then(|path| path.parent().map(|parent| parent.to_path_buf()))
+        else {
+            return;
+        };
+        let browser = Rc::downgrade(&state.browser);
+        crate::ui::run_script::show(
+            &state.overlay,
+            paths,
+            folder,
+            Rc::new(move || {
+                if let Some(browser) = browser.upgrade() {
+                    browser.focus_active();
+                }
+            }),
+        );
     });
     let open_with_multiple_target = target.clone();
     let open_with_multiple_state = Rc::downgrade(state);
@@ -1652,6 +1778,9 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
             let open_with_entries = entries.clone();
             open_with.set_visible(open_with_entries.len() == 1);
             open_with_multiple.set_visible(open_with_entries.len() > 1);
+            let scripts_available = crate::ui::run_script::has_scripts();
+            run_script.set_visible(scripts_available);
+            run_script_multiple.set_visible(scripts_available);
             open_multiple.set_visible(false);
             for button in [&open_with, &open_with_multiple] {
                 button.set_sensitive(false);

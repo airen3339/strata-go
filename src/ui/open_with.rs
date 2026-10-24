@@ -541,7 +541,7 @@ fn application_icon(app: &gio::AppInfo, display: &gtk::gdk::Display) -> gtk::Ima
     icon.unwrap_or_else(|| crate::assets::primary_icon(crate::assets::icons::FILE_CODE, 24))
 }
 
-fn install_list_tab_navigation(
+pub(super) fn install_list_tab_navigation(
     content: &gtk::Box,
     search_entry: &gtk::SearchEntry,
     list: &gtk::ListBox,
