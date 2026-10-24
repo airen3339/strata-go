@@ -343,7 +343,7 @@ fn default_navigation(mode: BrowserMode) -> Vec<Shortcut> {
             row(One(BACKSPACE.shown()), "Go to the parent folder"),
             row(
                 Any(shown![
-                    THUMBNAILS_LARGER,
+                    THUMBNAILS_LARGER.alternate(0),
                     THUMBNAILS_SMALLER,
                     THUMBNAILS_RESET
                 ]),
@@ -448,10 +448,10 @@ fn tenxer_navigation(mode: BrowserMode, chooser: bool) -> Vec<Shortcut> {
             ),
             row(
                 Any(shown![
-                    TENXER_THUMBNAILS_LARGER,
-                    TENXER_THUMBNAILS_SMALLER,
-                    THUMBNAILS_LARGER,
-                    THUMBNAILS_SMALLER,
+                    THUMBNAILS_LARGER.alternate(2),
+                    THUMBNAILS_SMALLER.alternate(1),
+                    THUMBNAILS_LARGER.alternate(0),
+                    THUMBNAILS_SMALLER.alternate(0),
                 ]),
                 "Increase / decrease thumbnail size",
             ),
@@ -462,7 +462,7 @@ fn tenxer_navigation(mode: BrowserMode, chooser: bool) -> Vec<Shortcut> {
     if !chooser {
         shortcuts.extend_from_slice(&[
             row(
-                One(PEEK.shown()),
+                One(PREVIEW.shown()),
                 if mode == BrowserMode::Columns {
                     "Open the next column for the focused directory"
                 } else {
@@ -475,16 +475,16 @@ fn tenxer_navigation(mode: BrowserMode, chooser: bool) -> Vec<Shortcut> {
     shortcuts.extend_from_slice(&[
         row(
             Any(shown![
-                TENXER_HISTORY_BACK,
-                TENXER_HISTORY_FORWARD,
-                HISTORY_BACK,
-                HISTORY_FORWARD,
+                HISTORY_BACK.alternate(1),
+                HISTORY_FORWARD.alternate(1),
+                HISTORY_BACK.alternate(0),
+                HISTORY_FORWARD.alternate(0),
             ]),
             "Back / forward in history",
         ),
         row(One(HOME_FOLDER.shown()), "Go to Home"),
         row(One(FIRST_ITEM.shown()), "First item"),
-        row(Any(shown![TENXER_LAST_ITEM, LAST_ITEM]), "Last item"),
+        row(One(LAST_ITEM.shown()), "Last item"),
         row(
             Any(shown![FIRST_ITEM_UP, LAST_ITEM_DOWN]),
             "First / last item",
@@ -494,7 +494,12 @@ fn tenxer_navigation(mode: BrowserMode, chooser: bool) -> Vec<Shortcut> {
             "Move half a page",
         ),
         row(
-            Any(shown![TENXER_PAGE_UP, TENXER_PAGE_DOWN, PAGE_UP, PAGE_DOWN]),
+            Any(shown![
+                PAGE_UP.alternate(1),
+                PAGE_DOWN.alternate(1),
+                PAGE_UP.alternate(0),
+                PAGE_DOWN.alternate(0),
+            ]),
             "Move one page",
         ),
     ]);
@@ -575,7 +580,7 @@ fn tenxer_preview(mode: BrowserMode, chooser: bool) -> Vec<Shortcut> {
     if !chooser {
         shortcuts.push(within(
             "%{keys} on a file",
-            One(PEEK.shown()),
+            One(PREVIEW.shown()),
             "Toggle the preview without taking focus",
         ));
     }
@@ -593,7 +598,7 @@ fn tenxer_preview(mode: BrowserMode, chooser: bool) -> Vec<Shortcut> {
         if !chooser {
             shortcuts.push(within(
                 "%{keys} in the preview",
-                One(TENXER_FIND_IN_PREVIEW.shown()),
+                One(FIND_IN_PREVIEW.shown()),
                 "Find in preview",
             ));
         }
@@ -615,8 +620,8 @@ const TENXER_PREVIEW_OWNED: &[Shortcut] = &[
     within(
         "%{keys} in the preview",
         Any(shown![
-            TENXER_PAGE_UP,
-            TENXER_PAGE_DOWN,
+            PAGE_UP.alternate(1),
+            PAGE_DOWN.alternate(1),
             PAGE_UP_KEY,
             PAGE_DOWN_KEY
         ]),
@@ -660,12 +665,7 @@ const TENXER_PREVIEW_OWNED: &[Shortcut] = &[
     ),
     within(
         "%{keys} in media",
-        Any(shown![
-            MEDIA_SEEK_START,
-            HOME_KEY,
-            TENXER_LAST_ITEM,
-            END_KEY
-        ]),
+        Any(shown![MEDIA_SEEK_START, HOME_KEY, MEDIA_SEEK_END, END_KEY]),
         "Seek to the start / end",
     ),
     within(
@@ -673,7 +673,7 @@ const TENXER_PREVIEW_OWNED: &[Shortcut] = &[
         Any(shown![
             UP,
             DOWN,
-            MEDIA_VOLUME_STEP_UP,
+            MEDIA_VOLUME_STEP_UP.alternate(0),
             MEDIA_VOLUME_STEP_DOWN
         ]),
         "Volume up / down",
@@ -700,7 +700,7 @@ const TENXER_PREVIEW_OWNED: &[Shortcut] = &[
     ),
     within(
         "%{keys} in the preview",
-        Any(shown![ESCAPE, PEEK]),
+        Any(shown![ESCAPE, PREVIEW]),
         "Close the preview and return to the listing",
     ),
 ];
@@ -708,7 +708,7 @@ const TENXER_PREVIEW_OWNED: &[Shortcut] = &[
 const TOP_AND_BOTTOM: Keys = Mixed(&[
     Chord(shown![GO, GO_FIRST]),
     One(HOME_KEY.shown()),
-    One(TENXER_LAST_ITEM.shown()),
+    One(LAST_ITEM.alternate(0).shown()),
     One(END_KEY.shown()),
 ]);
 
@@ -719,7 +719,7 @@ const DEFAULT_FILES: &[Shortcut] = &[
     row(One(PASTE.shown()), "Paste into the indicated directory"),
     row(One(DUPLICATE.shown()), "Duplicate selected items"),
     row(
-        One(DELETE.shown()),
+        One(MOVE_TO_TRASH.shown()),
         "Move selected items to Trash, when supported",
     ),
     row(
@@ -727,8 +727,8 @@ const DEFAULT_FILES: &[Shortcut] = &[
         "Permanently delete selected items",
     ),
     row(One(UNDO.shown()), "Undo the last file operation"),
-    row(Any(shown![REDO, REDO_Y]), "Redo the last file operation"),
-    row(Any(shown![RENAME, RENAME_R]), "Rename"),
+    row(One(REDO.shown()), "Redo the last file operation"),
+    row(One(RENAME.shown()), "Rename"),
     row(One(NEW_FOLDER.shown()), "Create a folder"),
     row(
         One(NEW_FOLDER_WITH_SELECTION.shown()),
@@ -752,10 +752,7 @@ const DEFAULT_FILES: &[Shortcut] = &[
         Any(shown![OPEN_IN_NEW_TAB, OPEN_IN_NEW_WINDOW]),
         "Open the focused folder in a new tab / window",
     ),
-    row(
-        Any(shown![CONTEXT_MENU, CONTEXT_MENU_F10]),
-        "Open the context menu",
-    ),
+    row(One(CONTEXT_MENU.shown()), "Open the context menu"),
     row(
         Any(shown![COPY_PATH, PIN]),
         "Copy path / pin a folder (type-to-search off)",
@@ -763,11 +760,11 @@ const DEFAULT_FILES: &[Shortcut] = &[
 ];
 
 const TRASH_AFTER_CONFIRMING: Shortcut = row(
-    Any(shown![TENXER_DELETE, DELETE]),
+    One(MOVE_TO_TRASH.shown()),
     "Move to Trash after confirming; %{keys} confirms",
 )
 .mentioning(Mention::Keys(Chord(shown![
-    TENXER_DELETE,
+    MOVE_TO_TRASH,
     TENXER_DELETE_CONFIRM,
 ])));
 
@@ -776,7 +773,7 @@ const TENXER_FILES: &[Shortcut] = &[
         Any(shown![YANK, YANK_CUT]),
         "Yank / cut the selection, or the focused item",
     ),
-    row(Any(shown![UNYANK, UNYANK_X]), "Clear copy and cut marks"),
+    row(One(UNYANK.shown()), "Clear copy and cut marks"),
     row(
         One(PASTE_KEEP_BOTH.shown()),
         "Paste; Keep Both is focused on conflicts",
@@ -787,7 +784,7 @@ const TENXER_FILES: &[Shortcut] = &[
     ),
     TRASH_AFTER_CONFIRMING,
     row(
-        Any(shown![TENXER_DELETE_PERMANENTLY, DELETE_PERMANENTLY]),
+        One(DELETE_PERMANENTLY.shown()),
         "Delete permanently after confirming",
     ),
     row(
@@ -797,11 +794,8 @@ const TENXER_FILES: &[Shortcut] = &[
     row(COPY_PATH_OR_NAME, "Copy path / name"),
     row(Any(shown![COPY, CUT]), "Copy / cut selected items"),
     row(One(UNDO.shown()), "Undo the last file operation"),
-    row(Any(shown![REDO, REDO_Y]), "Redo the last file operation"),
-    row(
-        Any(shown![TENXER_RENAME, RENAME]),
-        "Rename the focused item in the footer",
-    ),
+    row(One(REDO.shown()), "Redo the last file operation"),
+    row(One(RENAME.shown()), "Rename the focused item in the footer"),
     row(
         One(OPEN_WITH.shown()),
         "Open With for the selection, or the focused item",
@@ -850,10 +844,7 @@ const TENXER_FILES: &[Shortcut] = &[
         Any(shown![OPEN_IN_NEW_TAB, OPEN_IN_NEW_WINDOW]),
         "Open the focused folder in a new tab / window",
     ),
-    row(
-        Any(shown![CONTEXT_MENU, CONTEXT_MENU_F10]),
-        "Open the context menu",
-    ),
+    row(One(CONTEXT_MENU.shown()), "Open the context menu"),
 ];
 
 const COPY_PATH_OR_NAME: Keys = Mixed(&[
@@ -899,7 +890,7 @@ fn chooser_requests(chooser: ChooserScope) -> Vec<Shortcut> {
             ),
             within("%{keys} on a folder", One(OPEN.shown()), "Open the folder"),
             row(
-                Any(shown![TENXER_RENAME, RENAME]),
+                One(RENAME.shown()),
                 "Edit the name; %{keys} returns to the files",
             )
             .mentioning(Mention::Keys(One(ESCAPE.shown()))),
@@ -920,7 +911,7 @@ fn chooser_files(chooser: ChooserScope) -> Vec<Shortcut> {
     let mut shortcuts = vec![
         TRASH_AFTER_CONFIRMING,
         row(
-            Any(shown![TENXER_DELETE_PERMANENTLY, DELETE_PERMANENTLY]),
+            One(DELETE_PERMANENTLY.shown()),
             "Delete permanently after confirming",
         ),
         row(
@@ -931,7 +922,7 @@ fn chooser_files(chooser: ChooserScope) -> Vec<Shortcut> {
     ];
     if chooser.request != ChooserRequest::SaveFile {
         shortcuts.push(row(
-            Any(shown![TENXER_RENAME, RENAME]),
+            One(RENAME.shown()),
             "Rename the focused item in the footer",
         ));
     }
@@ -952,10 +943,7 @@ fn chooser_files(chooser: ChooserScope) -> Vec<Shortcut> {
     }
     shortcuts.extend_from_slice(&[
         row(One(PROPERTIES.shown()), "Show item properties"),
-        row(
-            Any(shown![CONTEXT_MENU, CONTEXT_MENU_F10]),
-            "Open the context menu",
-        ),
+        row(One(CONTEXT_MENU.shown()), "Open the context menu"),
     ]);
     shortcuts
 }
@@ -978,10 +966,7 @@ fn tenxer_mode_rows(
     }
     shortcuts.extend_from_slice(&[
         row(One(TENXER_MODE.shown()), "Toggle 10xer mode"),
-        row(
-            Any(shown![REFERENCE, TENXER_REFERENCE]),
-            "Show or hide this reference",
-        ),
+        row(One(REFERENCE.shown()), "Show or hide this reference"),
     ]);
     let default = default_sections(mode);
     for &shortcut in sections.iter().flat_map(|section| &section.rows) {
@@ -990,7 +975,9 @@ fn tenxer_mode_rows(
         let shared = default
             .iter()
             .flat_map(|section| &section.rows)
-            .any(|default| (default.keys, default.context) == keys)
+            .any(|default| {
+                (default.keys, default.context) == keys && default.keys.same_in_both_maps()
+            })
             || SHARED_WITH_DEFAULT.contains(&keys);
         if !shared && !shortcuts.contains(&shortcut) {
             shortcuts.push(shortcut);
@@ -1010,9 +997,12 @@ const DEFAULT_TOOLS: &[Shortcut] = &[
     row(One(LOCATION.shown()), "Edit the location"),
     row(One(TAB_NEW.shown()), "New tab"),
     row(One(TAB_CLOSE.shown()), "Close the active tab"),
-    row(Any(shown![TAB_NEXT, TAB_PREVIOUS]), "Next / previous tab"),
     row(
-        Any(shown![TAB_PREVIOUS_PAGE_UP, TAB_NEXT_PAGE_DOWN]),
+        Any(shown![TAB_NEXT.alternate(0), TAB_PREVIOUS.alternate(0)]),
+        "Next / previous tab",
+    ),
+    row(
+        Any(shown![TAB_PREVIOUS.alternate(1), TAB_NEXT.alternate(1)]),
         "Previous / next tab",
     ),
     row(
@@ -1022,10 +1012,7 @@ const DEFAULT_TOOLS: &[Shortcut] = &[
     SELECT_TAB,
     row(One(TERMINAL.shown()), "Open a terminal"),
     row(One(REFRESH.shown()), "Refresh"),
-    row(
-        Any(shown![HIDDEN_FILES, HIDDEN_FILES_PERIOD]),
-        "Show or hide hidden files",
-    ),
+    row(One(HIDDEN_FILES.shown()), "Show or hide hidden files"),
     row(VIEW_MODES, "Switch to Columns, Icons, or List"),
     row(TEXT_SIZE, "Increase / decrease / reset text size"),
     row(One(SIDEBAR.shown()), "Show or hide the sidebar"),
@@ -1054,7 +1041,7 @@ const SELECT_TAB: Shortcut = row(
 
 const VIEW_MODES: Keys = Any(shown![VIEW_COLUMNS, VIEW_ICONS, VIEW_LIST]);
 
-const TEXT_SIZE: Keys = Any(shown![TEXT_LARGER, TEXT_SMALLER, TEXT_RESET]);
+const TEXT_SIZE: Keys = Any(shown![TEXT_LARGER.alternate(0), TEXT_SMALLER, TEXT_RESET]);
 
 fn tenxer_tools(mode: BrowserMode, chooser: bool) -> Vec<Shortcut> {
     let mut shortcuts = vec![
@@ -1081,7 +1068,7 @@ fn tenxer_tools(mode: BrowserMode, chooser: bool) -> Vec<Shortcut> {
             One(ESCAPE.shown()),
             "Dismiss the find highlights",
         ),
-        row(One(FILTER_LISTING.shown()), "Filter this listing"),
+        row(One(FILTER.shown()), "Filter this listing"),
         within(
             "%{keys} after a filter",
             One(ESCAPE.shown()),
@@ -1112,7 +1099,7 @@ fn tenxer_tools(mode: BrowserMode, chooser: bool) -> Vec<Shortcut> {
             Any(shown![VIM_LEFT, VIM_DOWN]),
             "Return to the files",
         ),
-        row(One(TENXER_SIDEBAR.shown()), "Show or hide the sidebar"),
+        row(One(SIDEBAR.shown()), "Show or hide the sidebar"),
         row(
             One(SIDEBAR_FOCUS.shown()),
             "Focus the visible sidebar, or return to the files",
@@ -1146,9 +1133,12 @@ fn tenxer_tools(mode: BrowserMode, chooser: bool) -> Vec<Shortcut> {
             row(Keys::Digits(TAB_CHORD_NUMBERS), "Select tab 1–9 / 10"),
             row(One(TAB_NEW.shown()), "New tab"),
             row(One(TAB_CLOSE.shown()), "Close the active tab"),
-            row(Any(shown![TAB_NEXT, TAB_PREVIOUS]), "Next / previous tab"),
             row(
-                Any(shown![TAB_PREVIOUS_PAGE_UP, TAB_NEXT_PAGE_DOWN]),
+                Any(shown![TAB_NEXT.alternate(0), TAB_PREVIOUS.alternate(0)]),
+                "Next / previous tab",
+            ),
+            row(
+                Any(shown![TAB_PREVIOUS.alternate(1), TAB_NEXT.alternate(1)]),
                 "Previous / next tab",
             ),
             row(
@@ -1168,9 +1158,9 @@ fn tenxer_tools(mode: BrowserMode, chooser: bool) -> Vec<Shortcut> {
         row(One(REFRESH.shown()), "Refresh"),
         row(
             Any(shown![
-                TENXER_HIDDEN_FILES,
-                HIDDEN_FILES,
-                HIDDEN_FILES_PERIOD
+                HIDDEN_FILES.alternate(2),
+                HIDDEN_FILES.alternate(0),
+                HIDDEN_FILES.alternate(1)
             ]),
             "Show or hide hidden files",
         ),
@@ -1195,10 +1185,7 @@ fn tenxer_tools(mode: BrowserMode, chooser: bool) -> Vec<Shortcut> {
             One(ESCAPE.shown()),
             "Close this reference or cancel the current interaction",
         ),
-        row(
-            Any(shown![REFERENCE, TENXER_REFERENCE]),
-            "Show or hide this reference",
-        ),
+        row(One(REFERENCE.shown()), "Show or hide this reference"),
     ]);
     shortcuts
 }
@@ -1238,13 +1225,13 @@ fn default_hint(hint: ContextHint, type_to_search: bool) -> Option<Keys> {
         ContextHint::Preview | ContextHint::ChooserPreview => PREVIEW.shown(),
         ContextHint::CopyPath | ContextHint::CopyPaths => COPY_PATH.shown(),
         ContextHint::Pin => PIN.shown(),
-        ContextHint::Rename => return Some(Any(shown![RENAME, RENAME_R])),
+        ContextHint::Rename => RENAME.shown(),
         ContextHint::Cut => CUT.shown(),
         ContextHint::Copy => COPY.shown(),
         ContextHint::Duplicate => DUPLICATE.shown(),
         ContextHint::Paste => PASTE.shown(),
         ContextHint::Terminal => TERMINAL.shown(),
-        ContextHint::Trash => DELETE.shown(),
+        ContextHint::Trash => MOVE_TO_TRASH.shown(),
         ContextHint::PermanentDelete => DELETE_PERMANENTLY.shown(),
         ContextHint::Open => ENTER.shown(),
         ContextHint::OpenInNewTab => OPEN_IN_NEW_TAB.shown(),
@@ -1254,22 +1241,22 @@ fn default_hint(hint: ContextHint, type_to_search: bool) -> Option<Keys> {
         ContextHint::NewFolder => NEW_FOLDER.shown(),
         ContextHint::SelectAll => SELECT_ALL.shown(),
         ContextHint::Refresh => REFRESH.shown(),
-        ContextHint::HiddenFiles => HIDDEN_FILES.shown(),
+        ContextHint::HiddenFiles => HIDDEN_FILES.alternate(0).shown(),
     }))
 }
 
 fn tenxer_hint(hint: ContextHint) -> Option<Keys> {
     Some(One(match hint {
-        ContextHint::Preview => PEEK.shown(),
+        ContextHint::Preview => PREVIEW.shown(),
         ContextHint::Cut => YANK_CUT.shown(),
         ContextHint::Copy => YANK.shown(),
         ContextHint::Paste => PASTE_KEEP_BOTH.shown(),
-        ContextHint::Trash => TENXER_DELETE.shown(),
-        ContextHint::PermanentDelete => TENXER_DELETE_PERMANENTLY.shown(),
+        ContextHint::Trash => MOVE_TO_TRASH.alternate(0).shown(),
+        ContextHint::PermanentDelete => DELETE_PERMANENTLY.alternate(0).shown(),
         ContextHint::MoveTo => MOVE_TO.shown(),
         ContextHint::CopyTo => COPY_TO.shown(),
         ContextHint::Restore => RESTORE.shown(),
-        ContextHint::Rename => TENXER_RENAME.shown(),
+        ContextHint::Rename => RENAME.alternate(0).shown(),
         ContextHint::None
         | ContextHint::ChooserPreview
         | ContextHint::CopyPath

@@ -2,13 +2,14 @@
 
 use gtk::gdk::{Key, ModifierType as Modifiers};
 
-use super::{Binding, Command, Map};
+use super::{Binding, Command, Map, command::Alternate};
 
 /// A key a label shows: a command, which shows its bindings in the active
-/// map, or a fixed binding.
+/// map, one alternate of a command, or a fixed binding.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Shown {
     Command(Command),
+    Alternate(Alternate),
     Binding(Binding),
 }
 
@@ -17,6 +18,7 @@ impl Shown {
     pub(crate) fn bindings(self, map: Map) -> Vec<Binding> {
         match self {
             Self::Command(command) => command.bindings_in(map),
+            Self::Alternate(alternate) => alternate.binding_in(map).into_iter().collect(),
             Self::Binding(binding) => vec![binding],
         }
     }
@@ -51,6 +53,25 @@ pub(crate) enum Keys {
     Digits(Digits),
     /// Alternatives that mix the shapes above: **g g / Home**.
     Mixed(&'static [Keys]),
+}
+
+impl Keys {
+    /// Whether the keys resolve to the same bindings in both maps.
+    pub(crate) fn same_in_both_maps(&self) -> bool {
+        self.resolved(Map::Default) == self.resolved(Map::Tenxer)
+    }
+
+    fn resolved(&self, map: Map) -> Vec<Binding> {
+        match self {
+            Self::One(shown) => shown.bindings(map),
+            Self::Any(shown) | Self::Chord(shown) => expanded(shown, map),
+            Self::Digits(digits) => digits
+                .prefix
+                .map(|prefix| prefix.bindings(map))
+                .unwrap_or_default(),
+            Self::Mixed(keys) => keys.iter().flat_map(|keys| keys.resolved(map)).collect(),
+        }
+    }
 }
 
 /// Digit-row keys 1 to `last`, and 0 when `zero`, with shared modifiers or

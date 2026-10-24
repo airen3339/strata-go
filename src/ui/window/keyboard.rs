@@ -506,20 +506,20 @@ impl WheelZoom {
     }
 }
 
-/// Window commands that 10xer mode leaves unbound, so the file list swallows
-/// their default-map keys.
+/// Default-map keys of window commands that 10xer mode leaves unbound or binds
+/// to other keys, so the file list swallows them, and Ctrl+T.
 fn claims_unbound_command(press: &KeyPress) -> bool {
     [
         DUPLICATE,
         FILTER,
         SIDEBAR,
-        RENAME_R,
-        TAB_NEW,
+        RENAME,
         ARROW_SCOPE,
         JUMP_TO_FOLDER,
     ]
     .into_iter()
-    .any(|command| press.is(command.in_map(Map::Default)))
+    .any(|command| press.is(command.in_map(Map::Default)) && !press.is(command.in_map(Map::Tenxer)))
+        || press.is(TAB_NEW)
 }
 
 fn claims_file_list_typing(press: &KeyPress) -> bool {
@@ -683,7 +683,7 @@ impl Dispatcher {
         {
             // The open reference's search entry counts as focused text; its
             // keys, Escape included, must reach the reference, not the request.
-            if press.is(REFERENCE.ignoring(SHORTCUT_MODIFIERS))
+            if press.is(REFERENCE.in_map(Map::Default).ignoring(SHORTCUT_MODIFIERS))
                 || self.shortcuts.reference_is_open()
             {
                 return self.shortcuts.handle_key(press);
@@ -744,7 +744,9 @@ impl Dispatcher {
                 // Search rows own navigation; directory commands must not act on hidden selections.
                 if self.view.selected_search_results().is_some()
                     && !event.text_has_focus()
-                    && !event.press.is(DELETE.ignoring(SHORTCUT_MODIFIERS))
+                    && !event.press.is(MOVE_TO_TRASH
+                        .in_map(Map::Default)
+                        .ignoring(SHORTCUT_MODIFIERS))
                 {
                     if event.press.is_any(&[COPY, CUT, PASTE, SELECT_ALL])
                         && let Some(result) = self.clipboard_command(&event)
@@ -1000,9 +1002,7 @@ impl Dispatcher {
     }
 
     fn tenxer_sidebar(&self, browser: &Browser, press: &KeyPress) -> KeyResult {
-        if press.is_any(&[CONTEXT_MENU, CONTEXT_MENU_F10])
-            && sidebar::open_sidebar_context_menu(&self.sidebar.widget)
-        {
+        if press.is(CONTEXT_MENU) && sidebar::open_sidebar_context_menu(&self.sidebar.widget) {
             self.shortcuts.cancel_chord();
             return Some(Propagation::Stop);
         }
@@ -1053,7 +1053,7 @@ impl Dispatcher {
             self.return_from_header(browser);
         } else if press.is_any(&[ENTER, SPACE]) {
             crate::ui::focus_navigation::activate(self.window.upcast_ref());
-        } else if !press.is(DELETE) {
+        } else if !press.is(MOVE_TO_TRASH.in_map(Map::Default)) {
             return None;
         }
         Some(Propagation::Stop)

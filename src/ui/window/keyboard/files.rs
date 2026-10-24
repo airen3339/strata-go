@@ -77,25 +77,25 @@ impl Dispatcher {
             return None;
         }
         // Result navigation also consumes Ctrl+H; toggling must win.
-        if press.is_any(&[HIDDEN_FILES, HIDDEN_FILES_PERIOD, TENXER_HIDDEN_FILES]) {
+        if press.is(HIDDEN_FILES) {
             self.view.toggle_hidden_from_keys();
         } else if press.is(SORT_BY) {
             self.shortcuts.arm_chord(Chord::Sort);
         } else if press.is(ACTIONS) {
             self.arm_actions();
-        } else if press.is_any(&[TENXER_RENAME, RENAME]) {
+        } else if press.is(RENAME) {
             self.open_rename_prompt();
         } else if press.is(OPEN_WITH) {
             self.open_with_targets();
-        } else if press.is(DELETE) || press.is(TENXER_DELETE) {
+        } else if press.is(MOVE_TO_TRASH) {
             self.delete_targets(false);
-        } else if press.is(DELETE_PERMANENTLY) || press.is(TENXER_DELETE_PERMANENTLY) {
+        } else if press.is(DELETE_PERMANENTLY) {
             self.delete_targets(true);
         } else if press.is(YANK) {
             self.yank(false);
         } else if press.is(YANK_CUT) {
             self.yank(true);
-        } else if press.is_any(&[UNYANK, UNYANK_X]) {
+        } else if press.is(UNYANK) {
             self.view.unyank();
         } else if press.is(PASTE_KEEP_BOTH) {
             self.paste(ConflictFocus::KeepBoth);

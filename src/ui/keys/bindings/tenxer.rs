@@ -7,38 +7,21 @@ use crate::ui::keys::{Binding, Command, Digits};
 catalog! {
     tenxer_only {
         CLOSE_WINDOW: Command "close_window" = Binding::shift(Key::q);
-        TENXER_REFERENCE: Command "tenxer_reference" = Binding::plain(Key::asciitilde);
-        TENXER_SIDEBAR: Command "tenxer_sidebar" = Binding::ctrl(Key::n);
 
         OPEN: Command "open" = Binding::plain(Key::o);
-        PEEK: Command "peek" = Binding::plain(Key::i);
-        /// The media timeline also seeks to the end with it in either map.
-        TENXER_LAST_ITEM: Command "tenxer_last_item" = Binding::shift(Key::g), live in both;
-        TENXER_HISTORY_BACK: Command "tenxer_history_back" = Binding::shift(Key::h);
-        TENXER_HISTORY_FORWARD: Command "tenxer_history_forward" = Binding::shift(Key::l);
         HALF_PAGE_UP: Command "half_page_up" = Binding::ctrl(Key::u);
         HALF_PAGE_DOWN: Command "half_page_down" = Binding::ctrl(Key::d);
-        TENXER_PAGE_UP: Command "tenxer_page_up" = Binding::ctrl(Key::b);
-        TENXER_PAGE_DOWN: Command "tenxer_page_down" = Binding::ctrl(Key::f);
 
         YANK: Command "yank" = Binding::plain(Key::y);
         YANK_CUT: Command "yank_cut" = Binding::plain(Key::x);
-        UNYANK: Command "unyank" = Binding::shift(Key::y);
-        UNYANK_X: Command "unyank_x" = Binding::shift(Key::x);
+        UNYANK: Command "unyank" => [Binding::shift(Key::y), Binding::shift(Key::x)];
         PASTE_KEEP_BOTH: Command "paste_keep_both" = Binding::plain(Key::p);
         PASTE_REPLACE: Command "paste_replace" = Binding::shift(Key::p);
-        TENXER_DELETE: Command "tenxer_delete" = Binding::plain(Key::d);
-        TENXER_DELETE_PERMANENTLY: Command "tenxer_delete_permanently" = Binding::shift(Key::d);
         CREATE: Command "create" = Binding::plain(Key::a);
-        TENXER_RENAME: Command "tenxer_rename" = Binding::plain(Key::r);
         OPEN_WITH: Command "open_with" = Binding::shift(Key::o);
         MOVE_TO: Command "move_to" = Binding::shift(Key::m);
         COPY_TO: Command "copy_to" = Binding::shift(Key::c);
         RESTORE: Command "restore" = Binding::shift(Key::r);
-        TENXER_HIDDEN_FILES: Command "tenxer_hidden_files" = Binding::plain(Key::period);
-        TENXER_THUMBNAILS_LARGER: Command "tenxer_thumbnails_larger" = Binding::plain(Key::plus);
-        TENXER_THUMBNAILS_SMALLER: Command "tenxer_thumbnails_smaller" =
-            Binding::plain(Key::minus);
 
         VISUAL_SELECT: Command "visual_select" = Binding::plain(Key::v);
         VISUAL_UNSET: Command "visual_unset" = Binding::shift(Key::v);
@@ -48,7 +31,6 @@ catalog! {
         FIND_BACKWARD: Command "find_backward" = Binding::plain(Key::question);
         REPEAT_FIND: Command "repeat_find" = Binding::plain(Key::n);
         REPEAT_FIND_REVERSED: Command "repeat_find_reversed" = Binding::shift(Key::n);
-        FILTER_LISTING: Command "filter_listing" = Binding::plain(Key::f);
         SEARCH_SUBFOLDERS: Command "search_subfolders" = Binding::plain(Key::s);
         JUMP_VISITED: Command "jump_visited" = Binding::plain(Key::z);
         JUMP_RECENT: Command "jump_recent" = Binding::shift(Key::z);
@@ -95,14 +77,6 @@ catalog! {
         TAB_CHORD_NUMBERS: Digits = Digits::after(TAB_CHORD.shown(), 9, true);
     }
     unlisted {
-        // Where no tab strip takes them first, as in file choosers, these page too.
-        TENXER_PAGE_UP_PAGE_UP: Command "tenxer_page_up_page_up" = Binding::ctrl(Key::Page_Up),
-            live in tenxer;
-        TENXER_PAGE_DOWN_PAGE_DOWN: Command "tenxer_page_down_page_down" =
-            Binding::ctrl(Key::Page_Down), live in tenxer;
-        TENXER_THUMBNAILS_LARGER_EQUAL: Command "tenxer_thumbnails_larger_equal" =
-            Binding::plain(Key::equal), live in tenxer;
-
         // The reference shows these as "Shift reverses" beside the sort chord.
         SORT_BY_NAME_REVERSED: Binding = Binding::shift(Key::a);
         SORT_BY_MODIFIED_REVERSED: Binding = Binding::shift(Key::m);

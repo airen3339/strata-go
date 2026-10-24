@@ -50,7 +50,7 @@ impl Dispatcher {
             show_history_candidates(&self.shortcuts, &self.history, &browser, kind);
         } else if press.is_any(&[REPEAT_FIND, REPEAT_FIND_REVERSED]) {
             self.repeat_find(press.is(REPEAT_FIND_REVERSED));
-        } else if press.is(FILTER_LISTING) {
+        } else if press.is(FILTER) {
             let query = self.view.listing_filter().unwrap_or_default();
             self.shortcuts.open_prompt_with(Prompt::Filter, &query);
         } else if press.is(SEARCH_SUBFOLDERS) {

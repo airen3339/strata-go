@@ -151,17 +151,23 @@ impl Command {
     }
 
     /// Also matches while any of `modifiers` is held, for each binding.
-    pub(crate) const fn ignoring(self, modifiers: Modifiers) -> Ignoring {
-        Ignoring {
-            command: self,
-            ignored: modifiers,
-        }
+    pub(crate) const fn ignoring(self, modifiers: Modifiers) -> Matcher {
+        Matcher::new(self).ignoring(modifiers)
     }
 
     /// Matches `map`'s bindings whichever map is active, for a stage that
     /// claims another map's keys.
-    pub(crate) const fn in_map(self, map: Map) -> InMap {
-        InMap { command: self, map }
+    pub(crate) const fn in_map(self, map: Map) -> Matcher {
+        Matcher::new(self).in_map(map)
+    }
+
+    /// The one binding at `index` in the shown map, 0 being the primary, for a
+    /// label that shows one alternate.
+    pub(crate) const fn alternate(self, index: usize) -> Alternate {
+        Alternate {
+            command: self,
+            index,
+        }
     }
 
     pub(crate) const fn shown(self) -> Shown {
@@ -171,37 +177,68 @@ impl Command {
 
 impl Match for Command {
     fn matches(&self, press: &KeyPress) -> bool {
-        self.in_map(Map::active()).matches(press)
+        Matcher::new(*self).matches(press)
     }
 }
 
+/// A command matched in a fixed map, or with extra modifiers tolerated.
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct Ignoring {
+pub(crate) struct Matcher {
     command: Command,
+    map: Option<Map>,
     ignored: Modifiers,
 }
 
-impl Match for Ignoring {
+impl Matcher {
+    const fn new(command: Command) -> Self {
+        Self {
+            command,
+            map: None,
+            ignored: Modifiers::empty(),
+        }
+    }
+
+    pub(crate) const fn ignoring(self, modifiers: Modifiers) -> Self {
+        Self {
+            ignored: self.ignored.union(modifiers),
+            ..self
+        }
+    }
+
+    pub(crate) const fn in_map(self, map: Map) -> Self {
+        Self {
+            map: Some(map),
+            ..self
+        }
+    }
+}
+
+impl Match for Matcher {
     fn matches(&self, press: &KeyPress) -> bool {
         active_keymap()
-            .bindings(Map::active(), self.command)
+            .bindings(self.map.unwrap_or_else(Map::active), self.command)
             .iter()
             .any(|binding| binding.ignoring(self.ignored).matches(press))
     }
 }
 
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct InMap {
+/// One alternate of a command, by its position in a map's entry.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Alternate {
     command: Command,
-    map: Map,
+    index: usize,
 }
 
-impl Match for InMap {
-    fn matches(&self, press: &KeyPress) -> bool {
+impl Alternate {
+    pub(crate) fn binding_in(self, map: Map) -> Option<Binding> {
         active_keymap()
-            .bindings(self.map, self.command)
-            .iter()
-            .any(|binding| binding.matches(press))
+            .bindings(map, self.command)
+            .get(self.index)
+            .copied()
+    }
+
+    pub(crate) const fn shown(self) -> Shown {
+        Shown::Alternate(self)
     }
 }
 

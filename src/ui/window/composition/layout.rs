@@ -337,13 +337,9 @@ fn bind_sidebar_modes(
     let describe = {
         let toggle = toggle.clone();
         let state = Rc::downgrade(&sidebar.state);
-        let preferences = preferences.clone();
         Rc::new(move || {
             if let Some(state) = state.upgrade() {
-                toggle.describe(
-                    SidebarMode::of(toggle.is_active(), state.rail.get()),
-                    preferences.tenxer_mode(),
-                );
+                toggle.describe(SidebarMode::of(toggle.is_active(), state.rail.get()));
             }
         })
     };

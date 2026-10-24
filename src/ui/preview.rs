@@ -28,7 +28,7 @@ use super::keys::{
     self, KeyPress,
     bindings::{
         COPY, MEDIA_MUTE, MEDIA_NEXT, MEDIA_PLAY_PAUSE, MEDIA_PREVIOUS, MEDIA_SEEK_BACK,
-        MEDIA_SEEK_FORWARD, MEDIA_VOLUME_DOWN, MEDIA_VOLUME_UP, PEEK, PREVIEW, SELECT_ALL,
+        MEDIA_SEEK_FORWARD, MEDIA_VOLUME_DOWN, MEDIA_VOLUME_UP, PREVIEW, SELECT_ALL,
     },
 };
 use super::{
@@ -323,10 +323,10 @@ impl PreviewDrawer {
         super::preferences::PreferenceManager::shared().bind_preference(
             &close,
             super::preferences::PreferenceManager::tenxer_mode,
-            |close, tenxer| {
+            |close, _| {
                 close.set_tooltip_text(Some(&crate::ui::shortcut_reference::with_keys(
                     "Close preview (%{keys})",
-                    keys::Keys::One(if tenxer { PEEK } else { PREVIEW }.shown()),
+                    keys::Keys::One(PREVIEW.shown()),
                 )));
             },
         );

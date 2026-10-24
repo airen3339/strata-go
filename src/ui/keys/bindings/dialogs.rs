@@ -11,6 +11,6 @@ catalog! {
     tenxer_only {
         /// The second **d** of **d d**: confirms the 10xer Move to Trash dialog.
         TENXER_DELETE_CONFIRM: Command "confirm_trash" = Binding::plain(Key::d),
-            after super::TENXER_DELETE;
+            after super::MOVE_TO_TRASH;
     }
 }

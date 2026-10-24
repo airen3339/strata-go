@@ -11,10 +11,12 @@ use super::{Binding, Command, Digits};
 /// in neither.
 ///
 /// A `Command` names its id, and `trigger(Group)` or `step(Group)` for a
-/// chord key. It is bound in the maps its block lists it in; `live in both`
-/// also binds it in the other map, and an unlisted command names its maps
-/// with `live in default`, `live in tenxer` or `live in both`. A single
-/// command that follows another names it with `after`.
+/// chord key. `= binding` binds one key and `=> [first, second]` alternates,
+/// primary first, in the maps its block lists it in; `live in both` also binds
+/// it in the other map, and an unlisted command names its maps with
+/// `live in default`, `live in tenxer` or `live in both`. A command whose maps
+/// bind different keys lists each, `=> default [..], tenxer [..]`, whatever
+/// its block. A single command that follows another names it with `after`.
 macro_rules! catalog {
     (@after) => { None };
     (@after $prefix:path) => { Some($prefix) };
@@ -27,67 +29,95 @@ macro_rules! catalog {
         $crate::ui::keys::command::Kind::Step($crate::ui::keys::command::Group::$group)
     };
 
-    (@default Both; $value:expr) => { &[$value] };
-    (@default Default; $value:expr) => { &[$value] };
-    (@default Tenxer; $value:expr) => { &[] };
-    (@default $block:ident both; $value:expr) => { &[$value] };
-    (@default Unlisted default; $value:expr) => { &[$value] };
-    (@default Unlisted tenxer; $value:expr) => { &[] };
-    (@tenxer Both; $value:expr) => { &[$value] };
-    (@tenxer Default; $value:expr) => { &[] };
-    (@tenxer Tenxer; $value:expr) => { &[$value] };
-    (@tenxer $block:ident both; $value:expr) => { &[$value] };
-    (@tenxer Unlisted default; $value:expr) => { &[] };
-    (@tenxer Unlisted tenxer; $value:expr) => { &[$value] };
+    (@default Both; $($value:expr),+) => { &[$($value),+] };
+    (@default Default; $($value:expr),+) => { &[$($value),+] };
+    (@default Tenxer; $($value:expr),+) => { &[] };
+    (@default $block:ident both; $($value:expr),+) => { &[$($value),+] };
+    (@default Unlisted default; $($value:expr),+) => { &[$($value),+] };
+    (@default Unlisted tenxer; $($value:expr),+) => { &[] };
+    (@tenxer Both; $($value:expr),+) => { &[$($value),+] };
+    (@tenxer Default; $($value:expr),+) => { &[] };
+    (@tenxer Tenxer; $($value:expr),+) => { &[$($value),+] };
+    (@tenxer $block:ident both; $($value:expr),+) => { &[$($value),+] };
+    (@tenxer Unlisted default; $($value:expr),+) => { &[] };
+    (@tenxer Unlisted tenxer; $($value:expr),+) => { &[$($value),+] };
 
-    (@define [$($attr:tt)*] $name:ident Binding [] [$value:expr] $block:ident []) => {
+    (@define [$($attr:tt)*] $name:ident Binding [] [$value:expr] [] $block:ident []) => {
         $($attr)* pub(crate) const $name: Binding = $value;
     };
-    (@define [$($attr:tt)*] $name:ident Digits [] [$value:expr] $block:ident []) => {
+    (@define [$($attr:tt)*] $name:ident Digits [] [$value:expr] [] $block:ident []) => {
         $($attr)* pub(crate) const $name: Digits = $value;
     };
     (
         @define [$($attr:tt)*] $name:ident Command [$id:literal $($kind:ident($group:ident))?]
-            [$value:expr] $block:ident [$($live:ident)?]
+            [$($value:expr),+] [] $block:ident [$($live:ident)?]
     ) => {
         $($attr)* pub(crate) const $name: Command =
             Command::new(&$crate::ui::keys::command::Spec {
                 id: $id,
                 kind: catalog!(@kind $($kind($group))?),
-                default: catalog!(@default $block $($live)?; $value),
-                tenxer: catalog!(@tenxer $block $($live)?; $value),
+                default: catalog!(@default $block $($live)?; $($value),+),
+                tenxer: catalog!(@tenxer $block $($live)?; $($value),+),
+            });
+    };
+    (
+        @define [$($attr:tt)*] $name:ident Command [$id:literal $($kind:ident($group:ident))?]
+            [] [[$($default:expr),*] [$($tenxer:expr),*]] $block:ident []
+    ) => {
+        $($attr)* pub(crate) const $name: Command =
+            Command::new(&$crate::ui::keys::command::Spec {
+                id: $id,
+                kind: catalog!(@kind $($kind($group))?),
+                default: &[$($default),*],
+                tenxer: &[$($tenxer),*],
             });
     };
 
     (
         $(listed {
             $($(#[$meta:meta])* $name:ident: $kind:ident
-                $($id:literal $($ck:ident($cg:ident))?)? = $value:expr
+                $($id:literal $($ck:ident($cg:ident))?)?
+                $(= $value:expr)?
+                $(=> [$($any:expr),+ $(,)?])?
+                $(=> default [$($dv:expr),* $(,)?], tenxer [$($tv:expr),* $(,)?])?
                 $(, after $prefix:path)? $(, live in $live:ident)?;)*
         })?
         $(default_only {
             $($(#[$dmeta:meta])* $dname:ident: $dkind:ident
-                $($did:literal $($dck:ident($dcg:ident))?)? = $dvalue:expr
+                $($did:literal $($dck:ident($dcg:ident))?)?
+                $(= $dvalue:expr)?
+                $(=> [$($dany:expr),+ $(,)?])?
+                $(=> default [$($ddv:expr),* $(,)?], tenxer [$($dtv:expr),* $(,)?])?
                 $(, after $dprefix:path)? $(, live in $dlive:ident)?;)*
         })?
         $(tenxer_only {
             $($(#[$tmeta:meta])* $tname:ident: $tkind:ident
-                $($tid:literal $($tck:ident($tcg:ident))?)? = $tvalue:expr
+                $($tid:literal $($tck:ident($tcg:ident))?)?
+                $(= $tvalue:expr)?
+                $(=> [$($tany:expr),+ $(,)?])?
+                $(=> default [$($tdv:expr),* $(,)?], tenxer [$($ttv:expr),* $(,)?])?
                 $(, after $tprefix:path)? $(, live in $tlive:ident)?;)*
         })?
         $(unlisted {
             $($(#[$umeta:meta])* $uname:ident: $ukind:ident
-                $($uid:literal $($uck:ident($ucg:ident))?)? = $uvalue:expr
+                $($uid:literal $($uck:ident($ucg:ident))?)?
+                $(= $uvalue:expr)?
+                $(=> [$($uany:expr),+ $(,)?])?
+                $(=> default [$($udv:expr),* $(,)?], tenxer [$($utv:expr),* $(,)?])?
                 $(, live in $ulive:ident)?;)*
         })?
     ) => {
-        $($(catalog!(@define [$(#[$meta])*] $name $kind [$($id $($ck($cg))?)?] [$value]
+        $($(catalog!(@define [$(#[$meta])*] $name $kind [$($id $($ck($cg))?)?]
+            [$($value)? $($($any),+)?] [$([$($dv),*] [$($tv),*])?]
             Both [$($live)?]);)*)?
-        $($(catalog!(@define [$(#[$dmeta])*] $dname $dkind [$($did $($dck($dcg))?)?] [$dvalue]
+        $($(catalog!(@define [$(#[$dmeta])*] $dname $dkind [$($did $($dck($dcg))?)?]
+            [$($dvalue)? $($($dany),+)?] [$([$($ddv),*] [$($dtv),*])?]
             Default [$($dlive)?]);)*)?
-        $($(catalog!(@define [$(#[$tmeta])*] $tname $tkind [$($tid $($tck($tcg))?)?] [$tvalue]
+        $($(catalog!(@define [$(#[$tmeta])*] $tname $tkind [$($tid $($tck($tcg))?)?]
+            [$($tvalue)? $($($tany),+)?] [$([$($tdv),*] [$($ttv),*])?]
             Tenxer [$($tlive)?]);)*)?
-        $($(catalog!(@define [$(#[$umeta])*] $uname $ukind [$($uid $($uck($ucg))?)?] [$uvalue]
+        $($(catalog!(@define [$(#[$umeta])*] $uname $ukind [$($uid $($uck($ucg))?)?]
+            [$($uvalue)? $($($uany),+)?] [$([$($udv),*] [$($utv),*])?]
             Unlisted [$($ulive)?]);)*)?
 
         pub(super) const ENTRIES: &[super::Entry] = &[

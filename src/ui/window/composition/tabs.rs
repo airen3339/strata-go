@@ -612,9 +612,9 @@ impl TabWindow {
             self.new_tab();
         } else if press.is(TAB_CLOSE) {
             self.close(self.active.get());
-        } else if press.is_any(&[TAB_NEXT, TAB_NEXT_PAGE_DOWN]) {
+        } else if press.is(TAB_NEXT) {
             self.cycle(1);
-        } else if press.is_any(&[TAB_PREVIOUS, TAB_PREVIOUS_PAGE_UP]) {
+        } else if press.is(TAB_PREVIOUS) {
             self.cycle(-1);
         } else if press.is(TAB_MOVE_LEFT) {
             self.move_active_tab(-1);
@@ -661,17 +661,20 @@ pub(in crate::ui::window) fn is_tab_shortcut(press: &KeyPress) -> bool {
         TAB_CLOSE,
         TAB_NEXT,
         TAB_PREVIOUS,
-        TAB_NEXT_PAGE_DOWN,
-        TAB_PREVIOUS_PAGE_UP,
         TAB_MOVE_LEFT,
         TAB_MOVE_RIGHT,
     ]) || tab_number(press).is_some()
 }
 
 /// A tab digit, unless the key types the `+` or `−` of a text size shortcut,
-/// as the 1 key does with Shift on Swiss German.
+/// as the 1 key does with Shift on Swiss German. Only the primary enlarging
+/// key counts, so German Shift+0, which types `=`, still selects tab 10.
 fn tab_number(press: &KeyPress) -> Option<u8> {
-    if press.is_any(&[TEXT_LARGER, TEXT_SMALLER]) {
+    if TEXT_LARGER
+        .primary()
+        .is_some_and(|primary| press.is(primary))
+        || press.is(TEXT_SMALLER)
+    {
         return None;
     }
     press.digit_in(TAB_NUMBERS)

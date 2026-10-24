@@ -2225,11 +2225,14 @@ pub(crate) fn filter_controls(tooltip: &str) -> (gtk::Entry, gtk::Revealer, gtk:
         .transition_type(gtk::RevealerTransitionType::SlideDown)
         .child(&row)
         .build();
+    // Built once, so it names the default map's key in either mode.
+    let keys = super::keys::label_in_map(
+        &rust_i18n::locale(),
+        &super::keys::Keys::One(super::keys::bindings::FILTER.shown()),
+        super::keys::Map::Default,
+    );
     let button = gtk::ToggleButton::builder()
-        .tooltip_text(super::shortcut_reference::with_keys(
-            tooltip,
-            super::keys::Keys::One(super::keys::bindings::FILTER.shown()),
-        ))
+        .tooltip_text(rust_i18n::t!(tooltip, keys = keys))
         .build();
     button.set_child(Some(&crate::assets::chrome_icon(
         crate::assets::icons::FUNNEL,
@@ -3633,7 +3636,7 @@ fn list_navigation(browser: &Rc<Browser>) -> gtk::Box {
         let button = gtk::Button::builder()
             .tooltip_text(super::shortcut_reference::with_keys(
                 tooltip,
-                Keys::One(binding.shown()),
+                Keys::One(binding.alternate(0).shown()),
             ))
             .sensitive(available)
             .build();

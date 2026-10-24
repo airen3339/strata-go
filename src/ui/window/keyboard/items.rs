@@ -14,7 +14,7 @@ use crate::{
     model::Location,
     ui::{
         browser_modes::{BrowserMode, ThumbnailResize},
-        keys::{Binding, Command, KeyPress, Match, bindings::*},
+        keys::{Binding, Command, KeyPress, Map, Match, bindings::*},
         preview::{ArchiveMove, MediaCommand, PreviewSurface, preview_target},
         tenxer_mode::Chord,
         window::{
@@ -84,9 +84,15 @@ impl Dispatcher {
         {
             return Some(Propagation::Stop);
         }
-        let permanent = if press.is(DELETE.ignoring(DELETE_MODIFIERS)) {
+        let permanent = if press.is(MOVE_TO_TRASH
+            .in_map(Map::Default)
+            .ignoring(DELETE_MODIFIERS))
+        {
             Some(false)
-        } else if press.is(DELETE_PERMANENTLY.ignoring(DELETE_MODIFIERS)) {
+        } else if press.is(DELETE_PERMANENTLY
+            .in_map(Map::Default)
+            .ignoring(DELETE_MODIFIERS))
+        {
             Some(true)
         } else {
             None
@@ -275,13 +281,13 @@ impl Dispatcher {
     fn item_commands(&self, browser: &Browser, event: &KeyEvent) -> KeyResult {
         let press = &event.press;
         if self.view.item_view_has_focus()
-            && (press.is_any(&[FIRST_ITEM, LAST_ITEM])
+            && (press.is_any(&[FIRST_ITEM, LAST_ITEM].map(|command| command.in_map(Map::Default)))
                 || press.is_any(&[EXTEND_TO_FIRST, EXTEND_TO_LAST]))
         {
             self.view.commit_selection();
-            let jump = if press.is(FIRST_ITEM) {
+            let jump = if press.is(FIRST_ITEM.in_map(Map::Default)) {
                 Some(-1)
-            } else if press.is(LAST_ITEM) {
+            } else if press.is(LAST_ITEM.in_map(Map::Default)) {
                 Some(1)
             } else {
                 None
@@ -293,8 +299,8 @@ impl Dispatcher {
             }
         }
         let page: [(&dyn Match, _, _); 4] = [
-            (&PAGE_UP.ignoring(SUPER), -1, false),
-            (&PAGE_DOWN.ignoring(SUPER), 1, false),
+            (&PAGE_UP.in_map(Map::Default).ignoring(SUPER), -1, false),
+            (&PAGE_DOWN.in_map(Map::Default).ignoring(SUPER), 1, false),
             (&EXTEND_PAGE_UP.ignoring(SUPER), -1, true),
             (&EXTEND_PAGE_DOWN.ignoring(SUPER), 1, true),
         ];
@@ -308,9 +314,10 @@ impl Dispatcher {
             self.view.copy_path();
         } else if press.is(PIN) {
             self.view.pin_focused();
-        } else if press.is(PREVIEW.ignoring(SHIFT.union(SUPER))) {
+        } else if press.is(PREVIEW.in_map(Map::Default).ignoring(SHIFT.union(SUPER))) {
             self.view.cancel_pending_click_rename();
-            let activated_directory = press.is(PREVIEW) && self.view.activate_directory_on_space();
+            let activated_directory =
+                press.is(PREVIEW.in_map(Map::Default)) && self.view.activate_directory_on_space();
             if !activated_directory {
                 self.preview.toggle(
                     preview_target(browser.focused_entry()),
@@ -368,9 +375,9 @@ impl Dispatcher {
         if !event.without(Modifiers::CONTROL_MASK | SUPER) {
             return Some(Propagation::Proceed);
         }
-        if press.is(HISTORY_BACK.ignoring(SHIFT)) {
+        if press.is(HISTORY_BACK.in_map(Map::Default).ignoring(SHIFT)) {
             browser.back();
-        } else if press.is(HISTORY_FORWARD.ignoring(SHIFT)) {
+        } else if press.is(HISTORY_FORWARD.in_map(Map::Default).ignoring(SHIFT)) {
             browser.forward();
         } else if press.is(PARENT_FOLDER.ignoring(SHIFT)) {
             browser.parent();
@@ -428,8 +435,8 @@ impl Dispatcher {
                         || (self.view.listing_search_active() && self.tenxer_control_page(press))
                 }
                 SHIFT => {
-                    (press.is_any(&[TENXER_LAST_ITEM, VISUAL_UNSET]) || press.is_any(&EXTEND_KEYS))
-                        && self.tenxer_shifted(browser, press)
+                    (press.is_any(&[LAST_ITEM, VISUAL_UNSET]) || press.is_any(&EXTEND_KEYS))
+                        && self.tenxer_shifted(press)
                 }
                 _ => false,
             };
@@ -438,7 +445,7 @@ impl Dispatcher {
             || self.tenxer_first_or_last(press)
             || self.tenxer_selection_command(press)
             || self.tenxer_alt_navigation(browser, press)
-            || self.tenxer_shifted(browser, press)
+            || self.tenxer_shifted(press)
         {
             return true;
         }
@@ -456,7 +463,7 @@ impl Dispatcher {
             self.go_parent();
         } else if press.is(OPEN) || press.is(ENTER) {
             self.activate_focused(browser);
-        } else if press.is(PEEK) {
+        } else if press.is(PREVIEW) {
             if !self.toggle_file_preview(browser) {
                 self.view.toggle_folder_peek();
             }
@@ -542,7 +549,7 @@ impl Dispatcher {
             || self.tenxer_first_or_last(press)
             || self.tenxer_selection_command(press)
             || self.tenxer_alt_navigation(browser, press)
-            || self.tenxer_shifted(browser, press)
+            || self.tenxer_shifted(press)
             || self.tenxer_plain(browser, press)
     }
 
@@ -593,14 +600,16 @@ impl Dispatcher {
         true
     }
 
+    /// Plain Page Up and Page Down page in `tenxer_plain`, where search hits
+    /// swallow them.
     fn tenxer_control_page(&self, press: &KeyPress) -> bool {
         let (direction, half) = if press.is(HALF_PAGE_UP) {
             (-1, true)
         } else if press.is(HALF_PAGE_DOWN) {
             (1, true)
-        } else if press.is_any(&[TENXER_PAGE_UP, TENXER_PAGE_UP_PAGE_UP]) {
+        } else if press.is(PAGE_UP) && !press.is(PAGE_UP_KEY) {
             (-1, false)
-        } else if press.is_any(&[TENXER_PAGE_DOWN, TENXER_PAGE_DOWN_PAGE_DOWN]) {
+        } else if press.is(PAGE_DOWN) && !press.is(PAGE_DOWN_KEY) {
             (1, false)
         } else {
             return false;
@@ -624,19 +633,16 @@ impl Dispatcher {
         true
     }
 
-    fn tenxer_shifted(&self, browser: &Rc<Browser>, press: &KeyPress) -> bool {
+    /// End jumps in `tenxer_plain`, where search hits swallow it.
+    fn tenxer_shifted(&self, press: &KeyPress) -> bool {
         // Native Shift selection must not interfere with v/V ranges.
         if press.is_any(&EXTEND_KEYS) {
             return true;
         }
         if press.is(VISUAL_UNSET) && !self.selection_keys_blocked() {
             self.toggle_visual(VisualKind::Unset);
-        } else if press.is(TENXER_LAST_ITEM) {
+        } else if press.is(LAST_ITEM) && !press.is(END_KEY) {
             self.jump_displayed(1);
-        } else if press.is(TENXER_HISTORY_BACK) {
-            self.go_back(browser);
-        } else if press.is(TENXER_HISTORY_FORWARD) {
-            self.go_forward(browser);
         } else if press.is(SCROLL_PREVIEW_DOWN) {
             self.scroll_open_preview(1);
         } else if press.is(SCROLL_PREVIEW_UP) {
@@ -671,7 +677,7 @@ impl Dispatcher {
             self.shortcuts.arm_chord(Chord::Go);
         } else if let Some(command) = media_track(press) {
             return self.preview.media_key(command);
-        } else if press.is(PEEK) {
+        } else if press.is(PREVIEW) {
             if !self.toggle_file_preview(browser) {
                 if self.view.view_mode() == BrowserMode::Columns {
                     self.open_miller_child(browser);

@@ -12,10 +12,10 @@ use crate::ui::{
     keys::{
         Match,
         bindings::{
-            DOWN, END_KEY, HOME_KEY, LEFT, MEDIA_SEEK_BACK_PAGE, MEDIA_SEEK_FORWARD_PAGE,
-            MEDIA_SEEK_START, MEDIA_VOLUME_STEP_DOWN, MEDIA_VOLUME_STEP_UP,
-            MEDIA_VOLUME_STEP_UP_EQUAL, PAGE_DOWN_KEY, PAGE_UP_KEY, PDF_ZOOM_RESET, RIGHT, SPACE,
-            TENXER_LAST_ITEM, TENXER_MEDIA_MUTE, TENXER_MEDIA_NEXT, TENXER_MEDIA_PREVIOUS, UP,
+            DOWN, END_KEY, HOME_KEY, LEFT, MEDIA_SEEK_BACK_PAGE, MEDIA_SEEK_END,
+            MEDIA_SEEK_FORWARD_PAGE, MEDIA_SEEK_START, MEDIA_VOLUME_STEP_DOWN,
+            MEDIA_VOLUME_STEP_UP, PAGE_DOWN_KEY, PAGE_UP_KEY, PDF_ZOOM_RESET, RIGHT, SPACE,
+            TENXER_MEDIA_MUTE, TENXER_MEDIA_NEXT, TENXER_MEDIA_PREVIOUS, UP,
         },
     },
 };
@@ -88,7 +88,7 @@ impl MediaCommand {
     }
 }
 
-const SEEK_AND_VOLUME: [(&dyn Match, MediaCommand); 13] = [
+const SEEK_AND_VOLUME: [(&dyn Match, MediaCommand); 12] = [
     (
         &LEFT,
         MediaCommand::Seek(MediaSeek::By(-MEDIA_SEEK_STEP_US)),
@@ -115,10 +115,9 @@ const SEEK_AND_VOLUME: [(&dyn Match, MediaCommand); 13] = [
     ),
     (&MEDIA_SEEK_START, MediaCommand::Seek(MediaSeek::Start)),
     (&HOME_KEY, MediaCommand::Seek(MediaSeek::Start)),
-    (&TENXER_LAST_ITEM, MediaCommand::Seek(MediaSeek::End)),
+    (&MEDIA_SEEK_END, MediaCommand::Seek(MediaSeek::End)),
     (&END_KEY, MediaCommand::Seek(MediaSeek::End)),
     (&MEDIA_VOLUME_STEP_UP, MediaCommand::VolumeUp),
-    (&MEDIA_VOLUME_STEP_UP_EQUAL, MediaCommand::VolumeUp),
     (&MEDIA_VOLUME_STEP_DOWN, MediaCommand::VolumeDown),
 ];
 

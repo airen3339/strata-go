@@ -194,33 +194,42 @@ US keyboard. `binding.ignoring(modifiers)` lets a navigation or dismiss key also
 match while those modifiers are held; its label does not change.
 
 A `Command` is a rebindable action with a stable id and its default bindings in
-each map, the default map and the 10xer map. A press matches a command through
-the table of the map 10xer mode selects at that moment, so a command bound in
-one map never matches in the other. `command.ignoring(modifiers)` applies to
-each of its bindings, and `command.in_map(map)` matches another map's bindings
-for a stage that claims them, such as 10xer swallowing default-map keys it
-leaves unbound. Structural keys (arrows, **h j k l**, Enter, Escape, Tab),
-Backspace and Delete, GTK-owned keys, and generic keys that many surfaces read
-for their own job (Space, and Home, End and the page keys outside the file
-listing) stay fixed `Binding` constants.
+each map, the default map and the 10xer map. Each map's entry is an ordered list
+of alternates, primary first: Rename is **F2 / Ctrl+R** in the default map and
+**r / F2** in 10xer. A press matches a command through the table of the map
+10xer mode selects at that moment, so an alternate bound in one map never
+matches in the other. `command.ignoring(modifiers)` applies to each of its
+bindings, and `command.in_map(map)` matches another map's bindings for a stage
+that claims them: 10xer swallowing default-map keys it leaves unbound, and the
+default-map stages that 10xer key presses fall through to from text fields,
+popovers and the file chooser. `command.alternate(index)` is one binding of the
+entry, for a label that shows that alternate alone; it does not match presses.
+Structural keys (arrows, **h j k l**, Enter, Escape, Tab), Backspace, GTK-owned
+keys, and generic keys that many surfaces read for their own job (Space, and
+Home, End and the page keys outside the file listing) stay fixed `Binding`
+constants.
 
 Every shortcut is a named constant in the catalog, `ui::keys::bindings`, with
 one file per area under `src/ui/keys/bindings/`. The `catalog!` macro declares
 each area's constants, such as `COPY: Command "copy" = Binding::ctrl(Key::c);`
 or `UP: Binding = Binding::plain(Key::Up);`, in a block that says which F1 maps
 list them: `listed` (both), `default_only`, `tenxer_only`, or `unlisted`. A
-command is bound in the maps its block lists it in; `, live in both` also binds
-it in the other map, for a handler that reads it there, and an unlisted command
-names its maps with `live in default`, `live in tenxer` or `live in both`. A
+command is bound in the maps its block lists it in, to one key or, written
+`=> [first, second]`, to alternates; `, live in both` also binds it in the other
+map, for a handler that reads it there, and an unlisted command names its maps
+with `live in default`, `live in tenxer` or `live in both`. A command whose maps
+bind different keys lists each, `=> default [..], tenxer [..]`. One action is
+one command: a map's alternates belong in its entry, not in another constant. A
 chord key names its group, `"go" trigger(Go)` or `"go.home" step(Go)`, and a
-command that follows another names it with `, after TENXER_DELETE`. Handlers
+command that follows another names it with `, after MOVE_TO_TRASH`. Handlers
 match catalog constants, and the F1 reference (`ui/shortcut_reference.rs`),
 context-menu hints, and footer hints refer to the same constants. Dispatch logic
 stays in the handlers; the catalog only defines keys.
 
 What a reference row or hint shows is a `Keys` value, never free text. It holds
-`Shown` keys, written `COPY.shown()` or `shown![RENAME, RENAME_R]`; a command
-shows every binding the active map gives it:
+`Shown` keys, written `COPY.shown()` or `shown![TAB_NEXT, TAB_PREVIOUS]`; a
+command shows every binding the active map gives it, and `RENAME.alternate(0)`
+only its primary:
 
 - one key: **Ctrl+C**
 - alternatives: **F2 / Ctrl+R**
@@ -351,7 +360,9 @@ and **Ctrl+A** clears it first.
 1. Add the command to `ui::keys::bindings`, in the catalog block for the F1
    maps that list it, and match it in the handler with `press.is(…)` or
    `press.digit_in(…)`. Mark it `live in both` only when a handler reads it in
-   the map its block leaves out.
+   the map its block leaves out. A new key for an existing action is another
+   alternate in that command's entry; a default-map stage that 10xer presses
+   fall through to matches it with `in_map(Map::Default)`.
 2. Reference the same constant from its F1 row in `ui/shortcut_reference.rs`
    and from any context hint. The label renders itself; translate only the
    action text, in every catalog (see
@@ -381,8 +392,9 @@ every listed constant has a row of its own in each F1 map its catalog block
 names (`listed` for both, `default_only`, `tenxer_only`), a chord's second key
 right after its first, or is explicitly marked as unlisted. `ui::keys::command`
 tests check that commands are bound in exactly the maps their block and
-`live in both` name, that ids round-trip, that chord steps follow their
-trigger, and that every fixed binding has a reason not to be a command. Run
+`live in both` name, that each merged command keeps the keys each map had, that
+no entry lists a binding twice, that ids round-trip, that chord steps follow
+their trigger, and that every fixed binding has a reason not to be a command. Run
 them with `./scripts/test-headless.py keys::`, and run
 `./scripts/test-headless.py i18n::` after changing key names.
 

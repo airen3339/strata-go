@@ -10,7 +10,7 @@ use super::{Dispatcher, KeyResult};
 use crate::{
     app::Browser,
     ui::{
-        keys::{Binding, KeyPress, Match, SHORTCUT_MODIFIERS, bindings::*},
+        keys::{Binding, KeyPress, Map, Match, SHORTCUT_MODIFIERS, bindings::*},
         preview::{ArchiveMove, DocumentScroll, PreviewSurface, media_key_command, preview_target},
         tenxer_mode::Chord,
     },
@@ -47,7 +47,7 @@ impl Dispatcher {
     /// including characters the footer would otherwise claim.
     pub(super) fn tenxer_preview_text(&self, browser: &Browser, press: &KeyPress) -> KeyResult {
         if !self.type_to_search.preferences.tenxer_mode()
-            || press.is(REFERENCE.ignoring(SHORTCUT_MODIFIERS))
+            || press.is(REFERENCE.in_map(Map::Default).ignoring(SHORTCUT_MODIFIERS))
             || press.is(TENXER_MODE)
         {
             return None;
@@ -68,7 +68,7 @@ impl Dispatcher {
             return Some(result);
         }
         // `i` toggled the preview open from the listing; from inside it, it closes.
-        if press.is(PEEK) {
+        if press.is(PREVIEW) {
             self.close_preview(browser);
             return Some(Propagation::Stop);
         }
@@ -157,13 +157,11 @@ impl Dispatcher {
             self.return_from_preview(&self.view.browser());
             return true;
         }
-        let motions: [(&dyn Match, DocumentScroll); 17] = [
+        let motions: [(&dyn Match, DocumentScroll); 15] = [
             (&HALF_PAGE_UP, DocumentScroll::HalfPage(-1)),
             (&HALF_PAGE_DOWN, DocumentScroll::HalfPage(1)),
-            (&TENXER_PAGE_UP, DocumentScroll::Page(-1)),
-            (&TENXER_PAGE_UP_PAGE_UP, DocumentScroll::Page(-1)),
-            (&TENXER_PAGE_DOWN, DocumentScroll::Page(1)),
-            (&TENXER_PAGE_DOWN_PAGE_DOWN, DocumentScroll::Page(1)),
+            (&PAGE_UP, DocumentScroll::Page(-1)),
+            (&PAGE_DOWN, DocumentScroll::Page(1)),
             (&FIRST_ITEM_UP, DocumentScroll::Start),
             (&LAST_ITEM_DOWN, DocumentScroll::End),
             (&VIM_DOWN, DocumentScroll::Line(1)),
@@ -174,7 +172,7 @@ impl Dispatcher {
             (&PAGE_DOWN_KEY.ignoring(SHIFT), DocumentScroll::Page(1)),
             (&HOME_KEY, DocumentScroll::Start),
             (&END_KEY, DocumentScroll::End),
-            (&TENXER_LAST_ITEM, DocumentScroll::End),
+            (&LAST_ITEM, DocumentScroll::End),
         ];
         let Some((_, motion)) = motions.into_iter().find(|(key, _)| press.is(key)) else {
             return false;
@@ -198,7 +196,7 @@ impl Dispatcher {
             }
         } else if press.is(HOME_KEY) {
             self.preview.archive_edge(false);
-        } else if press.is(END_KEY) || press.is(TENXER_LAST_ITEM) {
+        } else if press.is(END_KEY) || press.is(LAST_ITEM) {
             self.preview.archive_edge(true);
         } else {
             return false;
@@ -302,21 +300,17 @@ fn passes_through_preview(press: &KeyPress) -> bool {
         SEARCH,
         LOCATION,
         SETTINGS,
-        HIDDEN_FILES,
-        HIDDEN_FILES_PERIOD,
-        TENXER_SIDEBAR,
+        SIDEBAR,
         VIEW_COLUMNS,
         VIEW_ICONS,
         VIEW_LIST,
         TEXT_LARGER,
-        TEXT_LARGER_EQUAL,
         TEXT_SMALLER,
         TEXT_RESET,
         SIDEBAR_FOCUS,
         TENXER_MODE,
         UNDO,
         REDO,
-        REDO_Y,
         // Media controls reach the drawer's player from the window handler.
         MEDIA_PLAY_PAUSE,
         MEDIA_SEEK_BACK,
@@ -324,19 +318,17 @@ fn passes_through_preview(press: &KeyPress) -> bool {
         MEDIA_VOLUME_UP,
         MEDIA_VOLUME_DOWN,
         MEDIA_MUTE,
-    ])
+    ]) || (press.is(HIDDEN_FILES) && press.modifiers().contains(CONTROL))
 }
 
 fn reaches_listing(press: &KeyPress) -> bool {
     press.is_any(&[
         GO,
         JUMP_VISITED,
-        FILTER_LISTING,
+        FILTER,
         SEARCH_SUBFOLDERS,
         REPEAT_FIND,
         FIND,
-        TENXER_HISTORY_BACK,
-        TENXER_HISTORY_FORWARD,
         JUMP_RECENT,
         REPEAT_FIND_REVERSED,
         FIND_BACKWARD,
@@ -347,28 +339,25 @@ fn reaches_listing(press: &KeyPress) -> bool {
         YANK,
         YANK_CUT,
         PASTE_KEEP_BOTH,
-        TENXER_DELETE,
+        MOVE_TO_TRASH,
         CREATE,
         COPY_AS,
-        TENXER_RENAME,
         RENAME,
         CONTEXT_MENU,
         UNYANK,
-        UNYANK_X,
         PASTE_REPLACE,
-        TENXER_DELETE_PERMANENTLY,
+        DELETE_PERMANENTLY,
         OPEN_WITH,
         MOVE_TO,
         COPY_TO,
         RESTORE,
-        CONTEXT_MENU_F10,
         SORT_BY,
         ACTIONS,
-        TENXER_HIDDEN_FILES,
+        HIDDEN_FILES,
         PROPERTIES,
         COPY,
         CUT,
         PASTE,
         NEW_FOLDER,
-    ]) || press.is_any(&[BACKSPACE, DELETE, DELETE_PERMANENTLY, ENTER])
+    ]) || press.is_any(&[BACKSPACE, ENTER])
 }

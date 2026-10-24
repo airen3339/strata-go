@@ -864,13 +864,17 @@ pub(super) fn build_appearance_menu(
     let description_toggle = preview_toggle.downgrade();
     preferences.bind_preference(
         &preview_shortcut,
+        // The same command shows other keys in the other map.
         |preferences| {
-            crate::ui::shortcut_reference::context_hint_for(
-                crate::ui::shortcut_reference::ContextHint::Preview,
-                preferences,
+            (
+                crate::ui::shortcut_reference::context_hint_for(
+                    crate::ui::shortcut_reference::ContextHint::Preview,
+                    preferences,
+                ),
+                preferences.tenxer_mode(),
             )
         },
-        move |widget, hint| {
+        move |widget, (hint, _)| {
             let shortcut = widget
                 .downcast_ref::<gtk::Label>()
                 .expect("preview shortcut label");
@@ -982,7 +986,7 @@ pub(super) fn build_appearance_menu(
             with_keys("Reset text size (%{keys})", Keys::One(TEXT_RESET.shown())),
             with_keys(
                 "Increase text size (%{keys})",
-                Keys::One(TEXT_LARGER.shown()),
+                Keys::One(TEXT_LARGER.alternate(0).shown()),
             ),
         ])
     };
@@ -1014,7 +1018,7 @@ pub(super) fn build_appearance_menu(
         },
         "Hidden files",
         &super::keys::label(&super::keys::Keys::One(
-            super::keys::bindings::HIDDEN_FILES.shown(),
+            super::keys::bindings::HIDDEN_FILES.alternate(0).shown(),
         )),
         hidden_files_shown,
         true,

@@ -65,7 +65,7 @@ use super::{
     focus_navigation::{
         FOCUS_MODIFIERS, arrow_direction, plain_tab_direction, vim_focus_direction,
     },
-    keys::{self, KeyPress, SHORTCUT_MODIFIERS, bindings::*},
+    keys::{self, KeyPress, Map, SHORTCUT_MODIFIERS, bindings::*},
 };
 
 type Completion = Box<dyn FnOnce(ashpd::backend::Result<SelectedFiles>)>;
@@ -2257,13 +2257,13 @@ fn apply_external_parent(window: &gtk::Window, parent: Option<&WindowIdentifierT
 
 fn save_hints(kind: &ChooserKind, preferences: &Rc<PreferenceManager>) -> Option<gtk::Box> {
     use crate::ui::keys::{
-        self, Keys, Map, Shown,
-        bindings::{ENTER, OPEN, TENXER_RENAME},
+        self, Keys, Shown,
+        bindings::{ENTER, OPEN, RENAME},
     };
     let hints: &[(Shown, &str)] = match kind {
         ChooserKind::SaveFile { .. } => &[
             (ENTER.shown(), "Save here"),
-            (TENXER_RENAME.shown(), "Edit name"),
+            (RENAME.alternate(0).shown(), "Edit name"),
             (OPEN.shown(), "Replace file"),
         ],
         ChooserKind::SaveFiles { .. } => &[(ENTER.shown(), "Save here")],
@@ -2356,13 +2356,9 @@ fn bind_chooser_sidebar_modes(
     let describe = {
         let toggle = toggle.clone();
         let state = Rc::downgrade(&sidebar.state);
-        let preferences = preferences.clone();
         Rc::new(move || {
             if let Some(state) = state.upgrade() {
-                toggle.describe(
-                    SidebarMode::of(toggle.is_active(), state.rail.get()),
-                    preferences.tenxer_mode(),
-                );
+                toggle.describe(SidebarMode::of(toggle.is_active(), state.rail.get()));
             }
         })
     };
@@ -2461,7 +2457,7 @@ fn install_shortcuts(
         let focused = gtk::prelude::RootExt::focus(&state.window);
         if preferences.tenxer_mode()
             && (state.name_has_focus(focused.as_ref()) || state.view.location_has_focus())
-            && !(press.is(REFERENCE.ignoring(SHORTCUT_MODIFIERS))
+            && !(press.is(REFERENCE.in_map(Map::Default).ignoring(SHORTCUT_MODIFIERS))
                 || press.is(ESCAPE_ANY)
                 || press.is(TENXER_MODE))
         {
@@ -2496,7 +2492,7 @@ fn install_shortcuts(
         {
             return glib::Propagation::Proceed;
         }
-        if press.is_any(&[CONTEXT_MENU, CONTEXT_MENU_F10])
+        if press.is(CONTEXT_MENU)
             && !focused.as_ref().is_some_and(|widget| {
                 super::focus_navigation::editable(widget)
                     || super::focus_navigation::in_popover(widget)
@@ -2602,7 +2598,7 @@ fn install_shortcuts(
             state.cancel();
             return glib::Propagation::Stop;
         }
-        if press.is_any(&[RENAME, RENAME_R])
+        if press.is(RENAME.in_map(Map::Default))
             && browser.selected_entries().len() == 1
             && !focused.as_ref().is_some_and(|widget| {
                 super::focus_navigation::editable(widget)
@@ -2623,7 +2619,7 @@ fn install_shortcuts(
         if state.view.new_entry_is_active() || state.view.rename_is_active() {
             return glib::Propagation::Proceed;
         }
-        if press.is(PREVIEW)
+        if press.is(PREVIEW.in_map(Map::Default))
             && let Some(entry) = state.view.search_result_for_space()
         {
             if state.view.activate_directory_on_space() {
@@ -2635,7 +2631,7 @@ fn install_shortcuts(
             );
             return glib::Propagation::Stop;
         }
-        if press.is(FILTER) && state.view.show_filter() {
+        if press.is(FILTER.in_map(Map::Default)) && state.view.show_filter() {
             return glib::Propagation::Stop;
         }
         if press.is(LOCATION) {
@@ -2682,11 +2678,7 @@ fn install_shortcuts(
             }
             return glib::Propagation::Stop;
         }
-        if press.is(if preferences.tenxer_mode() {
-            TENXER_SIDEBAR
-        } else {
-            SIDEBAR
-        }) {
+        if press.is(SIDEBAR) {
             if state
                 .destination_host
                 .as_ref()
@@ -2739,13 +2731,19 @@ fn install_shortcuts(
             }
             return glib::Propagation::Stop;
         }
-        if press.is_any(&[HIDDEN_FILES, HIDDEN_FILES_PERIOD]) {
+        if press.is(HIDDEN_FILES.in_map(Map::Default)) {
             browser.toggle_hidden();
             return glib::Propagation::Stop;
         }
-        let permanent = if press.is(DELETE.ignoring(ModifierType::SUPER_MASK)) {
+        let permanent = if press.is(MOVE_TO_TRASH
+            .in_map(Map::Default)
+            .ignoring(ModifierType::SUPER_MASK))
+        {
             Some(false)
-        } else if press.is(DELETE_PERMANENTLY.ignoring(ModifierType::SUPER_MASK)) {
+        } else if press.is(DELETE_PERMANENTLY
+            .in_map(Map::Default)
+            .ignoring(ModifierType::SUPER_MASK))
+        {
             Some(true)
         } else {
             None
@@ -2911,8 +2909,8 @@ fn install_shortcuts(
             state.window.set_focus_visible(true);
             return glib::Propagation::Stop;
         }
-        if press.is(PREVIEW.ignoring(FOCUS_MODIFIERS)) {
-            if press.is(PREVIEW) && state.view.activate_directory_on_space() {
+        if press.is(PREVIEW.in_map(Map::Default).ignoring(FOCUS_MODIFIERS)) {
+            if press.is(PREVIEW.in_map(Map::Default)) && state.view.activate_directory_on_space() {
                 return glib::Propagation::Stop;
             }
             preview.toggle(
@@ -2987,9 +2985,12 @@ fn install_shortcuts(
         {
             return glib::Propagation::Stop;
         }
-        if press.is(HISTORY_BACK.ignoring(FOCUS_MODIFIERS)) {
+        if press.is(HISTORY_BACK.in_map(Map::Default).ignoring(FOCUS_MODIFIERS)) {
             browser.back();
-        } else if press.is(HISTORY_FORWARD.ignoring(FOCUS_MODIFIERS)) {
+        } else if press.is(HISTORY_FORWARD
+            .in_map(Map::Default)
+            .ignoring(FOCUS_MODIFIERS))
+        {
             browser.forward();
         } else if press.is(PARENT_FOLDER.ignoring(FOCUS_MODIFIERS)) {
             browser.parent();

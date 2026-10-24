@@ -1,9 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 use super::*;
-use crate::ui::keys::bindings::{
-    ENTER, ESCAPE, FIND_IN_PREVIEW, PREVIOUS_MATCH, TENXER_FIND_IN_PREVIEW,
-};
+use crate::ui::keys::bindings::{ENTER, ESCAPE, FIND_IN_PREVIEW, PREVIOUS_MATCH};
 
 #[derive(Clone)]
 enum Target {
@@ -321,18 +319,13 @@ impl PreviewDrawer {
         preferences.bind_preference(
             &self.state.find_button,
             super::super::preferences::PreferenceManager::tenxer_mode,
-            move |_, tenxer| {
+            move |_, _| {
                 let Some(button) = button.upgrade() else {
                     return;
                 };
-                let shortcut = if tenxer {
-                    TENXER_FIND_IN_PREVIEW
-                } else {
-                    FIND_IN_PREVIEW
-                };
                 let label = rust_i18n::t!(
                     "Find in preview (%{shortcut})",
-                    shortcut = keys::label(&keys::Keys::One(shortcut.shown()))
+                    shortcut = keys::label(&keys::Keys::One(FIND_IN_PREVIEW.shown()))
                 );
                 button.set_tooltip_text(Some(&label));
                 super::super::accessibility::set_label(&button, &label);
@@ -350,7 +343,7 @@ impl PreviewDrawer {
             .as_ref()
             .is_some_and(|focus| focus.is_ancestor(&self.state.find.widget));
         let opens = if tenxer {
-            !in_find && press.is(TENXER_FIND_IN_PREVIEW)
+            !in_find && press.is(FIND_IN_PREVIEW)
         } else {
             press.is(FIND_IN_PREVIEW)
         };

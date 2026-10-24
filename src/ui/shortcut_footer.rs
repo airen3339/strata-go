@@ -18,8 +18,7 @@ use super::keys::{
     bindings::{
         DOWN, END_KEY, ENTER_ANY_SHIFT, ESCAPE_ANY, FOCUS_NEXT, FOCUS_PREVIOUS, HOME_KEY, LEFT,
         PAGE_DOWN_KEY, PAGE_UP_KEY, REFERENCE, REFERENCE_CATEGORIES, REFERENCE_LIST,
-        REFERENCE_SEARCH, RIGHT, SPACE, TENXER_REFERENCE, UP, VIM_DOWN, VIM_LEFT, VIM_RIGHT,
-        VIM_UP,
+        REFERENCE_SEARCH, RIGHT, SPACE, UP, VIM_DOWN, VIM_LEFT, VIM_RIGHT, VIM_UP,
     },
 };
 use super::{
@@ -689,7 +688,7 @@ impl ShortcutFooter {
         let show_hints = Rc::new(Cell::new(true));
 
         let more = gtk::ToggleButton::new();
-        let reference = Keys::One(bindings::REFERENCE.shown());
+        let reference = Keys::One(bindings::REFERENCE.alternate(0).shown());
         let more_label = with_keys("%{keys} Shortcuts", reference);
         more.set_child(Some(&gtk::Label::new(Some(&more_label))));
         more.add_css_class("shortcut-footer-button");
@@ -1364,8 +1363,10 @@ impl ShortcutFooter {
     pub(in crate::ui) fn handle_key(&self, press: &KeyPress) -> Option<glib::Propagation> {
         const SHIFT: gdk::ModifierType = gdk::ModifierType::SHIFT_MASK;
         let reference_open = self.session.is_open();
-        let f1 = press.is(REFERENCE);
-        let tilde = self.tilde_toggles(press, reference_open);
+        // A key that types, as 10xer's ~ does, toggles only where it would not type.
+        let typed = press.text().is_some();
+        let f1 = press.is(REFERENCE) && !typed;
+        let tilde = typed && self.tilde_toggles(press, reference_open);
         if self.prompt_has_focus() && !f1 && !tilde && !reference_open {
             return None;
         }
@@ -1556,9 +1557,7 @@ impl ShortcutFooter {
     }
 
     fn tilde_toggles(&self, press: &KeyPress, reference_open: bool) -> bool {
-        if !super::preferences::PreferenceManager::shared().tenxer_mode()
-            || !press.is(TENXER_REFERENCE)
-        {
+        if !super::preferences::PreferenceManager::shared().tenxer_mode() || !press.is(REFERENCE) {
             return false;
         }
         if reference_open {

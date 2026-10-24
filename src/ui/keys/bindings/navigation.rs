@@ -15,26 +15,42 @@ catalog! {
         VIM_LEFT: Binding = Binding::plain(Key::h);
         VIM_RIGHT: Binding = Binding::plain(Key::l);
         FIRST_ITEM: Command "first_item" = Binding::plain(Key::Home);
-        LAST_ITEM: Command "last_item" = Binding::plain(Key::End);
-        FIRST_ITEM_UP: Command "first_item_up" = Binding::ctrl(Key::Up);
-        LAST_ITEM_DOWN: Command "last_item_down" = Binding::ctrl(Key::Down);
-        PAGE_UP: Command "page_up" = Binding::plain(Key::Page_Up);
-        PAGE_DOWN: Command "page_down" = Binding::plain(Key::Page_Down);
+        LAST_ITEM: Command "last_item" => default [Binding::plain(Key::End)],
+            tenxer [Binding::shift(Key::g), Binding::plain(Key::End)];
+        FIRST_ITEM_UP: Command "jump_to_first_item" = Binding::ctrl(Key::Up);
+        LAST_ITEM_DOWN: Command "jump_to_last_item" = Binding::ctrl(Key::Down);
+        // Where no tab strip takes them first, as in file choosers, Ctrl with
+        // the page keys pages too.
+        PAGE_UP: Command "page_up" => default [Binding::plain(Key::Page_Up)],
+            tenxer [
+                Binding::plain(Key::Page_Up),
+                Binding::ctrl(Key::b),
+                Binding::ctrl(Key::Page_Up),
+            ];
+        PAGE_DOWN: Command "page_down" => default [Binding::plain(Key::Page_Down)],
+            tenxer [
+                Binding::plain(Key::Page_Down),
+                Binding::ctrl(Key::f),
+                Binding::ctrl(Key::Page_Down),
+            ];
 
         ENTER: Binding = Binding::plain(Key::Return);
         ESCAPE: Binding = Binding::plain(Key::Escape);
         BACKSPACE: Binding = Binding::plain(Key::BackSpace);
-        DELETE: Binding = Binding::plain(Key::Delete);
-        DELETE_PERMANENTLY: Binding = Binding::shift(Key::Delete);
         FOCUS_NEXT: Binding = Binding::plain(Key::Tab);
         FOCUS_PREVIOUS: Binding = Binding::shift(Key::Tab);
 
-        HISTORY_BACK: Command "history_back" = Binding::alt(Key::Left);
-        HISTORY_FORWARD: Command "history_forward" = Binding::alt(Key::Right);
+        HISTORY_BACK: Command "history_back" => default [Binding::alt(Key::Left)],
+            tenxer [Binding::alt(Key::Left), Binding::shift(Key::h)];
+        HISTORY_FORWARD: Command "history_forward" => default [Binding::alt(Key::Right)],
+            tenxer [Binding::alt(Key::Right), Binding::shift(Key::l)];
         PARENT_FOLDER: Command "parent_folder" = Binding::alt(Key::Up);
         HOME_FOLDER: Command "home_folder" = Binding::alt(Key::Home);
         OPEN_IN_NEW_TAB: Command "open_in_new_tab" = Binding::ctrl(Key::Return);
         OPEN_IN_NEW_WINDOW: Command "open_in_new_window" = Binding::shift(Key::Return);
+        /// Previews the focused file or opens a folder; 10xer peeks with **i**.
+        PREVIEW: Command "preview" => default [Binding::plain(Key::space)],
+            tenxer [Binding::plain(Key::i)];
     }
     default_only {
         EXTEND_UP: Binding = Binding::shift(Key::Up);
@@ -43,10 +59,6 @@ catalog! {
         EXTEND_PAGE_DOWN: Binding = Binding::shift(Key::Page_Down);
         /// GTK's list views handle it; the reference names it.
         SELECTION_TOGGLE: Binding = Binding::ctrl(Key::space);
-        /// Previews the focused file or opens a folder. 10xer previews with
-        /// **i**, but the file chooser and keys its listing leaves alone still
-        /// preview with Space there.
-        PREVIEW: Command "preview" = Binding::plain(Key::space), live in both;
     }
     tenxer_only {
         /// Space wherever it activates, selects, plays or types; [`PREVIEW`]

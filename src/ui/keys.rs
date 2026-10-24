@@ -32,14 +32,13 @@ pub(crate) const SHORTCUT_MODIFIERS: Modifiers = Modifiers::CONTROL_MASK
 
 /// Editing shortcuts of `gtk::Text` and `gtk::TextView`, with the widget action
 /// each runs.
-pub(crate) const TEXT_EDITING: [(Command, &str); 7] = [
+pub(crate) const TEXT_EDITING: [(Command, &str); 6] = [
     (bindings::COPY, "clipboard.copy"),
     (bindings::CUT, "clipboard.cut"),
     (bindings::PASTE, "clipboard.paste"),
     (bindings::SELECT_ALL, "selection.select-all"),
     (bindings::UNDO, "text.undo"),
     (bindings::REDO, "text.redo"),
-    (bindings::REDO_Y, "text.redo"),
 ];
 
 /// A canonical key and its exact modifiers. Letters are lowercase with Shift
