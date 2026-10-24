@@ -1,10 +1,7 @@
 {"scenario":"view-folders-open-new-tabs","modes":["columns","icons","list"]}
 {"wait":{"entries":{"contains":["documents","pictures","archive"]},"dir":"$root"},"message":"the original file view lists folders to drag"}
-{"drag":{"from":{"entry":"documents","dir":"$root"},"to":{"role":"button","name":"Settings"}},"release":false}
-{"wait":{"present":{"role":"page tab list","name":"Tabs"}},"message":"a folder drag reveals the tab strip with only one tab"}
-{"move":{"role":"page tab list","name":"Tabs"},"at":["end-2","50%"]}
-{"button_up":1}
-{"wait":{"all":[{"directory":"documents"},{"state":{"target":{"role":"page tab","name":"documents"},"selected":true}}]},"message":"dropping the folder at the top opens it in a new tab"}
+{"drag":{"from":{"entry":"documents","dir":"$root"},"to":{"role":"button","name":"New tab"}}}
+{"wait":{"all":[{"directory":"documents"},{"state":{"target":{"role":"page tab","name":"documents"},"selected":true}}]},"message":"dropping a folder on plus opens it in a new tab with only one tab"}
 {"fs":{"path":"documents/notes.txt","text":"notes\n"},"message":"opening the folder leaves its files in place"}
 {"key":"ctrl+shift+1"}
 {"wait":{"state":{"target":{"role":"page tab","name":"$root"},"selected":true}},"message":"the original tab remains available"}

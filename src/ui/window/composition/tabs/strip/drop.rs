@@ -21,7 +21,7 @@ pub(super) fn folder_locations(drop: &gdk::Drop) -> Option<Rc<[Location]>> {
     Some(snapshot.locations)
 }
 
-pub(super) fn reveal_for_folder_drag(state: &Rc<TabWindow>) {
+pub(super) fn track_folder_drag(state: &Rc<TabWindow>) {
     let Some(window) = state.window.upgrade() else {
         return;
     };
@@ -61,7 +61,6 @@ pub(super) fn reveal_for_folder_drag(state: &Rc<TabWindow>) {
         drag.connect_cancel(move |drag, _| cancelled(drag));
         drag.connect_dnd_finished(move |drag| finish(drag));
     });
-    // No leave handler: hiding the strip mid-drag would relayout under the live drag.
     window.add_controller(motion);
 }
 

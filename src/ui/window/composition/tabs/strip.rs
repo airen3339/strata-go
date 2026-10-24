@@ -129,7 +129,6 @@ pub(super) struct TabStrip {
     indicator: Rc<Indicator>,
     insertion: Rc<Cell<Option<usize>>>,
     drag_source: glib::WeakRef<gtk::DragSource>,
-    location_drag: Cell<bool>,
     pub(super) actions: gtk::Box,
     pub(super) end: gtk::Box,
 }
@@ -235,7 +234,6 @@ impl TabStrip {
             indicator,
             insertion,
             drag_source: glib::WeakRef::new(),
-            location_drag: Cell::new(false),
             actions,
             end,
         }
@@ -247,17 +245,14 @@ impl TabStrip {
 
     pub(super) fn install_drop(&self, state: &Rc<TabWindow>) {
         drop::install(state, self.overlay.upcast_ref(), false);
-        drop::reveal_for_folder_drag(state);
+        drop::track_folder_drag(state);
     }
 
     pub(super) fn refresh_visibility(&self) {
-        self.widget
-            .set_visible(self.headers.borrow().len() > 1 || self.location_drag.get());
+        self.widget.set_visible(self.headers.borrow().len() > 1);
     }
 
     pub(super) fn show_open_drop(&self, show: bool) {
-        self.location_drag.set(show);
-        self.refresh_visibility();
         self.mark_insertion(show.then(|| self.headers.borrow().len()));
     }
 
@@ -266,10 +261,9 @@ impl TabStrip {
             .drag_source
             .upgrade()
             .filter(|source| source.drag().is_some())
-            .or_else(|| {
-                crate::ui::window::pinned_drop::active_drag_source()
-                    .filter(|source| source.drag().is_some())
-            });
+            .or_else(crate::ui::window::pinned_drop::active_drag_source)
+            .or_else(crate::ui::browser::active_file_drag_source)
+            .filter(|source| source.drag().is_some());
         let Some(source) = source else {
             return false;
         };

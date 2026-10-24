@@ -2,11 +2,8 @@
 {"wait":{"present":{"sidebar":"Pinned documents"}},"message":"saved sidebar locations are ready"}
 {"select":{"entry":"readme.md","dir":"$root"}}
 {"wait":{"selected":["readme.md"],"dir":"$root"},"message":"the original tab keeps a selected file"}
-{"drag":{"from":{"sidebar":"Pinned documents"},"to":{"role":"button","name":"Settings"}},"release":false}
-{"wait":{"present":{"role":"page tab list","name":"Tabs"}},"message":"a sidebar drag reveals a tab drop destination without an existing tab strip"}
-{"move":{"role":"page tab list","name":"Tabs"},"at":["end-2","50%"]}
-{"button_up":1}
-{"wait":{"all":[{"directory":"documents"},{"state":{"target":{"role":"page tab","name":"documents"},"selected":true}}]},"message":"dropping on the revealed strip opens the sidebar folder in a new tab"}
+{"drag":{"from":{"sidebar":"Pinned documents"},"to":{"role":"button","name":"New tab"}}}
+{"wait":{"all":[{"directory":"documents"},{"state":{"target":{"role":"page tab","name":"documents"},"selected":true}}]},"message":"dropping a sidebar folder on plus opens it in a new tab without an existing tab strip"}
 {"key":"ctrl+shift+1"}
 {"wait":{"all":[{"directory":"$root"},{"selected":["readme.md"],"dir":"$root"}]},"message":"the original tab retains its location and selection"}
 {"click":{"sidebar":"Pinned archive"},"button":3}
