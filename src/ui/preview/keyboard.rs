@@ -308,6 +308,21 @@ impl PreviewState {
         }
     }
 
+    fn feedback_action(&self) -> Option<gtk::Button> {
+        let mut feedback = self.content.first_child();
+        while let Some(widget) = feedback {
+            let mut child = widget.first_child();
+            while let Some(widget) = child {
+                if widget.has_css_class("preview-feedback-action") {
+                    return widget.downcast().ok();
+                }
+                child = widget.next_sibling();
+            }
+            feedback = widget.next_sibling();
+        }
+        None
+    }
+
     /// The document's own widget, so its select-all and copy handlers receive
     /// **Ctrl+A** / **Ctrl+C**.
     fn document_key_target(&self) -> Option<gtk::Widget> {
@@ -344,6 +359,8 @@ impl PreviewState {
             entry.clone().upcast()
         } else if let Some(document) = self.document_key_target() {
             document
+        } else if let Some(action) = self.feedback_action() {
+            action.upcast()
         } else {
             self.content.set_focusable(true);
             self.content.clone().upcast()

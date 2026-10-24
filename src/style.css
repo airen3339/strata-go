@@ -3472,6 +3472,7 @@ paned > separator {
 .preview-feedback button.suggested-action {
   background-color: @strata_accent;
   background-image: none;
+  border-color: @strata_accent;
   color: @strata_bg;
 }
 
@@ -3479,6 +3480,7 @@ paned > separator {
 .preview-feedback button.suggested-action:hover {
   background-color: shade(@strata_accent, 1.07);
   background-image: none;
+  border-color: shade(@strata_accent, 1.07);
 }
 
 .preview-archive-password-row button.suggested-action:active,
@@ -3487,12 +3489,14 @@ paned > separator {
 .preview-feedback button.suggested-action:checked {
   background-color: shade(@strata_accent, 0.92);
   background-image: none;
+  border-color: shade(@strata_accent, 0.92);
 }
 
 .preview-archive-password-row button.suggested-action:disabled,
 .preview-feedback button.suggested-action:disabled {
   background-color: alpha(@strata_accent, 0.5);
   background-image: none;
+  border-color: alpha(@strata_accent, 0.5);
   color: alpha(@strata_bg, 0.7);
 }
 

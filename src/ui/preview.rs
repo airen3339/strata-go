@@ -3244,6 +3244,7 @@ impl PreviewState {
         let header_open = self.open.clone();
         open.connect_clicked(move |_| header_open.emit_clicked());
         feedback.append(&open);
+        self.hand_keys_to(&open);
     }
 
     fn show_message_with_icon(
