@@ -2660,6 +2660,12 @@ paned > separator {
   outline: none;
 }
 
+/* A message's lone action still shows which control Return activates. */
+.preview-pane.preview-keyboard-owner .preview-feedback-action:focus-visible {
+  outline: 2px solid @strata_bg;
+  outline-offset: -4px;
+}
+
 .preview-find {
   background: @strata_surface;
   color: @strata_text;
