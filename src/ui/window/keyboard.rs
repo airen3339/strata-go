@@ -573,10 +573,8 @@ struct Dispatcher {
 }
 
 struct KeyEvent {
-    /// **h j k l** already read as arrows where they navigate.
     press: KeyPress,
     focused: Option<gtk::Widget>,
-    vim_navigation: bool,
     header_left_boundary: bool,
 }
 
@@ -589,8 +587,10 @@ impl KeyEvent {
         !self.press.modifiers().intersects(modifiers)
     }
 
+    /// The arrow an alias reads as, which GTK's list bindings never see.
     fn vim_arrow(&self) -> Option<gtk::gdk::Key> {
-        self.vim_navigation
+        self.press
+            .aliased()
             .then(|| crate::ui::focus_navigation::spatial_arrow(&self.press))
             .flatten()
             .map(keys::Binding::key)
@@ -720,16 +720,9 @@ impl Dispatcher {
         if let Some(result) = self.tenxer_keys(browser, press) {
             return result;
         }
-        let focused = gtk::prelude::RootExt::focus(&self.window);
-        let navigated = crate::ui::focus_navigation::navigation_key(
-            press,
-            preferences.type_to_search_active(),
-            focused.as_ref(),
-        );
         let mut event = KeyEvent {
-            press: navigated,
-            focused,
-            vim_navigation: navigated != *press,
+            press: *press,
+            focused: gtk::prelude::RootExt::focus(&self.window),
             header_left_boundary: false,
         };
         self.window_commands(&event)
@@ -1049,9 +1042,9 @@ impl Dispatcher {
         if held.contains(Modifiers::SHIFT_MASK) && !press.is(FOCUS_PREVIOUS) {
             return Some(Propagation::Stop);
         }
-        if press.is_any(&[VIM_LEFT, VIM_DOWN]) {
+        if press.is_any(&[LEFT.alternates(), DOWN.alternates()]) {
             self.return_from_header(browser);
-        } else if press.is_any(&[ENTER, SPACE]) {
+        } else if press.is(ENTER) || press.is(SPACE) {
             crate::ui::focus_navigation::activate(self.window.upcast_ref());
         } else if !press.is(MOVE_TO_TRASH.in_map(Map::Default)) {
             return None;

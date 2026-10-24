@@ -250,14 +250,14 @@ pub(super) fn install(popover: &gtk::Popover) {
         if let Some(window) = popover.root().and_downcast::<gtk::Window>() {
             window.set_focus_visible(true);
         }
-        let forward = press.is_any(&[DOWN.ignoring(SHIFT), FOCUS_NEXT]);
+        let forward = press.is_any(&[DOWN.ignoring(SHIFT), FOCUS_NEXT.into()]);
         if press.is(ESCAPE_ANY_SHIFT) {
             popover.popdown();
         } else if press.is(HOME_KEY.ignoring(SHIFT)) {
             focus_first_or_last_menu_item(&popover, true);
         } else if press.is(END_KEY.ignoring(SHIFT)) {
             focus_first_or_last_menu_item(&popover, false);
-        } else if forward || press.is_any(&[UP.ignoring(SHIFT), FOCUS_PREVIOUS]) {
+        } else if forward || press.is_any(&[UP.ignoring(SHIFT), FOCUS_PREVIOUS.into()]) {
             let buttons = menu_buttons(&popover);
             if !buttons.is_empty() {
                 let current = buttons.iter().position(|button| button.has_focus());
@@ -269,7 +269,7 @@ pub(super) fn install(popover: &gtk::Popover) {
                 };
                 buttons[next].grab_focus();
             }
-        } else if press.is_any(&[ENTER_ANY_SHIFT, SPACE.ignoring(SHIFT)]) {
+        } else if press.is(ENTER_ANY_SHIFT) || press.is(SPACE.ignoring(SHIFT)) {
             if let Some(button) = menu_buttons(&popover)
                 .iter()
                 .find(|button| button.has_focus())

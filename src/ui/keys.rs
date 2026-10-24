@@ -10,6 +10,7 @@ use gtk::{
     prelude::*,
 };
 
+mod alias;
 pub(crate) mod bindings;
 mod command;
 mod composition;
@@ -18,7 +19,10 @@ mod label;
 #[cfg(test)]
 mod tests;
 
-pub(crate) use command::{Command, Map};
+pub(crate) use alias::install_native as install_native_aliases;
+pub(crate) use command::{Command, Map, Matcher};
+#[cfg(test)]
+pub(crate) use command::{Keymap, use_keymap};
 pub(crate) use label::{
     Digits, Keys, Shown, digit_label, label, label_in, label_in_map, modifiers_label,
     modifiers_label_in, search_text, shown,
@@ -123,18 +127,45 @@ impl<T: Match + ?Sized> Match for &T {
 }
 
 impl Match for Binding {
-    /// Compares modifiers exactly apart from those the binding ignores.
+    /// Compares modifiers exactly apart from those the binding ignores, with
+    /// the key the user pressed, or with the canonical key an alias reads as
+    /// when the binding is on that key, as Tab's completion is.
     fn matches(&self, press: &KeyPress) -> bool {
+        self.matches_pressed(press)
+            || (press.aliased() && self.key == press.key && self.matches_read(press))
+    }
+}
+
+impl Binding {
+    fn matches_pressed(&self, press: &KeyPress) -> bool {
+        let (key, modifiers) = press.physical_key();
+        self.matches_key(press, key, modifiers)
+    }
+
+    fn matches_key(&self, press: &KeyPress, key: Key, modifiers: Modifiers) -> bool {
         let compared = SHORTCUT_MODIFIERS.difference(self.ignored);
         match digit_value(self.key) {
             Some(digit) => {
                 press.digit == Some(digit) && press.state & compared == self.modifiers & compared
             }
-            None => {
-                press.key == self.key
-                    && press.shortcut_modifiers & compared == self.modifiers & compared
-            }
+            None => self.key == key && modifiers & compared == self.modifiers & compared,
         }
+    }
+
+    /// Whether `press` reads as this key once aliases are applied.
+    fn matches_read(&self, press: &KeyPress) -> bool {
+        self.matches_key(press, press.key, press.shortcut_modifiers)
+    }
+
+    /// A plain printable key, which types rather than commands.
+    pub(crate) fn is_typed(self) -> bool {
+        !self
+            .modifiers
+            .intersects(Modifiers::CONTROL_MASK | Modifiers::ALT_MASK | Modifiers::SUPER_MASK)
+            && self
+                .key
+                .to_unicode()
+                .is_some_and(|character| !character.is_control())
     }
 }
 
@@ -148,11 +179,14 @@ pub(crate) struct KeyPress {
     digit: Option<u8>,
     fallback: bool,
     modifier: bool,
+    aliasing: alias::Aliasing,
+    alias: Option<alias::Alias>,
 }
 
 impl KeyPress {
     /// Whether the press is `key`: a binding, or any of a command's bindings
-    /// in the active map.
+    /// in the active map. A structural command compares the key the press
+    /// reads as; anything else compares the key as pressed.
     pub(crate) fn is(&self, key: impl Match) -> bool {
         key.matches(self)
     }
@@ -190,9 +224,14 @@ impl KeyPress {
     }
 
     /// The held Ctrl, Alt, Shift and Super, including Shift that typed a symbol.
-    /// For policies that depend on what is held rather than on a binding.
+    /// For policies that depend on what is held rather than on a binding. An
+    /// alias holds what its canonical key does.
     pub(crate) fn modifiers(&self) -> Modifiers {
-        self.state
+        if self.alias.is_some() {
+            self.shortcut_modifiers
+        } else {
+            self.state
+        }
     }
 
     /// The modifier this key itself holds, empty for other keys. GDK reports
@@ -207,14 +246,45 @@ impl KeyPress {
         self.fallback
     }
 
-    /// The same press read as `binding`, for keys that stand in for others,
-    /// such as h/j/k/l for arrows.
-    pub(crate) fn read_as(self, binding: Binding) -> Self {
+    /// Whether the key is a user alternate of a structural command, read as
+    /// that command's canonical key.
+    pub(crate) fn aliased(&self) -> bool {
+        self.alias.is_some()
+    }
+
+    /// The press without a plain printable alias such as **j** for ↓, for
+    /// surfaces that never read **h j k l** as arrows.
+    pub(crate) fn untyped(self) -> Self {
+        if !self.alias.is_some_and(|alias| alias.typed) {
+            return self;
+        }
+        let (key, shortcut_modifiers) = self.physical_key();
         Self {
-            key: binding.key,
-            shortcut_modifiers: binding.modifiers,
+            key,
+            shortcut_modifiers,
+            alias: None,
             ..self
         }
+    }
+
+    fn read_as(self, canonical: Binding, typed: bool) -> Self {
+        Self {
+            key: canonical.key,
+            shortcut_modifiers: canonical.modifiers,
+            alias: Some(alias::Alias {
+                key: self.key,
+                modifiers: self.shortcut_modifiers,
+                typed,
+            }),
+            ..self
+        }
+    }
+
+    fn physical_key(&self) -> (Key, Modifiers) {
+        self.alias
+            .map_or((self.key, self.shortcut_modifiers), |alias| {
+                (alias.key, alias.modifiers)
+            })
     }
 
     /// A press from signal arguments alone, as emitted without a GDK event. It
@@ -251,10 +321,15 @@ pub(crate) fn on_press(
                 return Propagation::Stop;
             }
         }
-        handler(controller, &read(controller, keyval, keycode, state))
+        let press = read(controller, keyval, keycode, state);
+        handler(
+            controller,
+            &alias::rewrite(press, alias::Context::of_controller(controller)),
+        )
     })
 }
 
+/// Releases report what is held, so they are never read through aliases.
 pub(crate) fn on_release(
     controller: &gtk::EventControllerKey,
     handler: impl Fn(&gtk::EventControllerKey, &KeyPress) + 'static,
@@ -265,10 +340,16 @@ pub(crate) fn on_release(
 }
 
 /// Reads a key event that reached a non-key controller, such as
-/// `EventControllerLegacy`. Other events give `None`.
-pub(crate) fn read_event(event: &gdk::Event) -> Option<KeyPress> {
+/// `EventControllerLegacy`, as `on_press` reads it. Other events give `None`.
+pub(crate) fn read_event(
+    controller: &impl IsA<gtk::EventController>,
+    event: &gdk::Event,
+) -> Option<KeyPress> {
     let event = event.downcast_ref::<gdk::KeyEvent>()?;
-    Some(normalize_event(event))
+    Some(alias::rewrite(
+        normalize_event(event),
+        alias::Context::of_controller(controller),
+    ))
 }
 
 #[expect(
@@ -440,6 +521,8 @@ where
         digit: position_digit(event.keycode, event.typed, event.level),
         fallback: latin.is_some(),
         modifier: event.modifier,
+        aliasing: alias::Aliasing::Off,
+        alias: None,
     }
 }
 

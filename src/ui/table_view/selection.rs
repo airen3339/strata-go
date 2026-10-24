@@ -412,7 +412,7 @@ impl Selection {
                 view.clipboard().set_text(&text);
                 return glib::Propagation::Stop;
             }
-            if press.is_any(&CLEARS_SELECTION) {
+            if press.untyped().is_any(&CLEARS_SELECTION) {
                 state.clear();
             }
             run_focused_cell_action(controller, press)

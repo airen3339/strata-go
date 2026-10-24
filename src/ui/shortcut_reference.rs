@@ -318,11 +318,17 @@ fn navigation_title(mode: BrowserMode) -> &'static str {
 fn default_navigation(mode: BrowserMode) -> Vec<Shortcut> {
     let mut shortcuts = match mode {
         BrowserMode::Columns => vec![
-            row(Any(shown![UP, DOWN]), "Move between items"),
-            row(Any(shown![LEFT, RIGHT]), "Parent pane / enter folder"),
+            row(
+                Any(shown![UP.alternate(0), DOWN.alternate(0)]),
+                "Move between items",
+            ),
+            row(
+                Any(shown![LEFT.alternate(0), RIGHT.alternate(0)]),
+                "Parent pane / enter folder",
+            ),
             within(
                 "%{keys} at first pane",
-                One(LEFT.shown()),
+                One(LEFT.alternate(0).shown()),
                 "Focus the visible sidebar",
             ),
             row(
@@ -332,12 +338,17 @@ fn default_navigation(mode: BrowserMode) -> Vec<Shortcut> {
         ],
         BrowserMode::Icons => vec![
             row(
-                Any(shown![UP, DOWN, LEFT, RIGHT]),
+                Any(shown![
+                    UP.alternate(0),
+                    DOWN.alternate(0),
+                    LEFT.alternate(0),
+                    RIGHT.alternate(0)
+                ]),
                 "Move spatially between tiles",
             ),
             within(
                 "%{keys} at left edge",
-                One(LEFT.shown()),
+                One(LEFT.alternate(0).shown()),
                 "Focus the visible sidebar",
             ),
             row(One(BACKSPACE.shown()), "Go to the parent folder"),
@@ -351,50 +362,63 @@ fn default_navigation(mode: BrowserMode) -> Vec<Shortcut> {
             ),
         ],
         BrowserMode::List => vec![
-            row(Any(shown![UP, DOWN]), "Move between file rows"),
-            row(One(LEFT.shown()), "Focus the visible sidebar"),
+            row(
+                Any(shown![UP.alternate(0), DOWN.alternate(0)]),
+                "Move between file rows",
+            ),
+            row(One(LEFT.alternate(0).shown()), "Focus the visible sidebar"),
             row(One(BACKSPACE.shown()), "Go to the parent folder"),
         ],
     };
     shortcuts.extend_from_slice(&[
         row(
-            Any(shown![VIM_LEFT, VIM_DOWN, VIM_UP, VIM_RIGHT]),
+            Any(shown![
+                LEFT.alternate(1),
+                DOWN.alternate(1),
+                UP.alternate(1),
+                RIGHT.alternate(1)
+            ]),
             "Same as %{keys} (type-to-search off)",
         )
-        .mentioning(Mention::Keys(Any(shown![LEFT, DOWN, UP, RIGHT]))),
+        .mentioning(Mention::Keys(Any(shown![
+            LEFT.alternate(0),
+            DOWN.alternate(0),
+            UP.alternate(0),
+            RIGHT.alternate(0)
+        ]))),
         within(
             "%{keys} at top",
-            One(UP.shown()),
+            One(UP.alternate(0).shown()),
             "Focus the navigation header",
         ),
         within(
             "%{keys} in header",
-            Any(shown![LEFT, RIGHT]),
+            Any(shown![LEFT.alternate(0), RIGHT.alternate(0)]),
             "Move between header controls",
         ),
         within(
             "%{keys} in header",
-            One(DOWN.shown()),
+            One(DOWN.alternate(0).shown()),
             "Return to the files",
         ),
         within(
             "%{keys} in sidebar",
-            One(RIGHT.shown()),
+            One(RIGHT.alternate(0).shown()),
             "Return to the browser",
         ),
         within(
             "%{keys} at sidebar top",
-            One(UP.shown()),
+            One(UP.alternate(0).shown()),
             "Focus the top navigation bar",
         ),
         within(
             "%{keys} in top bar",
-            Any(shown![LEFT, RIGHT]),
+            Any(shown![LEFT.alternate(0), RIGHT.alternate(0)]),
             "Move between top-bar controls",
         ),
         within(
             "%{keys} in top bar",
-            One(DOWN.shown()),
+            One(DOWN.alternate(0).shown()),
             "Return to the sidebar, or files when hidden",
         ),
         row(
@@ -421,24 +445,44 @@ fn tenxer_navigation(mode: BrowserMode, chooser: bool) -> Vec<Shortcut> {
     let mut shortcuts = match mode {
         BrowserMode::Columns | BrowserMode::List => vec![
             row(
-                Any(shown![VIM_DOWN, VIM_UP, UP, DOWN]),
+                Any(shown![
+                    DOWN.alternate(1),
+                    UP.alternate(1),
+                    UP.alternate(0),
+                    DOWN.alternate(0)
+                ]),
                 "Next / previous item",
             ),
             row(
-                Any(shown![VIM_LEFT, LEFT, BACKSPACE, PARENT_FOLDER]),
+                Any(shown![
+                    LEFT.alternate(1),
+                    LEFT.alternate(0),
+                    BACKSPACE,
+                    PARENT_FOLDER
+                ]),
                 "Go to the parent folder",
             ),
-            row(Any(shown![VIM_RIGHT, RIGHT]), "Open the focused directory"),
+            row(
+                Any(shown![RIGHT.alternate(1), RIGHT.alternate(0)]),
+                "Open the focused directory",
+            ),
             within(
                 "%{keys} on a file",
-                Any(shown![VIM_RIGHT, RIGHT]),
+                Any(shown![RIGHT.alternate(1), RIGHT.alternate(0)]),
                 "Enter its preview; keys move into the drawer",
             ),
         ],
         BrowserMode::Icons => vec![
             row(
                 Any(shown![
-                    VIM_LEFT, VIM_DOWN, VIM_UP, VIM_RIGHT, UP, DOWN, LEFT, RIGHT
+                    LEFT.alternate(1),
+                    DOWN.alternate(1),
+                    UP.alternate(1),
+                    RIGHT.alternate(1),
+                    UP.alternate(0),
+                    DOWN.alternate(0),
+                    LEFT.alternate(0),
+                    RIGHT.alternate(0)
                 ]),
                 "Move spatially between tiles",
             ),
@@ -567,7 +611,7 @@ fn tenxer_places(chooser: bool) -> Vec<Shortcut> {
         row(One(JUMP_RECENT.shown()), "Jump to a recent folder"),
         within(
             "%{keys} in %{jump} / %{recent}",
-            Any(shown![UP, DOWN]),
+            Any(shown![UP.alternate(0), DOWN.alternate(0)]),
             "Choose a visited folder",
         ),
         row(Chord(shown![GO, ESCAPE]), "Cancel a pending chord"),
@@ -609,7 +653,12 @@ fn tenxer_preview(mode: BrowserMode, chooser: bool) -> Vec<Shortcut> {
 const TENXER_PREVIEW_OWNED: &[Shortcut] = &[
     within(
         "%{keys} in the preview",
-        Any(shown![VIM_DOWN, VIM_UP, UP, DOWN]),
+        Any(shown![
+            DOWN.alternate(1),
+            UP.alternate(1),
+            UP.alternate(0),
+            DOWN.alternate(0)
+        ]),
         "Scroll the document",
     ),
     within(
@@ -634,7 +683,12 @@ const TENXER_PREVIEW_OWNED: &[Shortcut] = &[
     ),
     within(
         "%{keys} in an archive",
-        Any(shown![VIM_DOWN, VIM_UP, VIM_RIGHT, ENTER]),
+        Any(shown![
+            DOWN.alternate(1),
+            UP.alternate(1),
+            RIGHT.alternate(1),
+            ENTER
+        ]),
         "Move / open an archive folder",
     ),
     within(
@@ -644,13 +698,13 @@ const TENXER_PREVIEW_OWNED: &[Shortcut] = &[
     ),
     within(
         "%{keys} in an archive",
-        One(VIM_LEFT.shown()),
+        One(LEFT.alternate(1).shown()),
         "Archive parent; at the root, back to the listing",
     ),
     within("%{keys} in media", One(SPACE.shown()), "Play / pause"),
     within(
         "%{keys} in media",
-        Any(shown![LEFT, RIGHT]),
+        Any(shown![LEFT.alternate(0), RIGHT.alternate(0)]),
         "Seek −5 / +5 seconds",
     ),
     within(
@@ -671,8 +725,8 @@ const TENXER_PREVIEW_OWNED: &[Shortcut] = &[
     within(
         "%{keys} in media",
         Any(shown![
-            UP,
-            DOWN,
+            UP.alternate(0),
+            DOWN.alternate(0),
             MEDIA_VOLUME_STEP_UP.alternate(0),
             MEDIA_VOLUME_STEP_DOWN
         ]),
@@ -685,12 +739,12 @@ const TENXER_PREVIEW_OWNED: &[Shortcut] = &[
     ),
     within(
         "%{keys} in a document",
-        Any(shown![VIM_LEFT, LEFT]),
+        Any(shown![LEFT.alternate(1), LEFT.alternate(0)]),
         "Return to the listing; the preview stays open",
     ),
     within(
         "%{keys} in media",
-        One(VIM_LEFT.shown()),
+        One(LEFT.alternate(1).shown()),
         "Return to the listing; the preview stays open",
     ),
     within(
@@ -1055,7 +1109,7 @@ fn tenxer_tools(mode: BrowserMode, chooser: bool) -> Vec<Shortcut> {
         ),
         within(
             "%{keys} in a prompt",
-            Any(shown![UP, DOWN]),
+            Any(shown![UP.alternate(0), DOWN.alternate(0)]),
             "Move through the listing",
         ),
         within(
@@ -1084,7 +1138,7 @@ fn tenxer_tools(mode: BrowserMode, chooser: bool) -> Vec<Shortcut> {
             if mode == BrowserMode::Icons {
                 One(ESCAPE.shown())
             } else {
-                Any(shown![ESCAPE, VIM_LEFT, LEFT])
+                Any(shown![ESCAPE, LEFT.alternate(1), LEFT.alternate(0)])
             },
             "Dismiss the hits",
         ),
@@ -1096,7 +1150,7 @@ fn tenxer_tools(mode: BrowserMode, chooser: bool) -> Vec<Shortcut> {
         ),
         within(
             "%{keys} in the header",
-            Any(shown![VIM_LEFT, VIM_DOWN]),
+            Any(shown![LEFT.alternate(1), DOWN.alternate(1)]),
             "Return to the files",
         ),
         row(One(SIDEBAR.shown()), "Show or hide the sidebar"),
@@ -1106,17 +1160,22 @@ fn tenxer_tools(mode: BrowserMode, chooser: bool) -> Vec<Shortcut> {
         ),
         within(
             "%{keys} in the sidebar",
-            Any(shown![VIM_DOWN, VIM_UP, UP, DOWN]),
+            Any(shown![
+                DOWN.alternate(1),
+                UP.alternate(1),
+                UP.alternate(0),
+                DOWN.alternate(0)
+            ]),
             "Move between places and device controls",
         ),
         within(
             "%{keys} in the sidebar",
-            Any(shown![VIM_RIGHT, ENTER, SPACE]),
+            Any(shown![RIGHT.alternate(1), ENTER, SPACE]),
             "Activate the focused place or device control",
         ),
         within(
             "%{keys} in the sidebar",
-            Any(shown![VIM_LEFT, LEFT, BACKSPACE]),
+            Any(shown![LEFT.alternate(1), LEFT.alternate(0), BACKSPACE]),
             "Return to the files",
         ),
     ];

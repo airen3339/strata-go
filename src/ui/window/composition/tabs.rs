@@ -88,6 +88,7 @@ impl TabWindow {
         state.install_actions(window);
         state.install_keys(window);
         super::super::install_modal_focus_trap(window);
+        keys::install_native_aliases(window);
         let weak = Rc::downgrade(&state);
         crate::ui::modal::set_modal_focus_fallback(
             window.upcast_ref(),

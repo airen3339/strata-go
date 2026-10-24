@@ -442,6 +442,69 @@ fn chooser_refuses_commands_its_request_does_not_allow() {
     );
 }
 
+/// An Escape alternate cancels the request like Escape, and Escape still does
+/// when the table leaves it out.
+#[test]
+fn dialogs_dismiss_on_escape_alternate() {
+    crate::test_support::gtk_test(
+        "ui::chooser::tests::keyboard::dialogs_dismiss_on_escape_alternate",
+        || {
+            use crate::ui::keys::{Binding, Keymap, Map, bindings::ESCAPE, use_keymap};
+            let alternate = vec![Binding::ctrl(Key::bracketleft)];
+            let _keymap = use_keymap(
+                Keymap::defaults()
+                    .with(Map::Default, ESCAPE, alternate.clone())
+                    .with(Map::Tenxer, ESCAPE, alternate),
+            );
+            for tenxer in [false, true] {
+                for (key, modifiers) in [
+                    (Key::bracketleft, ModifierType::CONTROL_MASK),
+                    (Key::Escape, ModifierType::empty()),
+                ] {
+                    let chooser =
+                        Chooser::open_with(single_file(), BrowserMode::List, &["a.txt"], tenxer);
+                    chooser.focus_files();
+                    assert!(chooser.press_with(key, modifiers));
+                    assert!(chooser.cancelled(), "{key:?} tenxer={tenxer}");
+                }
+            }
+        },
+    );
+}
+
+/// A modified Down alternate moves the cursor as Down does, though Ctrl is held.
+#[test]
+fn modified_arrow_alternate_moves_the_cursor() {
+    crate::test_support::gtk_test(
+        "ui::chooser::tests::keyboard::modified_arrow_alternate_moves_the_cursor",
+        || {
+            use crate::ui::keys::{Binding, Keymap, Map, bindings::DOWN, use_keymap};
+            let keymap =
+                [Map::Default, Map::Tenxer]
+                    .into_iter()
+                    .fold(Keymap::defaults(), |keymap, map| {
+                        let mut bindings = DOWN.defaults(map).to_vec();
+                        bindings.push(Binding::ctrl(Key::j));
+                        keymap.with(map, DOWN, bindings)
+                    });
+            let _keymap = use_keymap(keymap);
+            for tenxer in [false, true] {
+                let chooser = Chooser::open_with(
+                    single_file(),
+                    BrowserMode::List,
+                    &["a.txt", "b.txt"],
+                    tenxer,
+                );
+                chooser.focus_files();
+                chooser.press(Key::Home);
+                wait_until(|| chooser.cursor_name().as_deref() == Some("a.txt"));
+                assert!(chooser.press_with(Key::j, ModifierType::CONTROL_MASK));
+                wait_until(|| chooser.cursor_name().as_deref() == Some("b.txt"));
+            }
+        },
+    );
+}
+
 #[test]
 fn escape_dismisses_one_interaction_before_cancelling_and_the_toggle_keeps_the_request() {
     crate::test_support::gtk_test(

@@ -593,6 +593,13 @@ fn tenxer_reference_follows_the_active_map() {
                 Some(glib::Propagation::Stop)
             );
             assert!(footer.scroll.vadjustment().value() > before);
+            let scrolled = footer.scroll.vadjustment().value();
+            press_reference(&footer, gdk::Key::h);
+            assert_eq!(
+                footer.scroll.vadjustment().value(),
+                scrolled,
+                "h does not scroll the list"
+            );
             assert_eq!(
                 footer.handle_key(&press(gdk::Key::f, ctrl)),
                 Some(glib::Propagation::Stop)

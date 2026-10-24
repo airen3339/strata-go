@@ -132,7 +132,7 @@ impl Dispatcher {
         }
         if self.view.item_view_has_focus() {
             if self.view.view_mode() == BrowserMode::Columns
-                && press.is_any(&[RIGHT, ENTER, SPACE])
+                && (press.is(RIGHT) || press.is(ENTER) || press.is(SPACE))
                 && self.view.browser().focused_entry().is_some_and(|entry| {
                     !entry.is_directory()
                         && entry.location.native_path().is_some()
@@ -346,7 +346,9 @@ impl Dispatcher {
             browser.extend_selection(1);
             return Some(Propagation::Stop);
         }
-        if press.is_any(&[VIM_UP, UP.ignoring(Modifiers::CONTROL_MASK.union(SUPER))])
+        if press.is(UP
+            .ignoring(Modifiers::CONTROL_MASK.union(SUPER))
+            .or_alternates())
             && !self.arrows_scoped_to_content()
             && self.view.focus_header_from_top_item()
         {
@@ -383,15 +385,15 @@ impl Dispatcher {
             browser.parent();
         } else if press.is(HOME_FOLDER.ignoring(SHIFT)) {
             browser.navigate(Location::local(home_directory()));
-        } else if press.is_any(&[VIM_DOWN, DOWN.ignoring(SHIFT)]) {
+        } else if press.is(DOWN.ignoring(SHIFT).or_alternates()) {
             browser.move_selection(1);
-        } else if press.is_any(&[VIM_UP, UP.ignoring(SHIFT)]) {
+        } else if press.is(UP.ignoring(SHIFT).or_alternates()) {
             browser.move_selection(-1);
-        } else if press.is_any(&[VIM_LEFT, LEFT.ignoring(SHIFT)]) {
+        } else if press.is(LEFT.ignoring(SHIFT).or_alternates()) {
             self.navigate_left(event);
         } else if press.is(RIGHT.ignoring(SHIFT)) && self.view.view_mode() == BrowserMode::Columns {
             browser.enter_focused_directory();
-        } else if press.is_any(&[VIM_RIGHT, ENTER_ANY_SHIFT]) {
+        } else if press.is_any(&[RIGHT.alternates(), ENTER_ANY_SHIFT]) {
             self.view.activate_focused();
         } else if press.is(ESCAPE_ANY_SHIFT) {
             browser.escape();
@@ -657,19 +659,19 @@ impl Dispatcher {
         if press.is_any(&SWALLOWED_ON_HITS) && self.view.listing_search_active() {
             return true;
         }
-        if press.is_any(&[VIM_DOWN, DOWN]) {
+        if press.is(DOWN.or_alternates()) {
             self.view.move_displayed_cursor(1, 1);
-        } else if press.is_any(&[VIM_UP, UP]) {
+        } else if press.is(UP.or_alternates()) {
             self.view.move_displayed_cursor(-1, 1);
         } else if press.is(FIRST_ITEM) {
             self.jump_displayed(-1);
         } else if press.is(LAST_ITEM) {
             self.jump_displayed(1);
-        } else if press.is_any(&[VIM_LEFT, LEFT]) && self.view.listing_search_active() {
+        } else if press.is(LEFT.or_alternates()) && self.view.listing_search_active() {
             self.view.dismiss_listing_search();
-        } else if press.is_any(&[VIM_LEFT, LEFT, BACKSPACE]) {
+        } else if press.is(LEFT.or_alternates()) || press.is(BACKSPACE) {
             self.go_parent();
-        } else if press.is_any(&[VIM_RIGHT, RIGHT]) {
+        } else if press.is(RIGHT.or_alternates()) {
             self.enter_preview(browser);
         } else if press.is(OPEN) || press.is(ENTER) {
             self.activate_focused(browser);

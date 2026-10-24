@@ -992,7 +992,7 @@ fn every_listed_binding_has_its_own_row_in_its_maps() {
                     Kind::Step(group) => {
                         registry().find(|trigger| trigger.kind() == Kind::Trigger(group))
                     }
-                    Kind::Single | Kind::Trigger(_) => constant.after,
+                    Kind::Single | Kind::Trigger(_) | Kind::Structural => constant.after,
                 };
                 Wanted::Keys(
                     command.defaults(map).to_vec(),

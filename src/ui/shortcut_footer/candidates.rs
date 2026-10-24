@@ -110,7 +110,10 @@ impl Candidates {
             Keys,
             bindings::{COMPLETE, DOWN, ENTER, ESCAPE, UP},
         };
-        let mut hints = vec![(Keys::Any(crate::ui::keys::shown![UP, DOWN]), "Choose")];
+        let mut hints = vec![(
+            Keys::Any(crate::ui::keys::shown![UP.alternate(0), DOWN.alternate(0)]),
+            "Choose",
+        )];
         hints.extend(keys.tab.map(|tab| (Keys::One(COMPLETE.shown()), tab)));
         hints.extend([
             (Keys::One(ENTER.shown()), keys.enter),

@@ -153,21 +153,19 @@ impl Dispatcher {
     }
 
     fn preview_document_key(&self, press: &KeyPress) -> bool {
-        if press.is_any(&[VIM_LEFT, LEFT]) {
+        if press.is(LEFT.or_alternates()) {
             self.return_from_preview(&self.view.browser());
             return true;
         }
-        let motions: [(&dyn Match, DocumentScroll); 15] = [
+        let motions: [(&dyn Match, DocumentScroll); 13] = [
             (&HALF_PAGE_UP, DocumentScroll::HalfPage(-1)),
             (&HALF_PAGE_DOWN, DocumentScroll::HalfPage(1)),
             (&PAGE_UP, DocumentScroll::Page(-1)),
             (&PAGE_DOWN, DocumentScroll::Page(1)),
             (&FIRST_ITEM_UP, DocumentScroll::Start),
             (&LAST_ITEM_DOWN, DocumentScroll::End),
-            (&VIM_DOWN, DocumentScroll::Line(1)),
-            (&DOWN, DocumentScroll::Line(1)),
-            (&VIM_UP, DocumentScroll::Line(-1)),
-            (&UP, DocumentScroll::Line(-1)),
+            (&DOWN.or_alternates(), DocumentScroll::Line(1)),
+            (&UP.or_alternates(), DocumentScroll::Line(-1)),
             (&PAGE_UP_KEY.ignoring(SHIFT), DocumentScroll::Page(-1)),
             (&PAGE_DOWN_KEY.ignoring(SHIFT), DocumentScroll::Page(1)),
             (&HOME_KEY, DocumentScroll::Start),
@@ -182,13 +180,13 @@ impl Dispatcher {
     }
 
     fn preview_archive_key(&self, browser: &Browser, press: &KeyPress) -> bool {
-        if press.is_any(&[VIM_DOWN, DOWN]) {
+        if press.is(DOWN.or_alternates()) {
             self.preview.archive_key(ArchiveMove::Next);
-        } else if press.is_any(&[VIM_UP, UP]) {
+        } else if press.is(UP.or_alternates()) {
             self.preview.archive_key(ArchiveMove::Previous);
-        } else if press.is_any(&[VIM_RIGHT, RIGHT, ENTER]) {
+        } else if press.is(RIGHT.or_alternates()) || press.is(ENTER) {
             self.preview.archive_key(ArchiveMove::Open);
-        } else if press.is_any(&[VIM_LEFT, LEFT]) {
+        } else if press.is(LEFT.or_alternates()) {
             if self.preview.archive_at_root() {
                 self.return_from_preview(browser);
             } else {
@@ -205,11 +203,11 @@ impl Dispatcher {
     }
 
     fn preview_media_key(&self, browser: &Browser, press: &KeyPress) -> bool {
-        if press.is(VIM_LEFT) {
+        if press.is(LEFT.alternates()) {
             self.return_from_preview(browser);
             return true;
         }
-        let Some(command) = media_key_command(press) else {
+        let Some(command) = media_key_command(&press.untyped()) else {
             return false;
         };
         self.preview.media_key(command);
@@ -359,5 +357,6 @@ fn reaches_listing(press: &KeyPress) -> bool {
         CUT,
         PASTE,
         NEW_FOLDER,
-    ]) || press.is_any(&[BACKSPACE, ENTER])
+    ]) || press.is(BACKSPACE)
+        || press.is(ENTER)
 }

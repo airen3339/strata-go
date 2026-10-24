@@ -18,7 +18,7 @@ use super::keys::{
     bindings::{
         DOWN, END_KEY, ENTER_ANY_SHIFT, ESCAPE_ANY, FOCUS_NEXT, FOCUS_PREVIOUS, HOME_KEY, LEFT,
         PAGE_DOWN_KEY, PAGE_UP_KEY, REFERENCE, REFERENCE_CATEGORIES, REFERENCE_LIST,
-        REFERENCE_SEARCH, RIGHT, SPACE, UP, VIM_DOWN, VIM_LEFT, VIM_RIGHT, VIM_UP,
+        REFERENCE_SEARCH, RIGHT, SPACE, UP,
     },
 };
 use super::{
@@ -1432,34 +1432,33 @@ impl ShortcutFooter {
             return Some(glib::Propagation::Stop);
         }
         if category_focused {
-            let direction =
-                if press.is_any(&[VIM_UP, VIM_LEFT, UP.ignoring(SHIFT), LEFT.ignoring(SHIFT)]) {
-                    Some(-1)
-                } else if press.is_any(&[
-                    VIM_DOWN,
-                    VIM_RIGHT,
-                    DOWN.ignoring(SHIFT),
-                    RIGHT.ignoring(SHIFT),
-                ]) {
-                    Some(1)
-                } else if press.is(HOME_KEY.ignoring(SHIFT)) {
-                    Some(-100)
-                } else if press.is(END_KEY.ignoring(SHIFT)) {
-                    Some(100)
-                } else {
-                    None
-                };
+            let direction = if press.is_any(&[
+                UP.ignoring(SHIFT).or_alternates(),
+                LEFT.ignoring(SHIFT).or_alternates(),
+            ]) {
+                Some(-1)
+            } else if press.is_any(&[
+                DOWN.ignoring(SHIFT).or_alternates(),
+                RIGHT.ignoring(SHIFT).or_alternates(),
+            ]) {
+                Some(1)
+            } else if press.is(HOME_KEY.ignoring(SHIFT)) {
+                Some(-100)
+            } else if press.is(END_KEY.ignoring(SHIFT)) {
+                Some(100)
+            } else {
+                None
+            };
             if let Some(direction) = direction {
                 self.move_category(direction);
                 return Some(glib::Propagation::Stop);
             }
-            if press.is_any(&[ENTER_ANY_SHIFT, SPACE.ignoring(SHIFT)]) {
+            if press.is(ENTER_ANY_SHIFT) || press.is(SPACE.ignoring(SHIFT)) {
                 return Some(glib::Propagation::Proceed);
             }
         }
-        let scrolls_search = [UP, DOWN, PAGE_UP_KEY, PAGE_DOWN_KEY]
-            .into_iter()
-            .any(|key| press.is(key.ignoring(SHIFT)));
+        let scrolls_search = press.is_any(&[UP.ignoring(SHIFT), DOWN.ignoring(SHIFT)])
+            || press.is_any(&[PAGE_UP_KEY.ignoring(SHIFT), PAGE_DOWN_KEY.ignoring(SHIFT)]);
         if (list_focused || (search_focused && scrolls_search)) && self.scroll_reference(press) {
             return Some(glib::Propagation::Stop);
         }
@@ -1522,6 +1521,8 @@ impl ShortcutFooter {
 
     fn scroll_reference(&self, press: &KeyPress) -> bool {
         const SHIFT: gdk::ModifierType = gdk::ModifierType::SHIFT_MASK;
+        // h and l do not scroll; j and k still match below as alternates.
+        let press = &press.untyped();
         let adjustment = self.scroll.vadjustment();
         let page = adjustment.page_size().max(1.0);
         let step = if adjustment.step_increment() >= 1.0 {
@@ -1534,9 +1535,9 @@ impl ShortcutFooter {
         } else {
             page
         };
-        let delta = if press.is_any(&[VIM_UP, UP.ignoring(SHIFT), LEFT.ignoring(SHIFT)]) {
+        let delta = if press.is_any(&[UP.ignoring(SHIFT).or_alternates(), LEFT.ignoring(SHIFT)]) {
             -step
-        } else if press.is_any(&[VIM_DOWN, DOWN.ignoring(SHIFT), RIGHT.ignoring(SHIFT)]) {
+        } else if press.is_any(&[DOWN.ignoring(SHIFT).or_alternates(), RIGHT.ignoring(SHIFT)]) {
             step
         } else if press.is(PAGE_UP_KEY.ignoring(SHIFT)) {
             -page_step
@@ -1578,7 +1579,6 @@ impl ShortcutFooter {
 fn reference_note() -> String {
     use bindings::{
         DOWN, ESCAPE, FOCUS_NEXT, REFERENCE_CATEGORIES, REFERENCE_LIST, REFERENCE_SEARCH, UP,
-        VIM_DOWN, VIM_UP,
     };
     let label = |shown| keys::label(&shown);
     rust_i18n::t!(
@@ -1586,7 +1586,12 @@ fn reference_note() -> String {
         category_keys = label(Keys::One(REFERENCE_CATEGORIES.shown())),
         search_keys = label(Keys::One(REFERENCE_SEARCH.shown())),
         list_keys = label(Keys::One(REFERENCE_LIST.shown())),
-        move_keys = label(Keys::Any(crate::ui::keys::shown![VIM_DOWN, VIM_UP, UP, DOWN])),
+        move_keys = label(Keys::Any(crate::ui::keys::shown![
+            DOWN.alternate(1),
+            UP.alternate(1),
+            UP.alternate(0),
+            DOWN.alternate(0)
+        ])),
         cycle_keys = label(Keys::One(FOCUS_NEXT.shown())),
         close_keys = label(Keys::One(ESCAPE.shown()))
     )

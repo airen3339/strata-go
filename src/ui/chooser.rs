@@ -1909,6 +1909,7 @@ fn build_chooser_hosted(
     window.set_child(Some(&overlay));
     view.install_inline_edit_dismissal(&window);
     install_modal_focus_trap(&window);
+    keys::install_native_aliases(&window);
     view.set_as_modal_focus_fallback(&window);
     window.set_default_widget(Some(&accept));
 
@@ -2513,7 +2514,7 @@ fn install_shortcuts(
             return glib::Propagation::Stop;
         }
         // Filtered rows own navigation, not the hidden directory selection.
-        if press.is_any(&[
+        if press.untyped().is_any(&[
             UP.ignoring(SHORTCUT_MODIFIERS),
             DOWN.ignoring(SHORTCUT_MODIFIERS),
         ]) && state.view.selected_search_results().is_some()
@@ -2525,13 +2526,14 @@ fn install_shortcuts(
             state.window.set_focus_visible(true);
             return glib::Propagation::Proceed;
         }
-        let original = *press;
-        let press = &super::focus_navigation::navigation_key(
-            press,
-            PreferenceManager::shared().type_to_search(),
-            focused.as_ref(),
-        );
-        let vim_navigation = *press != original;
+        // Unlike the window, the chooser types h j k l whenever type-to-search
+        // is on, 10xer mode included.
+        let press = &if preferences.type_to_search() {
+            press.untyped()
+        } else {
+            *press
+        };
+        let vim_navigation = press.aliased();
         if !focused
             .as_ref()
             .is_some_and(super::focus_navigation::in_popover)
@@ -2830,17 +2832,17 @@ fn install_shortcuts(
         }
         let mut header_left_boundary = false;
         if state.view.header_actions_have_focus() {
-            if press.is_any(&[VIM_LEFT, LEFT.ignoring(FOCUS_MODIFIERS)]) {
+            if press.is(LEFT.ignoring(FOCUS_MODIFIERS).or_alternates()) {
                 if state.view.move_header_focus(gtk::DirectionType::Left)
                     || preferences.tenxer_mode()
                 {
                     return glib::Propagation::Stop;
                 }
                 header_left_boundary = true;
-            } else if press.is_any(&[VIM_RIGHT, RIGHT.ignoring(FOCUS_MODIFIERS)]) {
+            } else if press.is(RIGHT.ignoring(FOCUS_MODIFIERS).or_alternates()) {
                 state.view.move_header_focus(gtk::DirectionType::Right);
                 return glib::Propagation::Stop;
-            } else if press.is_any(&[VIM_DOWN, DOWN.ignoring(FOCUS_MODIFIERS)]) {
+            } else if press.is(DOWN.ignoring(FOCUS_MODIFIERS).or_alternates()) {
                 state.view.focus_items_from_header();
                 return glib::Propagation::Stop;
             }
@@ -2979,7 +2981,7 @@ fn install_shortcuts(
         {
             return glib::Propagation::Stop;
         }
-        if press.is_any(&[VIM_UP, UP.ignoring(alt_super)])
+        if press.is(UP.ignoring(alt_super).or_alternates())
             && !PreferenceManager::shared().arrow_navigation_scoped_active()
             && state.view.focus_header_from_top_item()
         {
@@ -2996,11 +2998,11 @@ fn install_shortcuts(
             browser.parent();
         } else if press.is(HOME_FOLDER.ignoring(FOCUS_MODIFIERS)) {
             browser.navigate(Location::local(home_directory()));
-        } else if press.is_any(&[VIM_DOWN, DOWN.ignoring(FOCUS_MODIFIERS)]) {
+        } else if press.is(DOWN.ignoring(FOCUS_MODIFIERS).or_alternates()) {
             browser.move_selection(1);
-        } else if press.is_any(&[VIM_UP, UP.ignoring(FOCUS_MODIFIERS)]) {
+        } else if press.is(UP.ignoring(FOCUS_MODIFIERS).or_alternates()) {
             browser.move_selection(-1);
-        } else if press.is_any(&[VIM_LEFT, LEFT.ignoring(FOCUS_MODIFIERS)]) {
+        } else if press.is(LEFT.ignoring(FOCUS_MODIFIERS).or_alternates()) {
             if state.view.first_column_has_focus()
                 && sidebar_toggle.is_active()
                 && !PreferenceManager::shared().arrow_navigation_scoped_active()
@@ -3014,7 +3016,7 @@ fn install_shortcuts(
             && state.view.view_mode() == BrowserMode::Columns
         {
             browser.enter_focused_directory();
-        } else if press.is_any(&[VIM_RIGHT, ENTER.ignoring(FOCUS_MODIFIERS)]) {
+        } else if press.is_any(&[RIGHT.alternates(), ENTER.ignoring(FOCUS_MODIFIERS)]) {
             if !tenxer.confirm_focused() {
                 state.view.activate_focused();
             }

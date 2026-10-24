@@ -14,29 +14,15 @@ use super::{
 
 const MAPS: [Map; 2] = [Map::Default, Map::Tenxer];
 
-const STRUCTURAL: &str = "a structural key, which joins the registry as an alias command";
 const MANY_ROLES: &str =
     "it closes a pane, leaves the sidebar, clears a filter and edits text; kept as a fixed binding";
 const GENERIC: &str = "a key many surfaces read for their own job, kept as a fixed binding";
 const GTK_OWNED: &str = "GTK acts on it once the dispatcher yields";
 const EXTENDS_SELECTION: &str = "Shift with a motion key extends the selection and stays fixed";
-const IGNORING: &str = "an .ignoring() matcher over another constant";
 const REVERSED_SORT: &str = "Shift with a sort step reverses it";
 
 /// Catalog bindings that are not commands, and why.
 const NOT_COMMANDS: &[(&str, &str)] = &[
-    ("UP", STRUCTURAL),
-    ("DOWN", STRUCTURAL),
-    ("LEFT", STRUCTURAL),
-    ("RIGHT", STRUCTURAL),
-    ("VIM_UP", STRUCTURAL),
-    ("VIM_DOWN", STRUCTURAL),
-    ("VIM_LEFT", STRUCTURAL),
-    ("VIM_RIGHT", STRUCTURAL),
-    ("ENTER", STRUCTURAL),
-    ("ESCAPE", STRUCTURAL),
-    ("FOCUS_NEXT", STRUCTURAL),
-    ("FOCUS_PREVIOUS", STRUCTURAL),
     ("BACKSPACE", MANY_ROLES),
     ("SPACE", GENERIC),
     ("HOME_KEY", GENERIC),
@@ -55,10 +41,6 @@ const NOT_COMMANDS: &[(&str, &str)] = &[
     ("UNSELECT_ALL", GTK_OWNED),
     ("DOCUMENT_START", GTK_OWNED),
     ("DOCUMENT_END", GTK_OWNED),
-    ("ESCAPE_ANY", IGNORING),
-    ("ESCAPE_ANY_SHIFT", IGNORING),
-    ("ENTER_ANY", IGNORING),
-    ("ENTER_ANY_SHIFT", IGNORING),
     ("SORT_BY_NAME_REVERSED", REVERSED_SORT),
     ("SORT_BY_MODIFIED_REVERSED", REVERSED_SORT),
     ("SORT_BY_SIZE_REVERSED", REVERSED_SORT),
@@ -198,7 +180,7 @@ fn ids_are_unique_and_round_trip() {
         assert!(ids.insert(id), "{id} is used twice");
         assert_eq!(Command::parse(id), Some(command));
         let well_formed = match command.kind() {
-            Kind::Single => word(id),
+            Kind::Single | Kind::Structural => word(id),
             Kind::Trigger(group) => word(id) && id == group.id(),
             Kind::Step(group) => id
                 .split_once('.')
@@ -238,7 +220,7 @@ fn chord_steps_name_their_trigger() {
                 1,
                 "{group:?} has more than one trigger"
             ),
-            Kind::Single => {}
+            Kind::Single | Kind::Structural => {}
         }
     }
     assert!(steps > 0);

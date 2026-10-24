@@ -54,6 +54,20 @@ Shortcuts follow the key's label first, then its physical position:
   closes a dialog whatever is held. Letter and symbol shortcuts never do. The one
   digit that does is **0** in media, which accepts the Shift AZERTY needs to
   type it.
+- **Other keys for Escape, Enter, Tab and the arrows** act as those keys. A
+  press that matches one exactly is read as the key it stands for, so every
+  surface that handles that key follows it: **h j k l** are the arrows. A key
+  the surface tolerates modifiers on keeps that tolerance for modifiers held
+  beyond the other key's own, so **Ctrl+[** for Escape still needs Ctrl, except
+  for a plain printable one, such as **j**, which matches only without
+  modifiers. A plain printable one is typing in a focused text field or
+  popover and while type-to-search is on, and acts only where Strata reads it.
+  One for Escape or Enter works wherever Strata handles that key, dialogs and
+  Settings included; one for an arrow moves through the file list, sidebar,
+  header, preview, footer panels, file chooser and delete confirmations, but not other
+  dialogs, Settings, document tables or the media timeline. One with Ctrl, Alt or Super acts
+  everywhere, text fields included. Escape itself always works, even where
+  another key stands in for it.
 - **Typing is unaffected.** Type-to-search, filter fields, rename fields, and
   footer prompts receive the character the layout produced.
 - **Text fields** follow the same rules for copy, cut, paste, select all, undo,
@@ -178,11 +192,14 @@ own. Release handlers still run.
   depend on what is held rather than on one binding.
 - `used_fallback()` reports a key recognized only through the layout fallback,
   which GTK's own bindings miss.
-- `read_as(binding)` reads a press as another key, for keys that stand in for
-  others, such as **h j k l** for arrows.
+- `aliased()` reports a press read as a structural command's canonical key,
+  and `untyped()` undoes that for a plain printable alias such as **j**, for
+  surfaces that never read **h j k l** as arrows. See
+  [Structural keys](#structural-keys).
 
-`keys::read_event(&event)` reads a key event that reached another controller,
-such as `EventControllerLegacy`.
+`keys::read_event(&controller, &event)` reads a key event that reached another
+controller, such as `EventControllerLegacy`, aliases included. `on_release`
+reports the key and modifiers as released, without aliases.
 
 ### Commands, bindings, and the catalog
 
@@ -204,27 +221,28 @@ that claims them: 10xer swallowing default-map keys it leaves unbound, and the
 default-map stages that 10xer key presses fall through to from text fields,
 popovers and the file chooser. `command.alternate(index)` is one binding of the
 entry, for a label that shows that alternate alone; it does not match presses.
-Structural keys (arrows, **h j k l**, Enter, Escape, Tab), Backspace, GTK-owned
-keys, and generic keys that many surfaces read for their own job (Space, and
-Home, End and the page keys outside the file listing) stay fixed `Binding`
-constants.
+Backspace, GTK-owned keys, and generic keys that many surfaces read for their
+own job (Space, and Home, End and the page keys outside the file listing) stay
+fixed `Binding` constants.
 
 Every shortcut is a named constant in the catalog, `ui::keys::bindings`, with
 one file per area under `src/ui/keys/bindings/`. The `catalog!` macro declares
 each area's constants, such as `COPY: Command "copy" = Binding::ctrl(Key::c);`
-or `UP: Binding = Binding::plain(Key::Up);`, in a block that says which F1 maps
-list them: `listed` (both), `default_only`, `tenxer_only`, or `unlisted`. A
-command is bound in the maps its block lists it in, to one key or, written
-`=> [first, second]`, to alternates; `, live in both` also binds it in the other
-map, for a handler that reads it there, and an unlisted command names its maps
-with `live in default`, `live in tenxer` or `live in both`. A command whose maps
-bind different keys lists each, `=> default [..], tenxer [..]`. One action is
-one command: a map's alternates belong in its entry, not in another constant. A
-chord key names its group, `"go" trigger(Go)` or `"go.home" step(Go)`, and a
-command that follows another names it with `, after MOVE_TO_TRASH`. Handlers
-match catalog constants, and the F1 reference (`ui/shortcut_reference.rs`),
-context-menu hints, and footer hints refer to the same constants. Dispatch logic
-stays in the handlers; the catalog only defines keys.
+or `SPACE: Binding = Binding::plain(Key::space);`, in a block that says which
+F1 maps list them: `listed` (both), `default_only`, `tenxer_only`, or
+`unlisted`. A command is bound in the maps its block lists it in, to one key
+or, written `=> [first, second]`, to alternates; `, live in both` also binds it
+in the other map, for a handler that reads it there, and an unlisted command
+names its maps with `live in default`, `live in tenxer` or `live in both`. A
+command whose maps bind different keys lists each,
+`=> default [..], tenxer [..]`. One action is one command: a map's alternates
+belong in its entry, not in another constant. A chord key names its group,
+`"go" trigger(Go)` or `"go.home" step(Go)`, a structural key is
+`"up" structural`, and a command that follows another names it with
+`, after MOVE_TO_TRASH`. Handlers match catalog constants, and the F1 reference
+(`ui/shortcut_reference.rs`), context-menu hints, and footer hints refer to the
+same constants. Dispatch logic stays in the handlers; the catalog only defines
+keys.
 
 What a reference row or hint shows is a `Keys` value, never free text. It holds
 `Shown` keys, written `COPY.shown()` or `shown![TAB_NEXT, TAB_PREVIOUS]`; a
@@ -237,6 +255,38 @@ only its primary:
 - a digit range with its modifiers or chord prefix: **Ctrl+Shift+1–9 / 0**,
   **t 1–9 / t 0**
 - alternatives of different shapes: **g g / Home**
+
+### Structural keys
+
+`ESCAPE`, `ENTER`, `FOCUS_NEXT`, `FOCUS_PREVIOUS` and the arrows `UP`, `DOWN`,
+`LEFT` and `RIGHT` are structural commands. The first default binding of each is
+its canonical key, and its other bindings are aliases: **h j k l** for the
+arrows in both maps. `on_press` reads a press that matches an alias exactly as
+the canonical key before calling the handler, so `press.is(DOWN)` matches **j**
+and every surface sees the same press; `modifiers()` reports what the canonical
+key holds, so **Ctrl+J** standing in for ↓ reads as plain ↓, while `text()`
+keeps what was typed. A canonical key, with any modifiers, is never read as
+another, and physical Escape matches `ESCAPE` even when a table leaves it out.
+A plain printable alias is not rewritten while a text field or popover has
+focus or type-to-search is on.
+
+A structural command compares the key the press reads as; fixed bindings and
+other commands compare the key as pressed, so the 10xer **g h** step still sees
+**h**, and also the canonical key when they bind it, so a key that stands in
+for Tab completes paths as Tab does. `LEFT.alternates()` matches an alias as pressed, rewritten or not, where
+**h** and **←** differ, and `LEFT.or_alternates()` matches either, where a
+plain printable alias left alone in a popover should still navigate. A surface
+that never read **h j k l** as arrows, such as a dialog, Settings, a document
+table or a media timeline, matches `press.untyped()`.
+
+GTK's own bindings see the key as pressed. Every Strata window installs
+`keys::install_native_aliases`, a last-in-line controller that gives an alias no
+handler claimed, other than a plain printable one, the canonical key's GTK
+effect: Enter activates the focused widget, then the first GTK key binding for
+the canonical key from the focused widget outward runs, such as a list's cursor
+move, a text field's caret move or the window's `move-focus` for Tab, and
+Escape closes the popover that has focus. Effects GTK widgets implement outside
+key bindings, such as a text view's new line, are the text-field limit.
 
 ### Labels
 

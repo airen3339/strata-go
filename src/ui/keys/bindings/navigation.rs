@@ -2,18 +2,17 @@
 
 use gtk::gdk::{Key, ModifierType as Modifiers};
 
-use crate::ui::keys::{Binding, Command, SHORTCUT_MODIFIERS};
+use crate::ui::keys::{Binding, Command, Matcher, SHORTCUT_MODIFIERS};
 
 catalog! {
     listed {
-        UP: Binding = Binding::plain(Key::Up);
-        DOWN: Binding = Binding::plain(Key::Down);
-        LEFT: Binding = Binding::plain(Key::Left);
-        RIGHT: Binding = Binding::plain(Key::Right);
-        VIM_UP: Binding = Binding::plain(Key::k);
-        VIM_DOWN: Binding = Binding::plain(Key::j);
-        VIM_LEFT: Binding = Binding::plain(Key::h);
-        VIM_RIGHT: Binding = Binding::plain(Key::l);
+        // h j k l are read as arrows outside text fields and popovers, and
+        // in the default map only while type-to-search is off.
+        UP: Command "up" structural => [Binding::plain(Key::Up), Binding::plain(Key::k)];
+        DOWN: Command "down" structural => [Binding::plain(Key::Down), Binding::plain(Key::j)];
+        LEFT: Command "left" structural => [Binding::plain(Key::Left), Binding::plain(Key::h)];
+        RIGHT: Command "right" structural =>
+            [Binding::plain(Key::Right), Binding::plain(Key::l)];
         FIRST_ITEM: Command "first_item" = Binding::plain(Key::Home);
         LAST_ITEM: Command "last_item" => default [Binding::plain(Key::End)],
             tenxer [Binding::shift(Key::g), Binding::plain(Key::End)];
@@ -34,11 +33,11 @@ catalog! {
                 Binding::ctrl(Key::Page_Down),
             ];
 
-        ENTER: Binding = Binding::plain(Key::Return);
-        ESCAPE: Binding = Binding::plain(Key::Escape);
+        ENTER: Command "activate" structural = Binding::plain(Key::Return);
+        ESCAPE: Command "escape" structural = Binding::plain(Key::Escape);
         BACKSPACE: Binding = Binding::plain(Key::BackSpace);
-        FOCUS_NEXT: Binding = Binding::plain(Key::Tab);
-        FOCUS_PREVIOUS: Binding = Binding::shift(Key::Tab);
+        FOCUS_NEXT: Command "focus_next" structural = Binding::plain(Key::Tab);
+        FOCUS_PREVIOUS: Command "focus_previous" structural = Binding::shift(Key::Tab);
 
         HISTORY_BACK: Command "history_back" => default [Binding::alt(Key::Left)],
             tenxer [Binding::alt(Key::Left), Binding::shift(Key::h)];
@@ -81,14 +80,14 @@ catalog! {
         END_KEY: Binding = Binding::plain(Key::End);
         PAGE_UP_KEY: Binding = Binding::plain(Key::Page_Up);
         PAGE_DOWN_KEY: Binding = Binding::plain(Key::Page_Down);
-
-        /// Escape with any modifiers, as dialogs and inline edits accept it.
-        ESCAPE_ANY: Binding = ESCAPE.ignoring(SHORTCUT_MODIFIERS);
-        /// Escape with or without Shift, as the listing, prompts and popovers accept it.
-        ESCAPE_ANY_SHIFT: Binding = ESCAPE.ignoring(Modifiers::SHIFT_MASK);
-        /// Enter with any modifiers, as confirmation dialogs accept it.
-        ENTER_ANY: Binding = ENTER.ignoring(SHORTCUT_MODIFIERS);
-        /// Enter with or without Shift, as the listing, prompts and popovers accept it.
-        ENTER_ANY_SHIFT: Binding = ENTER.ignoring(Modifiers::SHIFT_MASK);
     }
 }
+
+/// Escape with any modifiers, as dialogs and inline edits accept it.
+pub(crate) const ESCAPE_ANY: Matcher = ESCAPE.ignoring(SHORTCUT_MODIFIERS);
+/// Escape with or without Shift, as the listing, prompts and popovers accept it.
+pub(crate) const ESCAPE_ANY_SHIFT: Matcher = ESCAPE.ignoring(Modifiers::SHIFT_MASK);
+/// Enter with any modifiers, as confirmation dialogs accept it.
+pub(crate) const ENTER_ANY: Matcher = ENTER.ignoring(SHORTCUT_MODIFIERS);
+/// Enter with or without Shift, as the listing, prompts and popovers accept it.
+pub(crate) const ENTER_ANY_SHIFT: Matcher = ENTER.ignoring(Modifiers::SHIFT_MASK);

@@ -154,7 +154,7 @@ impl SearchDialog {
         };
         let navigation = hint_label(&super::shortcut_reference::with_keys(
             "%{keys}  navigate",
-            keys::Keys::Any(crate::ui::keys::shown![UP, DOWN]),
+            keys::Keys::Any(crate::ui::keys::shown![UP.alternate(0), DOWN.alternate(0)]),
         ));
         let open = gtk::Box::new(gtk::Orientation::Horizontal, 5);
         open.set_valign(gtk::Align::Center);
@@ -251,6 +251,7 @@ impl SearchDialog {
                 return glib::Propagation::Proceed;
             };
             record_interaction(&state);
+            let press = &press.untyped();
             if press.is(ESCAPE_ANY) {
                 hide(&state);
                 return glib::Propagation::Stop;

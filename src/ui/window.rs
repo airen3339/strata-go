@@ -39,7 +39,6 @@ use super::{
         bindings::{
             BACKSPACE, DOWN, END_KEY, ENTER, FILTER_SLASH, FOCUS_NEXT, HOME_KEY, LEFT,
             PAGE_DOWN_KEY, PAGE_UP_KEY, RIGHT, SPACE, UP, VIEW_COLUMNS, VIEW_ICONS, VIEW_LIST,
-            VIM_DOWN, VIM_LEFT, VIM_RIGHT, VIM_UP,
         },
     },
     modal::{ModalHost, close_on_escape, dismiss_modal_layer, modal_layer},
@@ -547,22 +546,12 @@ fn single_pane_arrow_action(
 
 pub(super) fn is_browser_navigation_key(press: &KeyPress) -> bool {
     const TOLERATED: ModifierType = ModifierType::SHIFT_MASK.union(ModifierType::ALT_MASK);
-    press.is_any(&[VIM_LEFT, VIM_DOWN, VIM_UP, VIM_RIGHT])
-        || [
-            UP,
-            DOWN,
-            LEFT,
-            RIGHT,
-            HOME_KEY,
-            END_KEY,
-            PAGE_UP_KEY,
-            PAGE_DOWN_KEY,
-            FOCUS_NEXT,
-            ENTER,
-            BACKSPACE,
-        ]
+    [UP, DOWN, LEFT, RIGHT, FOCUS_NEXT, ENTER]
         .into_iter()
-        .any(|key| press.is(key.ignoring(TOLERATED)))
+        .any(|key| press.is(key.ignoring(TOLERATED).or_alternates()))
+        || [HOME_KEY, END_KEY, PAGE_UP_KEY, PAGE_DOWN_KEY, BACKSPACE]
+            .into_iter()
+            .any(|key| press.is(key.ignoring(TOLERATED)))
 }
 
 pub(super) fn type_to_search_query(press: &KeyPress) -> Option<TypeToSearchQuery> {
