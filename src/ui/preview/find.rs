@@ -332,7 +332,7 @@ impl PreviewDrawer {
                 };
                 let label = rust_i18n::t!(
                     "Find in preview (%{shortcut})",
-                    shortcut = keys::label(&keys::Keys::One(shortcut))
+                    shortcut = keys::label(&keys::Keys::One(shortcut.shown()))
                 );
                 button.set_tooltip_text(Some(&label));
                 super::super::accessibility::set_label(&button, &label);
@@ -364,7 +364,7 @@ impl PreviewDrawer {
             self.state.close_find();
             return true;
         }
-        if in_find && press.is_any(&[ENTER, PREVIOUS_MATCH]) {
+        if in_find && (press.is(ENTER) || press.is(PREVIOUS_MATCH)) {
             self.state.find.step(press.is(PREVIOUS_MATCH));
             return true;
         }

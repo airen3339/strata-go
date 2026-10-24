@@ -37,9 +37,9 @@ use super::{
     keys::{
         KeyPress,
         bindings::{
-            BACKSPACE, DOWN, ENTER, FILTER_SLASH, FIRST_ITEM, FOCUS_NEXT, LAST_ITEM, LEFT,
-            PAGE_DOWN, PAGE_UP, RIGHT, SPACE, UP, VIEW_COLUMNS, VIEW_ICONS, VIEW_LIST, VIM_DOWN,
-            VIM_LEFT, VIM_RIGHT, VIM_UP,
+            BACKSPACE, DOWN, END_KEY, ENTER, FILTER_SLASH, FOCUS_NEXT, HOME_KEY, LEFT,
+            PAGE_DOWN_KEY, PAGE_UP_KEY, RIGHT, SPACE, UP, VIEW_COLUMNS, VIEW_ICONS, VIEW_LIST,
+            VIM_DOWN, VIM_LEFT, VIM_RIGHT, VIM_UP,
         },
     },
     modal::{ModalHost, close_on_escape, dismiss_modal_layer, modal_layer},
@@ -549,7 +549,16 @@ pub(super) fn is_browser_navigation_key(press: &KeyPress) -> bool {
     const TOLERATED: ModifierType = ModifierType::SHIFT_MASK.union(ModifierType::ALT_MASK);
     press.is_any(&[VIM_LEFT, VIM_DOWN, VIM_UP, VIM_RIGHT])
         || [
-            UP, DOWN, LEFT, RIGHT, FIRST_ITEM, LAST_ITEM, PAGE_UP, PAGE_DOWN, FOCUS_NEXT, ENTER,
+            UP,
+            DOWN,
+            LEFT,
+            RIGHT,
+            HOME_KEY,
+            END_KEY,
+            PAGE_UP_KEY,
+            PAGE_DOWN_KEY,
+            FOCUS_NEXT,
+            ENTER,
             BACKSPACE,
         ]
         .into_iter()
@@ -966,9 +975,15 @@ pub(super) fn build_appearance_menu(
             shortcut_reference::with_keys,
         };
         super::controls::stepper([
-            with_keys("Decrease text size (%{keys})", Keys::One(TEXT_SMALLER)),
-            with_keys("Reset text size (%{keys})", Keys::One(TEXT_RESET)),
-            with_keys("Increase text size (%{keys})", Keys::One(TEXT_LARGER)),
+            with_keys(
+                "Decrease text size (%{keys})",
+                Keys::One(TEXT_SMALLER.shown()),
+            ),
+            with_keys("Reset text size (%{keys})", Keys::One(TEXT_RESET.shown())),
+            with_keys(
+                "Increase text size (%{keys})",
+                Keys::One(TEXT_LARGER.shown()),
+            ),
         ])
     };
     text_controls.append(&stepper);
@@ -998,7 +1013,9 @@ pub(super) fn build_appearance_menu(
             crate::assets::icons::EYE_OFF
         },
         "Hidden files",
-        &super::keys::label(&super::keys::Keys::One(super::keys::bindings::HIDDEN_FILES)),
+        &super::keys::label(&super::keys::Keys::One(
+            super::keys::bindings::HIDDEN_FILES.shown(),
+        )),
         hidden_files_shown,
         true,
         gtk::AccessibleRole::MenuItemCheckbox,
@@ -4080,8 +4097,14 @@ fn resolve_place_order(persisted: &[String]) -> Vec<&'static str> {
     order
 }
 
-fn place_keycap(step: super::keys::Binding) -> String {
-    super::keys::label(&super::keys::Keys::One(step))
+/// Rows keep their keycaps across mode changes, and only the 10xer Go chord
+/// shows them, so they always show that map.
+fn place_keycap(step: super::keys::Command) -> String {
+    super::keys::label_in_map(
+        &rust_i18n::locale(),
+        &super::keys::Keys::One(step.shown()),
+        super::keys::Map::Tenxer,
+    )
 }
 
 fn pin_keycap(ordinal: usize) -> Option<String> {
@@ -4092,7 +4115,7 @@ fn pin_keycap(ordinal: usize) -> Option<String> {
     Some(super::keys::digit_label(PIN_NUMBERS.step(), pin))
 }
 
-fn standard_place_chord_key(id: &str) -> Option<super::keys::Binding> {
+fn standard_place_chord_key(id: &str) -> Option<super::keys::Command> {
     use super::keys::bindings::{GO_DOCUMENTS, GO_DOWNLOADS, GO_MUSIC, GO_PICTURES, GO_VIDEOS};
     match id {
         "documents" => Some(GO_DOCUMENTS),

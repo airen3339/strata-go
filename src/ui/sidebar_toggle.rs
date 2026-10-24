@@ -106,7 +106,7 @@ impl SidebarToggle {
     /// The tooltip names the step the next click takes from `mode`; the
     /// accessible name stays the control's own so it can be found in any mode.
     pub(crate) fn describe(&self, mode: SidebarMode, tenxer: bool) {
-        let keys = Keys::One(if tenxer { TENXER_SIDEBAR } else { SIDEBAR });
+        let keys = Keys::One(if tenxer { TENXER_SIDEBAR } else { SIDEBAR }.shown());
         self.set_tooltip_text(Some(&super::shortcut_reference::with_keys(
             mode.next().step_message(),
             keys,

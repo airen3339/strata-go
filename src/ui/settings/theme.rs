@@ -420,20 +420,23 @@ fn append_text_size_option(content: &gtk::Box, preferences: &Rc<PreferenceManage
             label.add_css_class(class);
             keys.append(&label);
         };
-        // The three bindings share their modifiers, shown once.
-        keycap(
-            &shortcuts::modifiers_label(TEXT_LARGER.modifiers()),
-            "settings-keycap",
-        );
-        for (index, binding) in [TEXT_LARGER, TEXT_SMALLER, TEXT_RESET]
+        let bindings: Vec<Binding> = [TEXT_LARGER, TEXT_SMALLER, TEXT_RESET]
             .into_iter()
-            .enumerate()
-        {
+            .filter_map(|command| command.primary())
+            .collect();
+        // The three bindings share their modifiers, shown once.
+        if let Some(first) = bindings.first() {
+            keycap(
+                &shortcuts::modifiers_label(first.modifiers()),
+                "settings-keycap",
+            );
+        }
+        for (index, binding) in bindings.into_iter().enumerate() {
             if index > 0 {
                 keycap("/", "keycap-separator");
             }
             keycap(
-                &shortcuts::label(&Keys::One(Binding::plain(binding.key()))),
+                &shortcuts::label(&Keys::One(Binding::plain(binding.key()).shown())),
                 "settings-keycap",
             );
         }

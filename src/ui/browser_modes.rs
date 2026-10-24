@@ -2228,7 +2228,7 @@ pub(crate) fn filter_controls(tooltip: &str) -> (gtk::Entry, gtk::Revealer, gtk:
     let button = gtk::ToggleButton::builder()
         .tooltip_text(super::shortcut_reference::with_keys(
             tooltip,
-            super::keys::Keys::One(super::keys::bindings::FILTER),
+            super::keys::Keys::One(super::keys::bindings::FILTER.shown()),
         ))
         .build();
     button.set_child(Some(&crate::assets::chrome_icon(
@@ -3633,7 +3633,7 @@ fn list_navigation(browser: &Rc<Browser>) -> gtk::Box {
         let button = gtk::Button::builder()
             .tooltip_text(super::shortcut_reference::with_keys(
                 tooltip,
-                Keys::One(binding),
+                Keys::One(binding.shown()),
             ))
             .sensitive(available)
             .build();

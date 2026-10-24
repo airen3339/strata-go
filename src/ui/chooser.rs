@@ -1680,7 +1680,7 @@ fn build_chooser_hosted(
     let close = gtk::Button::builder()
         .tooltip_text(crate::ui::shortcut_reference::with_keys(
             "Cancel file selection (%{keys})",
-            crate::ui::keys::Keys::One(crate::ui::keys::bindings::ESCAPE),
+            crate::ui::keys::Keys::One(crate::ui::keys::bindings::ESCAPE.shown()),
         ))
         .build();
     close.set_child(Some(&crate::assets::chrome_icon(crate::assets::icons::X)));
@@ -1858,7 +1858,7 @@ fn build_chooser_hosted(
             &accept,
             Some(&crate::ui::shortcut_reference::with_keys(
                 "Select folder (%{keys})",
-                crate::ui::keys::Keys::One(crate::ui::keys::bindings::CHOOSE_FOLDER),
+                crate::ui::keys::Keys::One(crate::ui::keys::bindings::CHOOSE_FOLDER.shown()),
             )),
         );
     }
@@ -2257,23 +2257,28 @@ fn apply_external_parent(window: &gtk::Window, parent: Option<&WindowIdentifierT
 
 fn save_hints(kind: &ChooserKind, preferences: &Rc<PreferenceManager>) -> Option<gtk::Box> {
     use crate::ui::keys::{
-        self, Binding, Keys,
+        self, Keys, Map, Shown,
         bindings::{ENTER, OPEN, TENXER_RENAME},
     };
-    let hints: &[(Binding, &str)] = match kind {
+    let hints: &[(Shown, &str)] = match kind {
         ChooserKind::SaveFile { .. } => &[
-            (ENTER, "Save here"),
-            (TENXER_RENAME, "Edit name"),
-            (OPEN, "Replace file"),
+            (ENTER.shown(), "Save here"),
+            (TENXER_RENAME.shown(), "Edit name"),
+            (OPEN.shown(), "Replace file"),
         ],
-        ChooserKind::SaveFiles { .. } => &[(ENTER, "Save here")],
+        ChooserKind::SaveFiles { .. } => &[(ENTER.shown(), "Save here")],
         ChooserKind::Open { .. } => return None,
     };
     let row = gtk::Box::new(gtk::Orientation::Horizontal, 6);
     row.add_css_class("chooser-save-hints");
     row.set_valign(gtk::Align::Center);
     for (index, (binding, action)) in hints.iter().enumerate() {
-        let keycap = gtk::Label::new(Some(&keys::label(&Keys::One(*binding))));
+        // Built once and shown only in 10xer mode, so it shows that map.
+        let keycap = gtk::Label::new(Some(&keys::label_in_map(
+            &rust_i18n::locale(),
+            &Keys::One(*binding),
+            Map::Tenxer,
+        )));
         keycap.add_css_class("sidebar-keycap");
         if index > 0 {
             keycap.set_margin_start(10);
@@ -2456,11 +2461,9 @@ fn install_shortcuts(
         let focused = gtk::prelude::RootExt::focus(&state.window);
         if preferences.tenxer_mode()
             && (state.name_has_focus(focused.as_ref()) || state.view.location_has_focus())
-            && !press.is_any(&[
-                REFERENCE.ignoring(SHORTCUT_MODIFIERS),
-                ESCAPE_ANY,
-                TENXER_MODE,
-            ])
+            && !(press.is(REFERENCE.ignoring(SHORTCUT_MODIFIERS))
+                || press.is(ESCAPE_ANY)
+                || press.is(TENXER_MODE))
         {
             return glib::Propagation::Proceed;
         }
@@ -2620,7 +2623,7 @@ fn install_shortcuts(
         if state.view.new_entry_is_active() || state.view.rename_is_active() {
             return glib::Propagation::Proceed;
         }
-        if press.is(SPACE)
+        if press.is(PREVIEW)
             && let Some(entry) = state.view.search_result_for_space()
         {
             if state.view.activate_directory_on_space() {
@@ -2908,8 +2911,8 @@ fn install_shortcuts(
             state.window.set_focus_visible(true);
             return glib::Propagation::Stop;
         }
-        if press.is(SPACE.ignoring(FOCUS_MODIFIERS)) {
-            if press.is(SPACE) && state.view.activate_directory_on_space() {
+        if press.is(PREVIEW.ignoring(FOCUS_MODIFIERS)) {
+            if press.is(PREVIEW) && state.view.activate_directory_on_space() {
                 return glib::Propagation::Stop;
             }
             preview.toggle(

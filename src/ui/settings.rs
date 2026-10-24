@@ -3316,9 +3316,9 @@ fn translated_in(locale: &str, message: &str) -> String {
     rust_i18n::t!(
         message,
         locale = locale,
-        reference_keys = label_in(locale, &One(REFERENCE)),
-        sidebar_focus_keys = label_in(locale, &One(SIDEBAR_FOCUS)),
-        tenxer_mode_keys = label_in(locale, &One(TENXER_MODE))
+        reference_keys = label_in(locale, &One(REFERENCE.shown())),
+        sidebar_focus_keys = label_in(locale, &One(SIDEBAR_FOCUS.shown())),
+        tenxer_mode_keys = label_in(locale, &One(TENXER_MODE.shown()))
     )
     .into_owned()
 }

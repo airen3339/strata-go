@@ -85,7 +85,7 @@ impl Dispatcher {
     }
 
     pub(super) fn filter_and_location_commands(&self, event: &KeyEvent) -> KeyResult {
-        if event.press.is(SPACE)
+        if event.press.is(PREVIEW)
             && let Some(entry) = self.view.search_result_for_space()
         {
             if self.view.activate_directory_on_space() {

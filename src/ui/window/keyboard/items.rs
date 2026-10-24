@@ -14,7 +14,7 @@ use crate::{
     model::Location,
     ui::{
         browser_modes::{BrowserMode, ThumbnailResize},
-        keys::{Binding, KeyPress, bindings::*},
+        keys::{Binding, Command, KeyPress, Match, bindings::*},
         preview::{ArchiveMove, MediaCommand, PreviewSurface, preview_target},
         tenxer_mode::Chord,
         window::{
@@ -275,7 +275,8 @@ impl Dispatcher {
     fn item_commands(&self, browser: &Browser, event: &KeyEvent) -> KeyResult {
         let press = &event.press;
         if self.view.item_view_has_focus()
-            && press.is_any(&[FIRST_ITEM, LAST_ITEM, EXTEND_TO_FIRST, EXTEND_TO_LAST])
+            && (press.is_any(&[FIRST_ITEM, LAST_ITEM])
+                || press.is_any(&[EXTEND_TO_FIRST, EXTEND_TO_LAST]))
         {
             self.view.commit_selection();
             let jump = if press.is(FIRST_ITEM) {
@@ -291,14 +292,13 @@ impl Dispatcher {
                 return Some(Propagation::Stop);
             }
         }
-        let page = [
-            (PAGE_UP, -1, false),
-            (PAGE_DOWN, 1, false),
-            (EXTEND_PAGE_UP, -1, true),
-            (EXTEND_PAGE_DOWN, 1, true),
-        ]
-        .into_iter()
-        .find(|(key, _, _)| press.is(key.ignoring(SUPER)));
+        let page: [(&dyn Match, _, _); 4] = [
+            (&PAGE_UP.ignoring(SUPER), -1, false),
+            (&PAGE_DOWN.ignoring(SUPER), 1, false),
+            (&EXTEND_PAGE_UP.ignoring(SUPER), -1, true),
+            (&EXTEND_PAGE_DOWN.ignoring(SUPER), 1, true),
+        ];
+        let page = page.into_iter().find(|(key, _, _)| press.is(key));
         if let Some((_, direction, extend)) = page
             && self.view.page_selection(direction, extend)
         {
@@ -308,9 +308,9 @@ impl Dispatcher {
             self.view.copy_path();
         } else if press.is(PIN) {
             self.view.pin_focused();
-        } else if press.is(SPACE.ignoring(SHIFT.union(SUPER))) {
+        } else if press.is(PREVIEW.ignoring(SHIFT.union(SUPER))) {
             self.view.cancel_pending_click_rename();
-            let activated_directory = press.is(SPACE) && self.view.activate_directory_on_space();
+            let activated_directory = press.is(PREVIEW) && self.view.activate_directory_on_space();
             if !activated_directory {
                 self.preview.toggle(
                     preview_target(browser.focused_entry()),
@@ -454,7 +454,7 @@ impl Dispatcher {
             self.jump_displayed(1);
         } else if press.is(BACKSPACE) && !search {
             self.go_parent();
-        } else if press.is_any(&[OPEN, ENTER]) {
+        } else if press.is(OPEN) || press.is(ENTER) {
             self.activate_focused(browser);
         } else if press.is(PEEK) {
             if !self.toggle_file_preview(browser) {
@@ -665,7 +665,7 @@ impl Dispatcher {
             self.go_parent();
         } else if press.is_any(&[VIM_RIGHT, RIGHT]) {
             self.enter_preview(browser);
-        } else if press.is_any(&[OPEN, ENTER]) {
+        } else if press.is(OPEN) || press.is(ENTER) {
             self.activate_focused(browser);
         } else if press.is(GO) {
             self.shortcuts.arm_chord(Chord::Go);
@@ -760,7 +760,7 @@ impl Dispatcher {
 }
 
 /// Paging and jumping keys do nothing while a listing search shows its hits.
-const SWALLOWED_ON_HITS: [Binding; 4] = [FIRST_ITEM, LAST_ITEM, PAGE_UP, PAGE_DOWN];
+const SWALLOWED_ON_HITS: [Command; 4] = [FIRST_ITEM, LAST_ITEM, PAGE_UP, PAGE_DOWN];
 
 const EXTEND_KEYS: [Binding; 6] = [
     EXTEND_UP,

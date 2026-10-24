@@ -75,7 +75,7 @@ impl Header {
             icons::SEARCH,
             &crate::ui::shortcut_reference::with_keys(
                 "Search (%{keys})",
-                crate::ui::keys::Keys::One(crate::ui::keys::bindings::SEARCH),
+                crate::ui::keys::Keys::One(crate::ui::keys::bindings::SEARCH.shown()),
             ),
         );
         crate::ui::tenxer_mode::hide_while_enabled(&search);
@@ -128,7 +128,7 @@ impl Header {
             icons::PLUS,
             &crate::ui::shortcut_reference::with_keys(
                 "New tab (%{keys})",
-                crate::ui::keys::Keys::One(crate::ui::keys::bindings::TAB_NEW),
+                crate::ui::keys::Keys::One(crate::ui::keys::bindings::TAB_NEW.shown()),
             ),
         );
         crate::ui::accessibility::set_label(&new_tab, &crate::i18n::tr("New tab"));

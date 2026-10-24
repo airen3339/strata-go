@@ -239,7 +239,7 @@ impl TabStrip {
             crate::assets::icons::X,
             &crate::ui::shortcut_reference::with_keys(
                 "Close tab (%{keys})",
-                crate::ui::keys::Keys::One(crate::ui::keys::bindings::TAB_CLOSE),
+                crate::ui::keys::Keys::One(crate::ui::keys::bindings::TAB_CLOSE.shown()),
             ),
         );
         close.remove_css_class("header-action");

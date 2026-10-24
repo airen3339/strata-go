@@ -10,7 +10,7 @@ use super::{Dispatcher, KeyResult};
 use crate::{
     app::Browser,
     ui::{
-        keys::{Binding, KeyPress, SHORTCUT_MODIFIERS, bindings::*},
+        keys::{Binding, KeyPress, Match, SHORTCUT_MODIFIERS, bindings::*},
         preview::{ArchiveMove, DocumentScroll, PreviewSurface, media_key_command, preview_target},
         tenxer_mode::Chord,
     },
@@ -47,7 +47,8 @@ impl Dispatcher {
     /// including characters the footer would otherwise claim.
     pub(super) fn tenxer_preview_text(&self, browser: &Browser, press: &KeyPress) -> KeyResult {
         if !self.type_to_search.preferences.tenxer_mode()
-            || press.is_any(&[REFERENCE.ignoring(SHORTCUT_MODIFIERS), TENXER_MODE])
+            || press.is(REFERENCE.ignoring(SHORTCUT_MODIFIERS))
+            || press.is(TENXER_MODE)
         {
             return None;
         }
@@ -156,27 +157,26 @@ impl Dispatcher {
             self.return_from_preview(&self.view.browser());
             return true;
         }
-        let Some((_, motion)) = [
-            (HALF_PAGE_UP, DocumentScroll::HalfPage(-1)),
-            (HALF_PAGE_DOWN, DocumentScroll::HalfPage(1)),
-            (TENXER_PAGE_UP, DocumentScroll::Page(-1)),
-            (TENXER_PAGE_UP_PAGE_UP, DocumentScroll::Page(-1)),
-            (TENXER_PAGE_DOWN, DocumentScroll::Page(1)),
-            (TENXER_PAGE_DOWN_PAGE_DOWN, DocumentScroll::Page(1)),
-            (FIRST_ITEM_UP, DocumentScroll::Start),
-            (LAST_ITEM_DOWN, DocumentScroll::End),
-            (VIM_DOWN, DocumentScroll::Line(1)),
-            (DOWN, DocumentScroll::Line(1)),
-            (VIM_UP, DocumentScroll::Line(-1)),
-            (UP, DocumentScroll::Line(-1)),
-            (PAGE_UP.ignoring(SHIFT), DocumentScroll::Page(-1)),
-            (PAGE_DOWN.ignoring(SHIFT), DocumentScroll::Page(1)),
-            (FIRST_ITEM, DocumentScroll::Start),
-            (LAST_ITEM, DocumentScroll::End),
-            (TENXER_LAST_ITEM, DocumentScroll::End),
-        ]
-        .into_iter()
-        .find(|(key, _)| press.is(*key)) else {
+        let motions: [(&dyn Match, DocumentScroll); 17] = [
+            (&HALF_PAGE_UP, DocumentScroll::HalfPage(-1)),
+            (&HALF_PAGE_DOWN, DocumentScroll::HalfPage(1)),
+            (&TENXER_PAGE_UP, DocumentScroll::Page(-1)),
+            (&TENXER_PAGE_UP_PAGE_UP, DocumentScroll::Page(-1)),
+            (&TENXER_PAGE_DOWN, DocumentScroll::Page(1)),
+            (&TENXER_PAGE_DOWN_PAGE_DOWN, DocumentScroll::Page(1)),
+            (&FIRST_ITEM_UP, DocumentScroll::Start),
+            (&LAST_ITEM_DOWN, DocumentScroll::End),
+            (&VIM_DOWN, DocumentScroll::Line(1)),
+            (&DOWN, DocumentScroll::Line(1)),
+            (&VIM_UP, DocumentScroll::Line(-1)),
+            (&UP, DocumentScroll::Line(-1)),
+            (&PAGE_UP_KEY.ignoring(SHIFT), DocumentScroll::Page(-1)),
+            (&PAGE_DOWN_KEY.ignoring(SHIFT), DocumentScroll::Page(1)),
+            (&HOME_KEY, DocumentScroll::Start),
+            (&END_KEY, DocumentScroll::End),
+            (&TENXER_LAST_ITEM, DocumentScroll::End),
+        ];
+        let Some((_, motion)) = motions.into_iter().find(|(key, _)| press.is(key)) else {
             return false;
         };
         self.preview.scroll_document(motion);
@@ -196,9 +196,9 @@ impl Dispatcher {
             } else {
                 self.preview.archive_key(ArchiveMove::Parent);
             }
-        } else if press.is(FIRST_ITEM) {
+        } else if press.is(HOME_KEY) {
             self.preview.archive_edge(false);
-        } else if press.is_any(&[LAST_ITEM, TENXER_LAST_ITEM]) {
+        } else if press.is(END_KEY) || press.is(TENXER_LAST_ITEM) {
             self.preview.archive_edge(true);
         } else {
             return false;
@@ -335,7 +335,6 @@ fn reaches_listing(press: &KeyPress) -> bool {
         SEARCH_SUBFOLDERS,
         REPEAT_FIND,
         FIND,
-        BACKSPACE,
         TENXER_HISTORY_BACK,
         TENXER_HISTORY_FORWARD,
         JUMP_RECENT,
@@ -366,13 +365,10 @@ fn reaches_listing(press: &KeyPress) -> bool {
         SORT_BY,
         ACTIONS,
         TENXER_HIDDEN_FILES,
-        DELETE,
-        DELETE_PERMANENTLY,
-        ENTER,
         PROPERTIES,
         COPY,
         CUT,
         PASTE,
         NEW_FOLDER,
-    ])
+    ]) || press.is_any(&[BACKSPACE, DELETE, DELETE_PERMANENTLY, ENTER])
 }

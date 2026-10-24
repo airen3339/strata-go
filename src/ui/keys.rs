@@ -11,13 +11,6 @@ use gtk::{
 };
 
 pub(crate) mod bindings;
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "handlers match binding constants until they resolve commands"
-    )
-)]
 mod command;
 mod composition;
 mod label;
@@ -25,8 +18,10 @@ mod label;
 #[cfg(test)]
 mod tests;
 
+pub(crate) use command::{Command, Map};
 pub(crate) use label::{
-    Digits, Keys, digit_label, label, label_in, modifiers_label, modifiers_label_in, search_text,
+    Digits, Keys, Shown, digit_label, label, label_in, label_in_map, modifiers_label,
+    modifiers_label_in, search_text, shown,
 };
 
 /// The modifiers shortcuts compare. Locks, AltGr, Hyper and Meta never count.
@@ -37,7 +32,7 @@ pub(crate) const SHORTCUT_MODIFIERS: Modifiers = Modifiers::CONTROL_MASK
 
 /// Editing shortcuts of `gtk::Text` and `gtk::TextView`, with the widget action
 /// each runs.
-pub(crate) const TEXT_EDITING: [(Binding, &str); 7] = [
+pub(crate) const TEXT_EDITING: [(Command, &str); 7] = [
     (bindings::COPY, "clipboard.copy"),
     (bindings::CUT, "clipboard.cut"),
     (bindings::PASTE, "clipboard.paste"),
@@ -110,6 +105,38 @@ impl Binding {
     pub(crate) fn accelerator(self) -> glib::GString {
         gtk::accelerator_name(self.key, self.modifiers)
     }
+
+    pub(crate) const fn shown(self) -> Shown {
+        Shown::Binding(self)
+    }
+}
+
+/// What a press can be compared with: a fixed [`Binding`], or a [`Command`]
+/// resolved through the active map.
+pub(crate) trait Match {
+    fn matches(&self, press: &KeyPress) -> bool;
+}
+
+impl<T: Match + ?Sized> Match for &T {
+    fn matches(&self, press: &KeyPress) -> bool {
+        (**self).matches(press)
+    }
+}
+
+impl Match for Binding {
+    /// Compares modifiers exactly apart from those the binding ignores.
+    fn matches(&self, press: &KeyPress) -> bool {
+        let compared = SHORTCUT_MODIFIERS.difference(self.ignored);
+        match digit_value(self.key) {
+            Some(digit) => {
+                press.digit == Some(digit) && press.state & compared == self.modifiers & compared
+            }
+            None => {
+                press.key == self.key
+                    && press.shortcut_modifiers & compared == self.modifiers & compared
+            }
+        }
+    }
 }
 
 /// One key event, normalized once for every handler that sees it.
@@ -125,23 +152,14 @@ pub(crate) struct KeyPress {
 }
 
 impl KeyPress {
-    /// Whether the press is `binding`, comparing modifiers exactly apart from
-    /// those the binding ignores.
-    pub(crate) fn is(&self, binding: Binding) -> bool {
-        let compared = SHORTCUT_MODIFIERS.difference(binding.ignored);
-        match digit_value(binding.key) {
-            Some(digit) => {
-                self.digit == Some(digit) && self.state & compared == binding.modifiers & compared
-            }
-            None => {
-                self.key == binding.key
-                    && self.shortcut_modifiers & compared == binding.modifiers & compared
-            }
-        }
+    /// Whether the press is `key`: a binding, or any of a command's bindings
+    /// in the active map.
+    pub(crate) fn is(&self, key: impl Match) -> bool {
+        key.matches(self)
     }
 
-    pub(crate) fn is_any(&self, bindings: &[Binding]) -> bool {
-        bindings.iter().any(|binding| self.is(*binding))
+    pub(crate) fn is_any<M: Match>(&self, keys: &[M]) -> bool {
+        keys.iter().any(|key| key.matches(self))
     }
 
     /// The digit-row position (1–9, 0) or keypad digit when the press is in

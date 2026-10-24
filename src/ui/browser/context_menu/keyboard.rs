@@ -10,7 +10,7 @@ use gtk::{gdk::ModifierType as Modifiers, glib, prelude::*};
 use crate::ui::keys::{
     self,
     bindings::{
-        DOWN, ENTER_ANY_SHIFT, ESCAPE_ANY_SHIFT, FIRST_ITEM, FOCUS_NEXT, FOCUS_PREVIOUS, LAST_ITEM,
+        DOWN, END_KEY, ENTER_ANY_SHIFT, ESCAPE_ANY_SHIFT, FOCUS_NEXT, FOCUS_PREVIOUS, HOME_KEY,
         SPACE, UP,
     },
 };
@@ -186,8 +186,8 @@ fn install_menu_edges(popover: &gtk::PopoverMenu, navigation: &Rc<NativeMenuNavi
     let navigation = navigation.clone();
     keys::on_press(&keys, move |_, press| {
         navigation.keyboard_navigation();
-        let first = press.is(FIRST_ITEM);
-        if !first && !press.is(LAST_ITEM) {
+        let first = press.is(HOME_KEY);
+        if !first && !press.is(END_KEY) {
             return glib::Propagation::Proceed;
         }
         let Some(popover) = weak.upgrade() else {
@@ -253,9 +253,9 @@ pub(super) fn install(popover: &gtk::Popover) {
         let forward = press.is_any(&[DOWN.ignoring(SHIFT), FOCUS_NEXT]);
         if press.is(ESCAPE_ANY_SHIFT) {
             popover.popdown();
-        } else if press.is(FIRST_ITEM.ignoring(SHIFT)) {
+        } else if press.is(HOME_KEY.ignoring(SHIFT)) {
             focus_first_or_last_menu_item(&popover, true);
-        } else if press.is(LAST_ITEM.ignoring(SHIFT)) {
+        } else if press.is(END_KEY.ignoring(SHIFT)) {
             focus_first_or_last_menu_item(&popover, false);
         } else if forward || press.is_any(&[UP.ignoring(SHIFT), FOCUS_PREVIOUS]) {
             let buttons = menu_buttons(&popover);

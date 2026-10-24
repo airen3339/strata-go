@@ -15,7 +15,7 @@ use crate::{
     model::{Location, SortDirection, SortKey},
     ui::{
         browser::{ConflictFocus, Yank},
-        keys::{KeyPress, bindings::*},
+        keys::{KeyPress, Match, bindings::*},
         tenxer_mode::{Chord, Prompt},
         window::visible_modal_layer,
     },
@@ -43,19 +43,20 @@ pub(super) struct ArmedActions {
 
 fn sort_choice(press: &KeyPress) -> Option<(SortKey, SortDirection)> {
     use SortDirection::{Ascending, Descending};
-    [
-        (SORT_BY_NAME, (SortKey::Name, Ascending)),
-        (SORT_BY_NAME_REVERSED, (SortKey::Name, Descending)),
-        (SORT_BY_MODIFIED, (SortKey::Modified, Ascending)),
-        (SORT_BY_MODIFIED_REVERSED, (SortKey::Modified, Descending)),
-        (SORT_BY_SIZE, (SortKey::Size, Ascending)),
-        (SORT_BY_SIZE_REVERSED, (SortKey::Size, Descending)),
-        (SORT_BY_TYPE, (SortKey::Type, Ascending)),
-        (SORT_BY_TYPE_REVERSED, (SortKey::Type, Descending)),
-    ]
-    .into_iter()
-    .find(|(binding, _)| press.is(*binding))
-    .map(|(_, choice)| choice)
+    let choices: [(&dyn Match, _); 8] = [
+        (&SORT_BY_NAME, (SortKey::Name, Ascending)),
+        (&SORT_BY_NAME_REVERSED, (SortKey::Name, Descending)),
+        (&SORT_BY_MODIFIED, (SortKey::Modified, Ascending)),
+        (&SORT_BY_MODIFIED_REVERSED, (SortKey::Modified, Descending)),
+        (&SORT_BY_SIZE, (SortKey::Size, Ascending)),
+        (&SORT_BY_SIZE_REVERSED, (SortKey::Size, Descending)),
+        (&SORT_BY_TYPE, (SortKey::Type, Ascending)),
+        (&SORT_BY_TYPE_REVERSED, (SortKey::Type, Descending)),
+    ];
+    choices
+        .into_iter()
+        .find(|(key, _)| press.is(key))
+        .map(|(_, choice)| choice)
 }
 
 /// 0 is slot 10.
@@ -86,9 +87,9 @@ impl Dispatcher {
             self.open_rename_prompt();
         } else if press.is(OPEN_WITH) {
             self.open_with_targets();
-        } else if press.is_any(&[DELETE, TENXER_DELETE]) {
+        } else if press.is(DELETE) || press.is(TENXER_DELETE) {
             self.delete_targets(false);
-        } else if press.is_any(&[DELETE_PERMANENTLY, TENXER_DELETE_PERMANENTLY]) {
+        } else if press.is(DELETE_PERMANENTLY) || press.is(TENXER_DELETE_PERMANENTLY) {
             self.delete_targets(true);
         } else if press.is(YANK) {
             self.yank(false);
@@ -265,7 +266,12 @@ impl Dispatcher {
                 (ACTIONS_EXTRACT, "Extract here"),
                 (ACTIONS_EXTRACT_TO, "Extract to\u{2026}"),
             ]
-            .map(|(step, action)| (keys::label(&Keys::One(step)), crate::i18n::tr(action))),
+            .map(|(step, action)| {
+                (
+                    keys::label(&Keys::One(step.shown())),
+                    crate::i18n::tr(action),
+                )
+            }),
         );
         self.armed_actions.replace(Some(ArmedActions {
             ids: numbered

@@ -164,9 +164,10 @@ own. Release handlers still run.
 
 ### `KeyPress`
 
-- `is(binding)` reports whether the press matches a `Binding`. Use it for
-  every command, including navigation keys such as Escape, Return, and arrows.
-  `is_any(bindings)` tries several.
+- `is(key)` reports whether the press matches a catalog constant: a `Command`
+  through the active map's bindings, or a fixed `Binding`. Use it for every
+  command, including navigation keys such as Escape, Return, and arrows.
+  `is_any(keys)` tries several of one type.
 - `digit_in(digits)` returns the digit-row or keypad digit of a catalog digit
   range, such as tab numbers or a chord's digit step. Single digit bindings
   (**Ctrl+1**) go through `is()`.
@@ -183,7 +184,7 @@ own. Release handlers still run.
 `keys::read_event(&event)` reads a key event that reached another controller,
 such as `EventControllerLegacy`.
 
-### `Binding` and the binding catalog
+### Commands, bindings, and the catalog
 
 A `Binding` is a canonical key plus exact modifiers: `Binding::plain(Key::j)`,
 `Binding::ctrl(Key::c)`, `Binding::ctrl_shift(Key::k)`, or
@@ -192,19 +193,36 @@ Symbol bindings name the symbol (`Key::plus`), never the key that types it on a
 US keyboard. `binding.ignoring(modifiers)` lets a navigation or dismiss key also
 match while those modifiers are held; its label does not change.
 
-Every shortcut is a named constant in the binding catalog,
-`ui::keys::bindings`, with one file per area under `src/ui/keys/bindings/`. The
-`catalog!` macro declares each area's constants, such as
-`COPY: Binding = Binding::ctrl(Key::c);`, in a block that says which F1 maps
+A `Command` is a rebindable action with a stable id and its default bindings in
+each map, the default map and the 10xer map. A press matches a command through
+the table of the map 10xer mode selects at that moment, so a command bound in
+one map never matches in the other. `command.ignoring(modifiers)` applies to
+each of its bindings, and `command.in_map(map)` matches another map's bindings
+for a stage that claims them, such as 10xer swallowing default-map keys it
+leaves unbound. Structural keys (arrows, **h j k l**, Enter, Escape, Tab),
+Backspace and Delete, GTK-owned keys, and generic keys that many surfaces read
+for their own job (Space, and Home, End and the page keys outside the file
+listing) stay fixed `Binding` constants.
+
+Every shortcut is a named constant in the catalog, `ui::keys::bindings`, with
+one file per area under `src/ui/keys/bindings/`. The `catalog!` macro declares
+each area's constants, such as `COPY: Command "copy" = Binding::ctrl(Key::c);`
+or `UP: Binding = Binding::plain(Key::Up);`, in a block that says which F1 maps
 list them: `listed` (both), `default_only`, `tenxer_only`, or `unlisted`. A
-chord's second key names its first with `, after GO`. Handlers match catalog
-constants, and the F1 reference (`ui/shortcut_reference.rs`), context-menu
-hints, and footer hints refer to the same constants. Dispatch logic stays in the
-handlers; the catalog only defines keys.
+command is bound in the maps its block lists it in; `, live in both` also binds
+it in the other map, for a handler that reads it there, and an unlisted command
+names its maps with `live in default`, `live in tenxer` or `live in both`. A
+chord key names its group, `"go" trigger(Go)` or `"go.home" step(Go)`, and a
+command that follows another names it with `, after TENXER_DELETE`. Handlers
+match catalog constants, and the F1 reference (`ui/shortcut_reference.rs`),
+context-menu hints, and footer hints refer to the same constants. Dispatch logic
+stays in the handlers; the catalog only defines keys.
 
-What a reference row or hint shows is a `Keys` value, never free text:
+What a reference row or hint shows is a `Keys` value, never free text. It holds
+`Shown` keys, written `COPY.shown()` or `shown![RENAME, RENAME_R]`; a command
+shows every binding the active map gives it:
 
-- one binding: **Ctrl+C**
+- one key: **Ctrl+C**
 - alternatives: **F2 / Ctrl+R**
 - a chord: **g h**
 - a digit range with its modifiers or chord prefix: **Ctrl+Shift+1–9 / 0**,
@@ -214,7 +232,8 @@ What a reference row or hint shows is a `Keys` value, never free text:
 ### Labels
 
 `keys::label` is the only code that turns bindings into text; `label_in`
-renders a given language, `modifiers_label` held modifiers alone (**hold
+renders a given language, `label_in_map` a given map for a hint built once and
+shown in one map only, `modifiers_label` held modifiers alone (**hold
 Ctrl+Shift**), and `digit_label` one member of a digit range. Key names come from
 one translated table (`keys.name.*` in every catalog). Context templates such as
 `%{keys} in header` stay translatable and receive the formatted label;
@@ -232,7 +251,7 @@ Menus display the formatter's text too. GTK formats a menu item's `accel`
 attribute itself: it puts Shift first, capitalizes letters, and uses its own
 translations. So menu rows must not show GTK's rendering of an `accel` string,
 and no code may build an accelerator string by parsing a label. A native menu
-row carries its binding's `Binding::accelerator()`, which keeps GTK's
+row carries its primary binding's `Binding::accelerator()`, which keeps GTK's
 accessible shortcut, and `present_native_items` replaces GTK's rendering with the
 formatter's label.
 
@@ -329,9 +348,10 @@ and **Ctrl+A** clears it first.
 
 ## Adding or changing a shortcut
 
-1. Add the binding to `ui::keys::bindings`, in the catalog block for the F1
+1. Add the command to `ui::keys::bindings`, in the catalog block for the F1
    maps that list it, and match it in the handler with `press.is(…)` or
-   `press.digit_in(…)`.
+   `press.digit_in(…)`. Mark it `live in both` only when a handler reads it in
+   the map its block leaves out.
 2. Reference the same constant from its F1 row in `ui/shortcut_reference.rs`
    and from any context hint. The label renders itself; translate only the
    action text, in every catalog (see
@@ -357,11 +377,14 @@ the US keymap, so the US rows cover it. A GTK test delivers real key events to
 check that key handlers yield to a composition in the focused field and still get
 the keys its input method passes back. The tests also cover label rendering
 (notation, translated key names, chords, digit ranges) and catalog completeness:
-every catalog binding has a row of its own in each F1 map its catalog block
+every listed constant has a row of its own in each F1 map its catalog block
 names (`listed` for both, `default_only`, `tenxer_only`), a chord's second key
-right after its first, or is explicitly marked as unlisted. Run them with
-`./scripts/test-headless.py keys::`, and run `./scripts/test-headless.py i18n::`
-after changing key names.
+right after its first, or is explicitly marked as unlisted. `ui::keys::command`
+tests check that commands are bound in exactly the maps their block and
+`live in both` name, that ids round-trip, that chord steps follow their
+trigger, and that every fixed binding has a reason not to be a command. Run
+them with `./scripts/test-headless.py keys::`, and run
+`./scripts/test-headless.py i18n::` after changing key names.
 
 End-to-end scenarios switch layouts on the harness's private Xvfb: `setxkbmap`
 loads the layouts and an XKB group lock selects the active one. Never change the

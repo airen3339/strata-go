@@ -49,7 +49,7 @@ pub(super) fn navigation_button(
     icon: &str,
     name: &str,
     tooltip: &str,
-    binding: Option<crate::ui::keys::Binding>,
+    binding: Option<crate::ui::keys::Command>,
 ) -> gtk::Button {
     let button = gtk::Button::new();
     button.add_css_class("preview-media-button");
@@ -57,7 +57,10 @@ pub(super) fn navigation_button(
     let tooltip = binding.map_or_else(
         || crate::i18n::tr(tooltip),
         |binding| {
-            crate::ui::shortcut_reference::with_keys(tooltip, crate::ui::keys::Keys::One(binding))
+            crate::ui::shortcut_reference::with_keys(
+                tooltip,
+                crate::ui::keys::Keys::One(binding.shown()),
+            )
         },
     );
     button.set_tooltip_text(Some(&tooltip));

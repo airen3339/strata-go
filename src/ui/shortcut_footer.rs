@@ -16,9 +16,10 @@ use chord_panel::ChordPanel;
 use super::keys::{
     KeyPress,
     bindings::{
-        DOWN, ENTER_ANY_SHIFT, ESCAPE_ANY, FIRST_ITEM, FOCUS_NEXT, FOCUS_PREVIOUS, LAST_ITEM, LEFT,
-        PAGE_DOWN, PAGE_UP, REFERENCE, REFERENCE_CATEGORIES, REFERENCE_LIST, REFERENCE_SEARCH,
-        RIGHT, SPACE, TENXER_REFERENCE, UP, VIM_DOWN, VIM_LEFT, VIM_RIGHT, VIM_UP,
+        DOWN, END_KEY, ENTER_ANY_SHIFT, ESCAPE_ANY, FOCUS_NEXT, FOCUS_PREVIOUS, HOME_KEY, LEFT,
+        PAGE_DOWN_KEY, PAGE_UP_KEY, REFERENCE, REFERENCE_CATEGORIES, REFERENCE_LIST,
+        REFERENCE_SEARCH, RIGHT, SPACE, TENXER_REFERENCE, UP, VIM_DOWN, VIM_LEFT, VIM_RIGHT,
+        VIM_UP,
     },
 };
 use super::{
@@ -644,7 +645,7 @@ impl ShortcutFooter {
             &paste,
             Some(&with_keys(
                 "Press %{keys} to paste into a supported directory.",
-                Keys::One(bindings::PASTE),
+                Keys::One(bindings::PASTE.shown()),
             )),
         );
         paste.set_visible(false);
@@ -688,7 +689,7 @@ impl ShortcutFooter {
         let show_hints = Rc::new(Cell::new(true));
 
         let more = gtk::ToggleButton::new();
-        let reference = Keys::One(bindings::REFERENCE);
+        let reference = Keys::One(bindings::REFERENCE.shown());
         let more_label = with_keys("%{keys} Shortcuts", reference);
         more.set_child(Some(&gtk::Label::new(Some(&more_label))));
         more.add_css_class("shortcut-footer-button");
@@ -1440,9 +1441,9 @@ impl ShortcutFooter {
                     RIGHT.ignoring(SHIFT),
                 ]) {
                     Some(1)
-                } else if press.is(FIRST_ITEM.ignoring(SHIFT)) {
+                } else if press.is(HOME_KEY.ignoring(SHIFT)) {
                     Some(-100)
-                } else if press.is(LAST_ITEM.ignoring(SHIFT)) {
+                } else if press.is(END_KEY.ignoring(SHIFT)) {
                     Some(100)
                 } else {
                     None
@@ -1455,7 +1456,7 @@ impl ShortcutFooter {
                 return Some(glib::Propagation::Proceed);
             }
         }
-        let scrolls_search = [UP, DOWN, PAGE_UP, PAGE_DOWN]
+        let scrolls_search = [UP, DOWN, PAGE_UP_KEY, PAGE_DOWN_KEY]
             .into_iter()
             .any(|key| press.is(key.ignoring(SHIFT)));
         if (list_focused || (search_focused && scrolls_search)) && self.scroll_reference(press) {
@@ -1536,14 +1537,14 @@ impl ShortcutFooter {
             -step
         } else if press.is_any(&[VIM_DOWN, DOWN.ignoring(SHIFT), RIGHT.ignoring(SHIFT)]) {
             step
-        } else if press.is(PAGE_UP.ignoring(SHIFT)) {
+        } else if press.is(PAGE_UP_KEY.ignoring(SHIFT)) {
             -page_step
-        } else if press.is(PAGE_DOWN.ignoring(SHIFT)) {
+        } else if press.is(PAGE_DOWN_KEY.ignoring(SHIFT)) {
             page_step
-        } else if press.is(FIRST_ITEM.ignoring(SHIFT)) {
+        } else if press.is(HOME_KEY.ignoring(SHIFT)) {
             adjustment.set_value(adjustment.lower());
             return true;
-        } else if press.is(LAST_ITEM.ignoring(SHIFT)) {
+        } else if press.is(END_KEY.ignoring(SHIFT)) {
             adjustment.set_value((adjustment.upper() - page).max(adjustment.lower()));
             return true;
         } else {
@@ -1583,12 +1584,12 @@ fn reference_note() -> String {
     let label = |shown| keys::label(&shown);
     rust_i18n::t!(
         "%{category_keys} categories · %{search_keys} search · %{list_keys} list · %{move_keys} move · %{cycle_keys} cycle · %{close_keys} close",
-        category_keys = label(Keys::One(REFERENCE_CATEGORIES)),
-        search_keys = label(Keys::One(REFERENCE_SEARCH)),
-        list_keys = label(Keys::One(REFERENCE_LIST)),
-        move_keys = label(Keys::Any(&[VIM_DOWN, VIM_UP, UP, DOWN])),
-        cycle_keys = label(Keys::One(FOCUS_NEXT)),
-        close_keys = label(Keys::One(ESCAPE))
+        category_keys = label(Keys::One(REFERENCE_CATEGORIES.shown())),
+        search_keys = label(Keys::One(REFERENCE_SEARCH.shown())),
+        list_keys = label(Keys::One(REFERENCE_LIST.shown())),
+        move_keys = label(Keys::Any(crate::ui::keys::shown![VIM_DOWN, VIM_UP, UP, DOWN])),
+        cycle_keys = label(Keys::One(FOCUS_NEXT.shown())),
+        close_keys = label(Keys::One(ESCAPE.shown()))
     )
     .into_owned()
 }

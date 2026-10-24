@@ -13,7 +13,7 @@ use crate::{
     ui::{
         browser::BrowserView,
         browser_modes::ThumbnailResize,
-        keys::{self, Binding, KeyPress, SHORTCUT_MODIFIERS, TEXT_EDITING, bindings::*},
+        keys::{self, Command, KeyPress, Map, SHORTCUT_MODIFIERS, TEXT_EDITING, bindings::*},
         modal::is_closing_layer,
         preview::PreviewDrawer,
         shortcut_footer::ShortcutFooter,
@@ -41,7 +41,7 @@ type KeyResult = Option<Propagation>;
 
 /// Window actions that run once every other stage yields the key. The flag
 /// marks those 10xer mode leaves unbound.
-const WINDOW_ACTIONS: [(Binding, &str, bool); 5] = [
+const WINDOW_ACTIONS: [(Command, &str, bool); 5] = [
     (SEARCH, "search", false),
     (JUMP_TO_FOLDER, "jump-folder", true),
     (TERMINAL, "open-terminal", true),
@@ -506,9 +506,10 @@ impl WheelZoom {
     }
 }
 
-/// Window commands that 10xer mode leaves unbound, so the file list swallows them.
+/// Window commands that 10xer mode leaves unbound, so the file list swallows
+/// their default-map keys.
 fn claims_unbound_command(press: &KeyPress) -> bool {
-    press.is_any(&[
+    [
         DUPLICATE,
         FILTER,
         SIDEBAR,
@@ -516,7 +517,9 @@ fn claims_unbound_command(press: &KeyPress) -> bool {
         TAB_NEW,
         ARROW_SCOPE,
         JUMP_TO_FOLDER,
-    ])
+    ]
+    .into_iter()
+    .any(|command| press.is(command.in_map(Map::Default)))
 }
 
 fn claims_file_list_typing(press: &KeyPress) -> bool {

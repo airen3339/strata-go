@@ -2,24 +2,27 @@
 
 use std::collections::HashSet;
 
+use gtk::gdk::{Key, ModifierType as Modifiers};
+
 use super::{
     super::{
-        Binding,
+        KeyPress, Shown,
         bindings::{self, Entry, Listed, Maps},
     },
-    CONSTANTS, Command, Kind, Map, REGISTRY,
+    Command, Group, Kind, Map, registry,
 };
 
 const MAPS: [Map; 2] = [Map::Default, Map::Tenxer];
 
 const STRUCTURAL: &str = "a structural key, which joins the registry as an alias command";
 const TEXT_EDITING: &str = "a text-editing key the listing also reads, kept as a fixed binding";
+const GENERIC: &str = "a key many surfaces read for their own job, kept as a fixed binding";
 const GTK_OWNED: &str = "GTK acts on it once the dispatcher yields";
 const EXTENDS_SELECTION: &str = "Shift with a motion key extends the selection and stays fixed";
 const IGNORING: &str = "an .ignoring() matcher over another constant";
 const REVERSED_SORT: &str = "Shift with a sort step reverses it";
 
-/// Catalog constants that are not commands, and why.
+/// Catalog bindings that are not commands, and why.
 const NOT_COMMANDS: &[(&str, &str)] = &[
     ("UP", STRUCTURAL),
     ("DOWN", STRUCTURAL),
@@ -36,6 +39,11 @@ const NOT_COMMANDS: &[(&str, &str)] = &[
     ("BACKSPACE", TEXT_EDITING),
     ("DELETE", TEXT_EDITING),
     ("DELETE_PERMANENTLY", TEXT_EDITING),
+    ("SPACE", GENERIC),
+    ("HOME_KEY", GENERIC),
+    ("END_KEY", GENERIC),
+    ("PAGE_UP_KEY", GENERIC),
+    ("PAGE_DOWN_KEY", GENERIC),
     ("EXTEND_UP", EXTENDS_SELECTION),
     ("EXTEND_DOWN", EXTENDS_SELECTION),
     ("EXTEND_PAGE_UP", EXTENDS_SELECTION),
@@ -59,9 +67,11 @@ const NOT_COMMANDS: &[(&str, &str)] = &[
 ];
 
 const TIMELINE: &str = "the media timeline reads it in either map";
+const FALLS_THROUGH: &str =
+    "its handler runs in 10xer wherever 10xer's own keys leave the press, as in popovers";
 
-/// Listed constants that work in both maps although the reference shows them
-/// in one, and where.
+/// Listed commands bound in both maps although the reference shows them in
+/// one, and why.
 const LIVE_IN_BOTH_MAPS: &[(&str, &str)] = &[
     ("COMPLETE", "location bar path completion"),
     ("CHOOSE_FOLDER", "folder requests in the file chooser"),
@@ -75,113 +85,108 @@ const LIVE_IN_BOTH_MAPS: &[(&str, &str)] = &[
     ("MEDIA_VOLUME_STEP_UP", TIMELINE),
     ("MEDIA_VOLUME_STEP_DOWN", TIMELINE),
     ("TENXER_LAST_ITEM", TIMELINE),
+    (
+        "PREVIEW",
+        "the file chooser and keys the 10xer listing leaves alone still preview with Space",
+    ),
+    ("DUPLICATE", FALLS_THROUGH),
+    ("RENAME_R", FALLS_THROUGH),
+    ("JUMP_TO_FOLDER", FALLS_THROUGH),
+    ("FILTER", FALLS_THROUGH),
 ];
 
-fn constants(command: Command, map: Map) -> &'static [&'static str] {
-    CONSTANTS[command as usize][map as usize]
-}
-
-fn specs_naming(name: &str) -> Vec<Command> {
-    REGISTRY
-        .iter()
-        .map(|spec| spec.command)
-        .filter(|command| {
-            MAPS.iter()
-                .any(|map| constants(*command, *map).contains(&name))
-        })
+fn bound_maps(command: Command) -> Vec<Map> {
+    MAPS.into_iter()
+        .filter(|map| !command.defaults(*map).is_empty())
         .collect()
 }
 
-fn excluded(name: &str) -> bool {
-    NOT_COMMANDS.iter().any(|(excluded, _)| *excluded == name)
+fn trigger(group: Group) -> Option<Command> {
+    registry().find(|command| command.kind() == Kind::Trigger(group))
 }
 
-fn is_trigger_key(prefix: Binding, map: Map) -> bool {
-    REGISTRY.iter().any(|spec| {
-        matches!(spec.kind, Kind::Trigger(_)) && spec.command.defaults(map).contains(&prefix)
-    })
+fn is_trigger_key(prefix: Shown, map: Map) -> bool {
+    let Shown::Command(prefix) = prefix else {
+        return false;
+    };
+    matches!(prefix.kind(), Kind::Trigger(_)) && !prefix.defaults(map).is_empty()
 }
 
 #[test]
-fn registry_covers_every_listed_constant() {
+fn listed_commands_are_bound_in_the_maps_that_list_them() {
     let mut checked = 0;
     for constant in bindings::listed() {
         let name = constant.name;
-        let live_in_both = LIVE_IN_BOTH_MAPS.iter().any(|(live, _)| *live == name);
-        assert!(
-            !(live_in_both && constant.maps == Maps::Both),
-            "{name} is listed in both maps, so it needs no LIVE_IN_BOTH_MAPS entry"
-        );
-        let maps: Vec<Map> = MAPS
+        let block: Vec<Map> = MAPS
             .into_iter()
-            .filter(|map| live_in_both || constant.maps.include(*map == Map::Tenxer))
+            .filter(|map| constant.maps.include(*map == Map::Tenxer))
             .collect();
-        if let Entry::Digits(digits) = constant.entry {
-            // Digit ranges stay fixed; a chord's range belongs to its trigger's group.
-            if let Some(prefix) = digits.prefix() {
+        let live_in_both = LIVE_IN_BOTH_MAPS.iter().any(|(live, _)| *live == name);
+        match constant.entry {
+            Entry::Command(command) => {
+                let expected = if live_in_both { MAPS.to_vec() } else { block };
+                assert_eq!(bound_maps(command), expected, "{name} ({})", command.id());
                 assert!(
-                    maps.iter().all(|map| is_trigger_key(prefix, *map)),
-                    "{name} follows no chord trigger"
+                    !(live_in_both && constant.maps == Maps::Both),
+                    "{name} is listed in both maps, so it needs no LIVE_IN_BOTH_MAPS entry"
                 );
+                checked += 1;
             }
-            continue;
+            // Digit ranges stay fixed; a chord's range belongs to its trigger's group.
+            Entry::Digits(digits) => {
+                if let Some(prefix) = digits.prefix() {
+                    assert!(
+                        block.iter().all(|map| is_trigger_key(prefix, *map)),
+                        "{name} follows no chord trigger"
+                    );
+                }
+            }
+            Entry::Binding(_) => assert!(
+                NOT_COMMANDS.iter().any(|(excluded, _)| *excluded == name),
+                "{name} is a fixed binding; make it a command or give it a reason"
+            ),
         }
-        let specs = specs_naming(name);
-        if excluded(name) {
-            assert!(specs.is_empty(), "{name} is excluded but in {specs:?}");
-            continue;
-        }
-        let [command] = specs[..] else {
-            panic!("{name} must be in exactly one spec, not {specs:?}");
-        };
-        for map in MAPS {
-            assert_eq!(
-                constants(command, map).contains(&name),
-                maps.contains(&map),
-                "{name} in the {map:?} map of {}",
-                command.id()
-            );
-        }
-        checked += 1;
     }
     assert!(checked > 0);
     for (name, _) in LIVE_IN_BOTH_MAPS {
         assert!(
-            bindings::listed().any(|constant| constant.name == *name),
-            "{name} is not a listed constant"
-        );
-    }
-    for spec in REGISTRY {
-        assert!(
-            MAPS.iter()
-                .any(|map| !spec.command.defaults(*map).is_empty()),
-            "{} has no binding in either map",
-            spec.id
+            bindings::listed()
+                .any(|constant| constant.name == *name
+                    && matches!(constant.entry, Entry::Command(_))),
+            "{name} is not a listed command"
         );
     }
 }
 
 #[test]
-fn unlisted_constants_are_registered_or_excluded() {
+fn unlisted_constants_are_commands_or_excluded() {
     let mut checked = 0;
-    for (name, _) in bindings::unlisted() {
-        let specs = specs_naming(name);
-        match (specs.len(), excluded(name)) {
-            (0, true) | (1, false) => {}
-            (0, false) => panic!("{name} needs a spec or a reason on the exclusion list"),
-            _ => panic!("{name} must be in one spec or excluded, not both: {specs:?}"),
+    for (name, entry) in bindings::unlisted() {
+        match entry {
+            Entry::Command(command) => assert!(
+                !bound_maps(command).is_empty(),
+                "{} has no binding in either map",
+                command.id()
+            ),
+            Entry::Binding(_) => assert!(
+                NOT_COMMANDS.iter().any(|(excluded, _)| *excluded == name),
+                "{name} needs to be a command or have a reason on the exclusion list"
+            ),
+            Entry::Digits(_) => panic!("{name} is an unlisted digit range"),
         }
         checked += 1;
     }
     assert!(checked > 0);
-    let catalog: HashSet<&str> = bindings::listed()
-        .map(|constant| constant.name)
-        .chain(bindings::unlisted().map(|(name, _)| name))
+    let fixed: HashSet<&str> = bindings::listed()
+        .map(|constant| (constant.name, constant.entry))
+        .chain(bindings::unlisted())
+        .filter(|(_, entry)| matches!(entry, Entry::Binding(_)))
+        .map(|(name, _)| name)
         .collect();
     for (name, reason) in NOT_COMMANDS {
         assert!(
-            catalog.contains(name),
-            "{name} is excluded as {reason:?} but is not a catalog constant"
+            fixed.contains(name),
+            "{name} is excluded as {reason:?} but is not a fixed catalog binding"
         );
     }
 }
@@ -195,10 +200,8 @@ fn ids_are_unique_and_round_trip() {
             })
     }
     let mut ids = HashSet::new();
-    for spec in REGISTRY {
-        let command = spec.command;
+    for command in registry() {
         let id = command.id();
-        assert_eq!(id, spec.id);
         assert!(ids.insert(id), "{id} is used twice");
         assert_eq!(Command::parse(id), Some(command));
         let well_formed = match command.kind() {
@@ -218,43 +221,82 @@ fn ids_are_unique_and_round_trip() {
 
 #[test]
 fn chord_steps_name_their_trigger() {
-    let listed: Vec<Listed> = bindings::listed().collect();
-    let after = |name: &str| {
-        listed
-            .iter()
-            .find(|constant| constant.name == name)
-            .and_then(|constant| constant.after)
-    };
     let mut steps = 0;
-    for spec in REGISTRY {
-        let command = spec.command;
-        let trigger = match command.kind() {
+    for command in registry() {
+        match command.kind() {
             Kind::Step(group) => {
-                let Some(trigger) = Command::parse(group.id()) else {
-                    panic!("{} has no {group:?} trigger", spec.id);
+                let Some(trigger) = trigger(group) else {
+                    panic!("{} has no {group:?} trigger", command.id());
                 };
-                assert_eq!(trigger.kind(), Kind::Trigger(group), "{}", spec.id);
-                steps += 1;
-                Some(trigger)
-            }
-            Kind::Single | Kind::Trigger(_) => None,
-        };
-        for map in MAPS {
-            for name in constants(command, map) {
-                match trigger {
-                    Some(trigger) => assert!(
-                        after(name).is_some_and(|prefix| trigger.defaults(map).contains(&prefix)),
-                        "{name} must follow {} in the {map:?} map",
+                for map in bound_maps(command) {
+                    assert!(
+                        !trigger.defaults(map).is_empty(),
+                        "{} is bound in the {map:?} map, where {} is not",
+                        command.id(),
                         trigger.id()
-                    ),
-                    None => assert!(
-                        !after(name).is_some_and(|prefix| is_trigger_key(prefix, map)),
-                        "{name} follows a chord trigger, so {} must be a step",
-                        spec.id
-                    ),
+                    );
                 }
+                steps += 1;
             }
+            Kind::Trigger(group) => assert_eq!(
+                registry()
+                    .filter(|other| other.kind() == Kind::Trigger(group))
+                    .count(),
+                1,
+                "{group:?} has more than one trigger"
+            ),
+            Kind::Single => {}
         }
     }
     assert!(steps > 0);
+    let listed: Vec<Listed> = bindings::listed().collect();
+    for constant in &listed {
+        if let Some(after) = constant.after {
+            assert!(
+                matches!(after.kind(), Kind::Single),
+                "{} follows a chord trigger, so it must be a step",
+                constant.name
+            );
+        }
+    }
+}
+
+/// A command matches the active map's bindings, which keeps both tables apart
+/// even where a key means different things in each.
+#[test]
+fn commands_match_through_the_active_map() {
+    crate::test_support::gtk_test(
+        "ui::keys::command::tests::commands_match_through_the_active_map",
+        || {
+            use super::super::bindings::{
+                DUPLICATE, GO_PROMPT, HALF_PAGE_DOWN, OPEN_IN_NEW_TAB, SIDEBAR, TENXER_SIDEBAR,
+            };
+            let press = |key, modifiers| KeyPress::from_signal(key, 0, modifiers);
+            let ctrl = Modifiers::CONTROL_MASK;
+            let preferences = crate::ui::preferences::PreferenceManager::shared();
+            for tenxer in [false, true] {
+                preferences.set_tenxer_mode(tenxer);
+                assert_eq!(
+                    Map::active(),
+                    if tenxer { Map::Tenxer } else { Map::Default }
+                );
+                let ctrl_b = press(Key::b, ctrl);
+                assert_eq!(ctrl_b.is(SIDEBAR), !tenxer);
+                assert!(ctrl_b.is(SIDEBAR.in_map(Map::Default)));
+                assert_eq!(press(Key::n, ctrl).is(TENXER_SIDEBAR), tenxer);
+                assert_eq!(press(Key::d, ctrl).is(HALF_PAGE_DOWN), tenxer);
+                assert!(press(Key::d, ctrl).is(DUPLICATE));
+                let shift_space = press(Key::space, Modifiers::SHIFT_MASK);
+                assert_eq!(
+                    shift_space.is(GO_PROMPT.ignoring(Modifiers::SHIFT_MASK)),
+                    tenxer
+                );
+                assert!(!shift_space.is(GO_PROMPT));
+                let ctrl_shift_enter = press(Key::Return, ctrl | Modifiers::SHIFT_MASK);
+                assert!(!ctrl_shift_enter.is(OPEN_IN_NEW_TAB));
+                assert!(ctrl_shift_enter.is(OPEN_IN_NEW_TAB.ignoring(Modifiers::SHIFT_MASK)));
+            }
+            preferences.set_tenxer_mode(false);
+        },
+    );
 }

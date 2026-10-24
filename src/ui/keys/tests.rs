@@ -468,7 +468,7 @@ fn digit_row_keys_are_digits_by_position() {
     assert_eq!(azerty_ctrl_shift_1.digit_in(tab_numbers), Some(1));
     assert_eq!(azerty_ctrl_1.digit_in(tab_numbers), None);
     // A chord's digit step accepts the Shift AZERTY types digits with.
-    let chord_step = Digits::after(Binding::plain(Key::g), 9, false);
+    let chord_step = Digits::after(Binding::plain(Key::g).shown(), 9, false);
     let azerty_shift_6 = press(&[FR], 0, 15, 1, Key::_6, (Key::_6, NONE), SHIFT);
     assert_eq!(azerty_shift_6.digit_in(chord_step), Some(6));
     // A top-row + or − is both: g and Ctrl read the symbol first, while t and ;
@@ -808,7 +808,7 @@ fn signals_without_an_event_read_as_us_presses() {
 mod labels {
     use gtk::gdk::{Key, ModifierType as Modifiers};
 
-    use super::super::{Binding, Digits, Keys, digit_label, label_in};
+    use super::super::{Binding, Digits, Keys, Shown, digit_label, label_in, shown};
 
     const CTRL: Modifiers = Modifiers::CONTROL_MASK;
 
@@ -819,27 +819,39 @@ mod labels {
     #[test]
     fn notation_orders_modifiers_and_spells_out_named_keys() {
         let cases = [
-            (Keys::One(Binding::ctrl(Key::c)), "Ctrl+C"),
-            (Keys::One(Binding::ctrl_shift(Key::n)), "Ctrl+Shift+N"),
+            (Keys::One(Binding::ctrl(Key::c).shown()), "Ctrl+C"),
             (
-                Keys::One(Binding::new(
-                    Key::t,
-                    Modifiers::SUPER_MASK | Modifiers::SHIFT_MASK | CTRL | Modifiers::ALT_MASK,
-                )),
+                Keys::One(Binding::ctrl_shift(Key::n).shown()),
+                "Ctrl+Shift+N",
+            ),
+            (
+                Keys::One(
+                    Binding::new(
+                        Key::t,
+                        Modifiers::SUPER_MASK | Modifiers::SHIFT_MASK | CTRL | Modifiers::ALT_MASK,
+                    )
+                    .shown(),
+                ),
                 "Ctrl+Alt+Shift+Super+T",
             ),
-            (Keys::One(Binding::plain(Key::j)), "j"),
-            (Keys::One(Binding::shift(Key::j)), "J"),
-            (Keys::One(Binding::plain(Key::Page_Up)), "Page Up"),
-            (Keys::One(Binding::shift(Key::Delete)), "Shift+Delete"),
-            (Keys::One(Binding::shift(Key::Tab)), "Shift+Tab"),
-            (Keys::One(Binding::alt(Key::Return)), "Alt+Enter"),
-            (Keys::One(Binding::plain(Key::Escape)), "Escape"),
-            (Keys::One(Binding::ctrl(Key::plus)), "Ctrl++"),
-            (Keys::One(Binding::ctrl(Key::minus)), "Ctrl+\u{2212}"),
-            (Keys::One(Binding::ctrl(Key::backslash)), "Ctrl+\\"),
-            (Keys::One(Binding::plain(Key::F5)), "F5"),
-            (Keys::One(Binding::plain(Key::question)), "?"),
+            (Keys::One(Binding::plain(Key::j).shown()), "j"),
+            (Keys::One(Binding::shift(Key::j).shown()), "J"),
+            (Keys::One(Binding::plain(Key::Page_Up).shown()), "Page Up"),
+            (
+                Keys::One(Binding::shift(Key::Delete).shown()),
+                "Shift+Delete",
+            ),
+            (Keys::One(Binding::shift(Key::Tab).shown()), "Shift+Tab"),
+            (Keys::One(Binding::alt(Key::Return).shown()), "Alt+Enter"),
+            (Keys::One(Binding::plain(Key::Escape).shown()), "Escape"),
+            (Keys::One(Binding::ctrl(Key::plus).shown()), "Ctrl++"),
+            (
+                Keys::One(Binding::ctrl(Key::minus).shown()),
+                "Ctrl+\u{2212}",
+            ),
+            (Keys::One(Binding::ctrl(Key::backslash).shown()), "Ctrl+\\"),
+            (Keys::One(Binding::plain(Key::F5).shown()), "F5"),
+            (Keys::One(Binding::plain(Key::question).shown()), "?"),
         ];
         for (keys, expected) in cases {
             assert_eq!(english(keys), expected);
@@ -848,28 +860,29 @@ mod labels {
 
     #[test]
     fn alternatives_chords_and_digit_ranges() {
-        const RENAME: [Binding; 2] = [Binding::plain(Key::F2), Binding::ctrl(Key::r)];
-        const ARROWS: [Binding; 2] = [Binding::ctrl_alt(Key::Left), Binding::ctrl_alt(Key::Right)];
-        const SCROLL: [Binding; 2] = [Binding::ctrl(Key::u), Binding::ctrl(Key::d)];
-        const GO_HOME: [Binding; 2] = [Binding::plain(Key::g), Binding::plain(Key::h)];
+        const RENAME: &[Shown] = shown![Binding::plain(Key::F2), Binding::ctrl(Key::r)];
+        const ARROWS: &[Shown] =
+            shown![Binding::ctrl_alt(Key::Left), Binding::ctrl_alt(Key::Right)];
+        const SCROLL: &[Shown] = shown![Binding::ctrl(Key::u), Binding::ctrl(Key::d)];
+        const GO_HOME: &[Shown] = shown![Binding::plain(Key::g), Binding::plain(Key::h)];
         const TOP: [Keys; 2] = [
-            Keys::Chord(&[Binding::plain(Key::g), Binding::plain(Key::g)]),
-            Keys::One(Binding::plain(Key::Home)),
+            Keys::Chord(shown![Binding::plain(Key::g), Binding::plain(Key::g)]),
+            Keys::One(Binding::plain(Key::Home).shown()),
         ];
         const TAB_NUMBERS: Digits = Digits::new(CTRL.union(Modifiers::SHIFT_MASK), 9, true);
-        const TAB_CHORD_NUMBERS: Digits = Digits::after(Binding::plain(Key::t), 9, true);
+        const TAB_CHORD_NUMBERS: Digits = Digits::after(Binding::plain(Key::t).shown(), 9, true);
         let cases = [
-            (Keys::Any(&RENAME), "F2 / Ctrl+R"),
-            (Keys::Any(&ARROWS), "Ctrl+Alt+← / →"),
-            (Keys::Any(&SCROLL), "Ctrl+U / Ctrl+D"),
-            (Keys::Chord(&GO_HOME), "g h"),
+            (Keys::Any(RENAME), "F2 / Ctrl+R"),
+            (Keys::Any(ARROWS), "Ctrl+Alt+← / →"),
+            (Keys::Any(SCROLL), "Ctrl+U / Ctrl+D"),
+            (Keys::Chord(GO_HOME), "g h"),
             (Keys::Mixed(&TOP), "g g / Home"),
             (Keys::Digits(TAB_NUMBERS), "Ctrl+Shift+1\u{2013}9 / 0"),
             (Keys::Digits(TAB_CHORD_NUMBERS), "t 1\u{2013}9 / t 0"),
             (Keys::Digits(TAB_CHORD_NUMBERS.step()), "1\u{2013}9 / 0"),
             (Keys::Digits(TAB_NUMBERS.step()), "1\u{2013}9 / 0"),
             (
-                Keys::Digits(Digits::after(Binding::plain(Key::g), 9, false)),
+                Keys::Digits(Digits::after(Binding::plain(Key::g).shown(), 9, false)),
                 "g 1\u{2013}9",
             ),
         ];
@@ -884,18 +897,30 @@ mod labels {
     #[test]
     fn key_names_follow_the_interface_language() {
         let cases = [
-            ("de", Keys::One(Binding::ctrl(Key::c)), "Strg+C"),
-            ("de", Keys::One(Binding::plain(Key::Delete)), "Entf"),
+            ("de", Keys::One(Binding::ctrl(Key::c).shown()), "Strg+C"),
+            ("de", Keys::One(Binding::plain(Key::Delete).shown()), "Entf"),
             (
                 "de",
-                Keys::One(Binding::ctrl_shift(Key::Page_Up)),
+                Keys::One(Binding::ctrl_shift(Key::Page_Up).shown()),
                 "Strg+Umschalt+Bild auf",
             ),
-            ("fr", Keys::One(Binding::plain(Key::Delete)), "Suppr"),
-            ("fr", Keys::One(Binding::shift(Key::Return)), "Maj+Entrée"),
-            ("es", Keys::One(Binding::plain(Key::Delete)), "Supr"),
-            ("ru", Keys::One(Binding::ctrl(Key::c)), "Ctrl+C"),
-            ("ja", Keys::One(Binding::plain(Key::Escape)), "Escape"),
+            (
+                "fr",
+                Keys::One(Binding::plain(Key::Delete).shown()),
+                "Suppr",
+            ),
+            (
+                "fr",
+                Keys::One(Binding::shift(Key::Return).shown()),
+                "Maj+Entrée",
+            ),
+            ("es", Keys::One(Binding::plain(Key::Delete).shown()), "Supr"),
+            ("ru", Keys::One(Binding::ctrl(Key::c).shown()), "Ctrl+C"),
+            (
+                "ja",
+                Keys::One(Binding::plain(Key::Escape).shown()),
+                "Escape",
+            ),
         ];
         for (locale, keys, expected) in cases {
             assert_eq!(label_in(locale, &keys), expected, "{locale}");
@@ -905,79 +930,136 @@ mod labels {
 
 #[test]
 fn catalog_bindings_use_the_canonical_key() {
+    use super::{Map, bindings::Entry};
     use gtk::glib::translate::IntoGlib;
-    let entries = super::bindings::listed()
-        .map(|constant| (constant.name, constant.entry))
-        .chain(super::bindings::unlisted());
     let mut checked = 0;
-    for (name, entry) in entries {
-        let super::bindings::Entry::Binding(binding) = entry else {
-            continue;
+    for entry in super::bindings::entries() {
+        let (name, bindings) = match entry {
+            Entry::Binding(binding) => (format!("{binding:?}"), vec![binding]),
+            Entry::Command(command) => (
+                command.id().to_owned(),
+                [Map::Default, Map::Tenxer]
+                    .into_iter()
+                    .flat_map(|map| command.defaults(map).iter().copied())
+                    .collect(),
+            ),
+            Entry::Digits(_) => continue,
         };
-        checked += 1;
-        let key = binding.key();
-        assert_eq!(key, key.to_lower(), "{name} names an uppercase letter");
-        assert_eq!(key, super::main_key(key), "{name} names a keypad key");
-        assert_ne!(
-            key,
-            Key::ISO_Left_Tab,
-            "{name} spells Shift+Tab as ISO_Left_Tab"
-        );
-        let symbol = (0x21..=0x7e).contains(&key.into_glib())
-            && !key.to_unicode().is_some_and(|c| c.is_ascii_alphanumeric());
-        assert!(
-            !(symbol && binding.modifiers().contains(SHIFT)),
-            "{name} adds the Shift that types its symbol"
-        );
+        for binding in bindings {
+            checked += 1;
+            let key = binding.key();
+            assert_eq!(key, key.to_lower(), "{name} names an uppercase letter");
+            assert_eq!(key, super::main_key(key), "{name} names a keypad key");
+            assert_ne!(
+                key,
+                Key::ISO_Left_Tab,
+                "{name} spells Shift+Tab as ISO_Left_Tab"
+            );
+            let symbol = (0x21..=0x7e).contains(&key.into_glib())
+                && !key.to_unicode().is_some_and(|c| c.is_ascii_alphanumeric());
+            assert!(
+                !(symbol && binding.modifiers().contains(SHIFT)),
+                "{name} adds the Shift that types its symbol"
+            );
+        }
     }
     assert!(checked > 0);
 }
 
-/// Constants with equal bindings each need a row of their own, since a row
-/// shows bindings rather than constants.
+/// Constants with equal keys each need a row of their own, since a row shows
+/// bindings rather than constants. A command needs its row in each map its
+/// catalog block lists it in.
 #[test]
 fn every_listed_binding_has_its_own_row_in_its_maps() {
     use super::{
-        Keys,
+        Keys, Map,
         bindings::{Entry, Listed},
+        command::{Kind, registry},
     };
-    fn shows(keys: &Keys, constant: &Listed) -> bool {
-        match (keys, constant.entry, constant.after) {
-            (Keys::Mixed(alternatives), ..) => {
-                alternatives.iter().any(|keys| shows(keys, constant))
+    /// What a row shows for `constant` in `map`: its bindings, the chord key
+    /// they follow, or its digit range.
+    #[derive(PartialEq)]
+    enum Wanted {
+        Keys(Vec<Binding>, Option<Binding>),
+        Digits(Digits),
+    }
+    fn wanted(constant: &Listed, map: Map) -> Wanted {
+        match constant.entry {
+            Entry::Binding(binding) => Wanted::Keys(vec![binding], None),
+            Entry::Digits(digits) => Wanted::Digits(digits),
+            Entry::Command(command) => {
+                let after = match command.kind() {
+                    Kind::Step(group) => {
+                        registry().find(|trigger| trigger.kind() == Kind::Trigger(group))
+                    }
+                    Kind::Single | Kind::Trigger(_) => constant.after,
+                };
+                Wanted::Keys(
+                    command.defaults(map).to_vec(),
+                    after.and_then(|after| after.defaults(map).first().copied()),
+                )
             }
-            (Keys::Digits(digits), Entry::Digits(wanted), _) => *digits == wanted,
-            (Keys::Chord(steps), Entry::Binding(wanted), Some(first)) => {
-                steps.windows(2).any(|pair| pair == [first, wanted])
+        }
+    }
+    fn shows(keys: &Keys, wanted: &Wanted, map: Map) -> bool {
+        let primary = |shown: &super::Shown| shown.bindings(map).first().copied();
+        match (keys, wanted) {
+            (Keys::Mixed(alternatives), _) => {
+                alternatives.iter().any(|keys| shows(keys, wanted, map))
             }
-            (Keys::Chord(steps), Entry::Binding(wanted), None) => steps.first() == Some(&wanted),
-            (Keys::One(binding), Entry::Binding(wanted), None) => *binding == wanted,
-            (Keys::Any(bindings), Entry::Binding(wanted), None) => bindings.contains(&wanted),
+            (Keys::Digits(digits), Wanted::Digits(wanted)) => digits == wanted,
+            (Keys::Chord(steps), Wanted::Keys(bindings, Some(first))) => {
+                let steps: Vec<Option<Binding>> = steps.iter().map(primary).collect();
+                bindings.iter().any(|binding| {
+                    steps
+                        .windows(2)
+                        .any(|pair| pair == [Some(*first), Some(*binding)])
+                })
+            }
+            (Keys::Chord(steps), Wanted::Keys(bindings, None)) => steps
+                .first()
+                .and_then(primary)
+                .is_some_and(|step| bindings.contains(&step)),
+            (Keys::One(shown), Wanted::Keys(bindings, None)) => shown
+                .bindings(map)
+                .iter()
+                .any(|binding| bindings.contains(binding)),
+            (Keys::Any(shown), Wanted::Keys(bindings, None)) => shown
+                .iter()
+                .flat_map(|shown| shown.bindings(map))
+                .any(|binding| bindings.contains(&binding)),
             _ => false,
         }
     }
     let listed: Vec<Listed> = super::bindings::listed().collect();
     assert!(!listed.is_empty());
-    for (tenxer, map) in [(false, "default"), (true, "10xer")] {
+    for map in [Map::Default, Map::Tenxer] {
+        let tenxer = map == Map::Tenxer;
         let rows = crate::ui::shortcut_reference::reference_rows(tenxer);
-        let wanted: Vec<&Listed> = listed
+        let wanted: Vec<(&Listed, Wanted)> = listed
             .iter()
             .filter(|constant| constant.maps.include(tenxer))
+            .map(|constant| (constant, wanted(constant, map)))
             .collect();
-        for constant in &wanted {
+        for (constant, keys) in &wanted {
+            assert!(
+                !matches!(keys, Wanted::Keys(bindings, _) if bindings.is_empty()),
+                "{} is listed in the {map:?} map but has no binding there",
+                constant.name
+            );
             let sharing: Vec<&str> = wanted
                 .iter()
-                .filter(|other| other.entry == constant.entry && other.after == constant.after)
-                .map(|other| other.name)
+                .filter(|(_, other)| other == keys)
+                .map(|(other, _)| other.name)
                 .collect();
             let shown = rows
                 .iter()
-                .filter(|row| row.iter().any(|keys| shows(keys, constant)))
+                .filter(|row| row.iter().any(|row_keys| shows(row_keys, keys, map)))
                 .count();
             assert!(
                 shown >= sharing.len(),
-                "{sharing:?} need a row each in the {map} reference, which has {shown}; add a \
-                 row, or move a constant to the catalog block of the maps that list it"
+                "{sharing:?} need a row each in the {map:?} reference, which has {shown}; add \
+                 a row, or move a constant to the catalog block of the maps that list it"
             );
         }
     }

@@ -43,13 +43,8 @@ pub(in crate::ui::window) fn refusal(
     ]) {
         return Some(UNAVAILABLE);
     }
-    let fills = press.is_any(&[
-        SPACE,
-        VISUAL_SELECT,
-        VISUAL_UNSET,
-        SELECT_ALL,
-        INVERT_SELECTION,
-    ]);
+    let fills = press.is(SPACE)
+        || press.is_any(&[VISUAL_SELECT, VISUAL_UNSET, SELECT_ALL, INVERT_SELECTION]);
     (fills && !multiple).then_some(SINGLE)
 }
 

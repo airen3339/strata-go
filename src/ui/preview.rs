@@ -28,7 +28,7 @@ use super::keys::{
     self, KeyPress,
     bindings::{
         COPY, MEDIA_MUTE, MEDIA_NEXT, MEDIA_PLAY_PAUSE, MEDIA_PREVIOUS, MEDIA_SEEK_BACK,
-        MEDIA_SEEK_FORWARD, MEDIA_VOLUME_DOWN, MEDIA_VOLUME_UP, PEEK, SELECT_ALL, SPACE,
+        MEDIA_SEEK_FORWARD, MEDIA_VOLUME_DOWN, MEDIA_VOLUME_UP, PEEK, PREVIEW, SELECT_ALL,
     },
 };
 use super::{
@@ -326,7 +326,7 @@ impl PreviewDrawer {
             |close, tenxer| {
                 close.set_tooltip_text(Some(&crate::ui::shortcut_reference::with_keys(
                     "Close preview (%{keys})",
-                    keys::Keys::One(if tenxer { PEEK } else { SPACE }),
+                    keys::Keys::One(if tenxer { PEEK } else { PREVIEW }.shown()),
                 )));
             },
         );
@@ -2692,7 +2692,7 @@ impl PreviewState {
         play_button.add_css_class("preview-media-button");
         play_button.set_tooltip_text(Some(&crate::ui::shortcut_reference::with_keys(
             "Play/Pause (%{keys})",
-            keys::Keys::One(MEDIA_PLAY_PAUSE),
+            keys::Keys::One(MEDIA_PLAY_PAUSE.shown()),
         )));
         play_button.set_child(Some(if media.is_playing() {
             &pause_icon
@@ -3271,7 +3271,7 @@ impl VolumeControls {
         toggle.add_css_class("preview-media-button");
         toggle.set_tooltip_text(Some(&crate::ui::shortcut_reference::with_keys(
             "Mute/unmute (%{keys})",
-            keys::Keys::One(MEDIA_MUTE),
+            keys::Keys::One(MEDIA_MUTE.shown()),
         )));
         let muted = preferences.preview_muted();
         let icon = crate::assets::primary_icon(

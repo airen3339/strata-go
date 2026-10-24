@@ -17,7 +17,7 @@ use crate::services::{
 };
 use crate::ui::keys::{
     self, KeyPress,
-    bindings::{COPY, DOWN, FIRST_ITEM, LAST_ITEM, LEFT, RIGHT, SELECT_ALL, UP},
+    bindings::{COPY, DOWN, END_KEY, HOME_KEY, LEFT, RIGHT, SELECT_ALL, UP},
 };
 
 mod selection;
@@ -1679,8 +1679,8 @@ fn caret_motion(press: &KeyPress) -> Option<Motion> {
         (RIGHT, Motion::Right),
         (UP, Motion::Up),
         (DOWN, Motion::Down),
-        (FIRST_ITEM, Motion::Home),
-        (LAST_ITEM, Motion::End),
+        (HOME_KEY, Motion::Home),
+        (END_KEY, Motion::End),
     ]
     .into_iter()
     .find_map(|(binding, motion)| press.is(binding.ignoring(HELD)).then_some(motion))

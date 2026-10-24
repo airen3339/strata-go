@@ -611,6 +611,11 @@ impl PreferenceManager {
         })
     }
 
+    /// The shared manager while something holds it, without loading settings.
+    pub(crate) fn existing() -> Option<Rc<Self>> {
+        SHARED_MANAGER.with(|shared| shared.borrow().upgrade())
+    }
+
     fn load() -> Rc<Self> {
         writer::note(&settings_path(), file_stamp(&settings_path()));
         let (mut preferences, load_failure) = match read_preferences() {

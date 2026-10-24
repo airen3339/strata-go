@@ -54,11 +54,11 @@ pub(super) fn sync_checked_with_icon(option: &impl IsA<gtk::Widget>, check: &gtk
 }
 
 pub(super) fn location_confirm_label() -> String {
-    with_keys("Navigate (%{keys})", Keys::One(bindings::ENTER))
+    with_keys("Navigate (%{keys})", Keys::One(bindings::ENTER.shown()))
 }
 
 pub(super) fn location_cancel_label() -> String {
-    with_keys("Cancel (%{keys})", Keys::One(bindings::ESCAPE))
+    with_keys("Cancel (%{keys})", Keys::One(bindings::ESCAPE.shown()))
 }
 
 // Location controls require explicit accessible names.
@@ -69,7 +69,7 @@ pub(super) fn describe_location_controls(
 ) {
     set_label(
         entry,
-        &with_keys("Location (%{keys})", Keys::One(bindings::LOCATION)),
+        &with_keys("Location (%{keys})", Keys::One(bindings::LOCATION.shown())),
     );
     set_label(confirm, &location_confirm_label());
     set_label(cancel, &location_cancel_label());
