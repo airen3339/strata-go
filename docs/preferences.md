@@ -492,7 +492,7 @@ duplicate = []
 
 [keymap.tenxer]
 "go.home" = ["<Shift>h"]
-toggle_sidebar = ["<Control>b", "<Control>n"]
+toggle_sidebar = ["<Control>n", "F9"]
 ```
 
 - An entry replaces that map's whole entry for the command; the other map keeps
@@ -521,7 +521,7 @@ toggle_sidebar = ["<Control>b", "<Control>n"]
   `jump_recent`, `half_page_up`, `half_page_down`, and the `sort.*`,
   `copy_as.*` and `actions.*` steps, which act as plain keys there, without a
   trigger or Shift reversal; in `[keymap.tenxer]`, `duplicate`, `pin`,
-  `jump_to_folder`, `arrow_scope` and, with a modified key, `copy_path`. Any
+  `jump_to_folder`, `arrow_scope` and, on a key that types nothing, `copy_path`. Any
   other such entry, such as `yank` or `"go.home"` in `[keymap.default]`, does
   nothing, and the load-time check below logs it.
   Digit ranges are not commands and keep their keys. Quote ids that contain a
@@ -555,16 +555,23 @@ toggle_sidebar = ["<Control>b", "<Control>n"]
   hints, the F1 reference, sidebar keycaps, tooltips, Settings copy that names
   keys, and context-menu hints with their native `accel` attributes follow a
   change in every open window.
-- Where 10xer key presses fall through to default-map stages (text fields,
-  popovers, the file chooser's own keys, thumbnail resizing), the default
+- Where 10xer key presses fall through to default-map stages (keys the 10xer
+  stages do not claim, text fields, popovers, the file chooser's own keys,
+  thumbnail resizing), the default
   table's overrides apply in both modes; a `[keymap.tenxer]` entry changes only
   what the 10xer stages claim.
 
 **Settings → Keyboard** edits the same overrides: capturing a key appends it,
 removing a chip or resetting writes the entry again, and saving the shipped keys
-removes the entry. The page reads the tables and the checker's findings when an
+removes the entry. A captured key goes through the same check first, with
+type-to-search as it is then: an error (the key never fires there, or stops
+another key working) refuses it and keeps the capture waiting, and a warning
+(the key works only in some places) saves it with a note under the row. Resets
+and hand edits can still leave errors in a table; the page shows them under the
+rows they affect. It reads the tables and the checker's findings when an
 override or type-to-search changes, in every open window; see
-[Settings keyboard page](keyboard-shortcuts.md#settings-keyboard-page).
+[Settings keyboard page](keyboard-shortcuts.md#settings-keyboard-page) and, for
+users, [Keymap](keymap.md).
 
 Like other preferences, hand edits made while Strata runs are read on the next
 launch.

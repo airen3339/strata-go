@@ -5,6 +5,8 @@ keyboard layout, and how code must read key input. It covers every surface that
 handles keys: browser windows, the file chooser, previews, Settings, and dialogs.
 What individual keys do is documented with each feature, for example in
 [keyboard navigation](keyboard-navigation.md) and [10xer mode](10xer-mode.md).
+How users rebind keys, in **Settings → Keyboard** or `settings.toml`, is in
+[Keymap](keymap.md).
 
 ## How a key press becomes a shortcut
 
@@ -184,8 +186,11 @@ is applied, and no other handler sees it. Each window holds at most one capture.
 
 `clippy.toml` lists `EventControllerKey::connect_key_pressed`,
 `EventControllerKey::connect_key_released`, and
-`GtkApplicationExt::set_accels_for_action` under `disallowed-methods`. `ui::keys` calls them under a single
-`#[expect(clippy::disallowed_methods, reason = "…")]`; no other module may.
+`GtkApplicationExt::set_accels_for_action` under `disallowed-methods`.
+`ui::keys` calls the two key signals under a single
+`#[expect(clippy::disallowed_methods, reason = "…")]`, and no other module may.
+Nothing sets application accelerators: the dispatchers match catalog constants,
+commands through the keymap tables.
 
 ### `KeyPress`
 
@@ -235,8 +240,8 @@ beside each binding's own, which stay required:
 refresh rebound to **Ctrl+R** still needs Ctrl. `command.in_map(map)` matches
 another map's bindings for a stage that claims them: 10xer swallowing
 default-map keys it leaves unbound, and the default-map stages that 10xer key
-presses fall through to from text fields, popovers, the file chooser,
-thumbnail resizing and the filter button's tooltip. Those stages read the
+presses fall through to: keys the 10xer stages do not claim, text fields,
+popovers, the file chooser, thumbnail resizing and the filter button's tooltip. Those stages read the
 default table, its overrides included, in both modes; a 10xer override changes
 only what the 10xer stages claim. `command.alternate(index)` is one binding of
 the shipped entry, for a label that shows that alternate alone; once a user
@@ -361,7 +366,7 @@ places.
 | `ChooserMnemonic` | Warning | Alt with a letter, which the file chooser's accept button may take as its mnemonic. |
 | `FixedKey(fixed)` | Error | A key a fixed role holds where the command acts: a pin, action or tab digit after its chord (an armed chord reads steps first, so `go.home = ["1"]` takes pin 1), **Ctrl+Shift** with a tab digit, **Backspace** (with or without Shift or Super), **Space** in the 10xer file list, which selects the cursor's item, or **Space** on a media preview command, which plays and pauses first, as the page keys, **Home** and **End** seek before the commands the preview reads after them. Only the key as bound counts: a modifier a surface tolerates beside it loses to the fixed role. |
 | `NeverMatches` | Error | No press reaches it where it acts: Shift with a symbol Shift types (`<Shift>exclam`), a chord trigger in the default map, which has no chords, or a typed key for a command the 10xer stage leaves to later stages (copy path included) or for the 10xer folder accept, which the focused 10xer file list keeps. An alias on another structural key's canonical key is a `Duplicate`: modifier-tolerant matchers, such as Escape's, still read it as pressed. Inactive. |
-| `NoPath` | Error | The map ships no key for the command and none of its stages runs it: a 10xer verb or a Go or Tabs step in the default map, or the type-to-search filter key in 10xer. The direct stage's commands, and copy path, which the 10xer file list reads with a modified key, have a path. It is the binding's only finding. Inactive. |
+| `NoPath` | Error | The map ships no key for the command and none of its stages runs it: a 10xer verb or a Go or Tabs step in the default map, or the type-to-search filter key in 10xer. The direct stage's commands, and copy path, which the 10xer file list reads on a key that types nothing, have a path. It is the binding's only finding. Inactive. |
 
 `never_fires` is the cheap part of `check` that labels use to leave a binding
 out, and `duplicate_outcome` says which side of a `Duplicate` keeps the key
@@ -536,33 +541,45 @@ all. The table's key handler runs the cell's action, because it owns the
 selection that spans cells: **Ctrl+C** copies that selection when there is one,
 and **Ctrl+A** clears it first.
 
-## Adding or changing a shortcut
+## Adding a command
 
-1. Add the command to `ui::keys::bindings`, in the catalog block for the F1
-   maps that list it, and match it in the handler with `press.is(…)` or
-   `press.digit_in(…)`. Mark it `live in both` only when a handler reads it in
-   the map its block leaves out. A new key for an existing action is another
-   alternate in that command's entry; a default-map stage that 10xer presses
-   fall through to matches it with `in_map(Map::Default)`.
-2. Reference the same constant from its F1 row in `ui/shortcut_reference.rs`
-   and from any context hint. The label renders itself; translate only the
-   action text, in every catalog (see
-   [internationalization](internationalization.md)).
-3. Never compare `text()` or a raw keyval to recognize a command, never type a
-   key label by hand, and never add a second spelling (an uppercase letter or a
-   US shifted symbol) to cover another layout.
-4. Extend the normalizer table tests when a binding uses a symbol or digit, and
-   add end-to-end coverage for a new input route.
-5. A command only one surface matches, one a stage matches while a text field
-   has focus, or one matched with `ignoring(..)` goes in the matching table of
-   `ui::keys::conflicts`. `audit_of_default_tables_is_clean` checks the shipped
-   tables against every rule. A command one map ships no key for is `NoPath`
-   there unless the direct stage lists it or `conflicts.rs` names the stage
-   that reads it.
-6. Give a new command a name in the Settings keyboard page's `NAMES` table,
-   translated in every catalog;
+1. **Register it in the catalog.** Add the command to `ui::keys::bindings`, in
+   the catalog block for the F1 maps that list it, with its id and each map's
+   defaults (see [Commands, bindings, and the catalog](#commands-bindings-and-the-catalog)).
+   The id is what `settings.toml` saves, so it never changes once shipped. Mark
+   it `live in both` only when a handler reads it in the map its block leaves
+   out. A new key for an existing action is another alternate in that command's
+   entry, not a new constant.
+2. **Name it.** Add it to the Settings keyboard page's `NAMES` table
+   (`ui/settings/keyboard.rs`), reusing its F1 row's text when that row names
+   it alone, and translate the name in every catalog (see
+   [internationalization](internationalization.md));
    `settings::keyboard::tests::every_command_row_has_a_name_in_every_catalog`
    fails until it has one.
+3. **Add its F1 row.** Reference the same constant from its row in
+   `ui/shortcut_reference.rs` and from any context hint. The label renders
+   itself; translate only the action text.
+4. **Give it a dispatch path.** Match it in the handler of the stage that owns
+   it with `press.is(…)` or `press.digit_in(…)`; a default-map stage that 10xer
+   presses fall through to matches it with `in_map(Map::Default)`. A map that
+   ships no key for it runs it only from a stage that reads it there: list it in
+   `keys::DIRECT_IN_DEFAULT` or `keys::DIRECT_IN_TENXER` for the direct stage, or
+   it is `NoPath` in that map. Never compare `text()` or a raw keyval to
+   recognize a command, never type a key label by hand, and never add a second
+   spelling (an uppercase letter or a US shifted symbol) to cover another
+   layout.
+5. **Update `conflicts.rs`.** A command only one surface matches goes in
+   `SCOPES`, one a stage matches while a text field has focus in
+   `IN_TEXT_FIELDS` or `IN_DEFAULT_TEXT_FIELDS`, one matched with `ignoring(..)`
+   in `TOLERATED`, one the file chooser reads around its folder accept in
+   `CHOOSER_FIRST` or `CHOOSER_SHARED`, and one the 10xer stage leaves to later
+   stages in `TENXER_PASSES`. `keys::conflicts::tests::audit_of_default_tables_is_clean`
+   checks the shipped tables against every rule. Run the guard tests
+   `window::tests::keyboard_dispatch::keymap_conflicts` and
+   `chooser::tests::keyboard::folder_accept_order_matches_the_conflict_check`,
+   and give them a row when the command's surface or stage order is new.
+6. **Test it.** Extend the normalizer table tests when a binding uses a symbol
+   or digit, and add end-to-end coverage for a new input route.
 
 ## Testing
 
@@ -603,6 +620,9 @@ captures in one window's Settings and presses the key in another.
 `window::tests::keyboard_dispatch::direct_commands` binds each direct command in
 the map it gains and requires the same effect as the other map's key, and
 checks that the shipped tables reach none of them.
+`tests/e2e/scenarios/test_keymap.py` rebinds through the real Settings page and
+through a saved `settings.toml`, keeps the two tables apart, uses Enter and
+Escape aliases, records a key on a Russian layout, and refuses a taken key.
 
 End-to-end scenarios switch layouts on the harness's private Xvfb: `setxkbmap`
 loads the layouts and an XKB group lock selects the active one. Never change the

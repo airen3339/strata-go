@@ -404,6 +404,10 @@ def test_something(strata):
     ...
 ```
 
+A dict value is written as a TOML table, so
+`keymap={"default": {"rename": ["<Control>e"]}}` seeds a `[keymap.default]`
+override; `test_keymap.py` uses it for shortcuts saved before launch.
+
 Columns reserves preview space by default, including while preview content is
 closed. Scenarios whose contract needs several parent columns visible at once
 may use `@pytest.mark.usefixtures("unreserved_columns")`. This fixture switches

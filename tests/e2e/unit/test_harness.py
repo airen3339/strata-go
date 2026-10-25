@@ -4,6 +4,7 @@ import json
 import os
 import signal
 import sys
+import tomllib
 from pathlib import Path
 from unittest.mock import MagicMock, Mock, call
 
@@ -13,7 +14,7 @@ from PIL import Image
 from harness import screenshots, tree
 from harness.application import Application, binary_path
 from harness.browser import Strata
-from harness.environment import process_environment
+from harness.environment import TestEnvironment as Environment, process_environment
 from harness.fixtures import FixtureTree
 from harness.portal import open_file_request
 from harness.process import ManagedProcess, terminate
@@ -382,6 +383,22 @@ def test_session_overrides_do_not_leak(monkeypatch):
     for name in ("GTK_MODULES", "FONTCONFIG_FILE", "DBUS_SESSION_BUS_ADDRESS", "AT_SPI_BUS_ADDRESS", "WAYLAND_DISPLAY", "LD_PRELOAD"):
         monkeypatch.setenv(name, "private-session")
     assert process_environment() == {"PATH": os.environ["PATH"]}
+
+
+def test_nested_preferences_are_written_as_tables():
+    environment = Environment()
+    try:
+        keymap = {
+            "default": {"rename": ["<Control>e"], "tenxer_mode": ["F9"]},
+            "tenxer": {"go.home": [], 'say "<hi>"': ["<Shift>h"]},
+        }
+        environment.write_preferences({"keymap": keymap})
+        saved = tomllib.loads(environment.settings_path.read_text())
+        assert saved["keymap"] == keymap
+        assert saved["browser_mode"] == "columns"
+        assert "tenxer_mode" not in environment.read_preferences()
+    finally:
+        environment.cleanup()
 
 
 def test_relative_binary_override_survives_the_fixture_working_directory(monkeypatch, tmp_path):

@@ -99,6 +99,8 @@ const fn row(
 const SORT: Binding = Binding::plain(Key::comma);
 const COPY_AS: Binding = Binding::plain(Key::c);
 const ACTION: Binding = Binding::plain(Key::semicolon);
+/// Holds `packed.txt`, so extracting it adds a file.
+const ARCHIVE: &str = "bundle.tar";
 
 /// Commands the default map gains, with their 10xer keys.
 const DEFAULT_ROWS: &[Row] = &[
@@ -115,13 +117,13 @@ const DEFAULT_ROWS: &[Row] = &[
     row(
         ACTIONS_EXTRACT,
         &[ACTION, Binding::plain(Key::e)],
-        "a.txt",
-        Effect::Shown,
+        ARCHIVE,
+        Effect::Copied,
     ),
     row(
         ACTIONS_EXTRACT_TO,
         &[ACTION, Binding::shift(Key::e)],
-        "a.txt",
+        ARCHIVE,
         Effect::Shown,
     ),
     row(
@@ -237,10 +239,23 @@ impl Direct {
         fixture.shortcuts.bind_preferences(&preferences);
         preferences.set_type_to_search(false);
         preferences.set_filter_include_subfolders(false);
-        std::fs::create_dir(fixture._directory.path().join("d")).expect("folder");
+        let directory = fixture._directory.path();
+        std::fs::create_dir(directory.join("d")).expect("folder");
+        let source = tempfile::tempdir().expect("archive source");
+        std::fs::write(source.path().join("packed.txt"), "packed").expect("archived file");
+        crate::adapters::write_compression_fixture(
+            &directory.join(ARCHIVE),
+            &[source.path().join("packed.txt")],
+            crate::services::ArchiveFormat::Tar,
+            None,
+        )
+        .expect("fixture archive");
         fixture.view.set_view_mode(BrowserMode::List);
         fixture.view.refresh();
-        wait_until(|| rendered_name(&fixture.view.widget(), "d"));
+        wait_until(|| {
+            rendered_name(&fixture.view.widget(), "d")
+                && rendered_name(&fixture.view.widget(), ARCHIVE)
+        });
         let pins = Rc::new(Cell::new(0));
         let pinned = pins.clone();
         fixture.view.set_pin_handlers(
@@ -342,7 +357,10 @@ impl Direct {
         let deadline = Instant::now() + Duration::from_secs(3);
         loop {
             let outcome = row.effect.outcome(&before, &self.seen());
-            if outcome.is_some() || Instant::now() > deadline {
+            // A copy or an extraction is done once its progress dialog closes.
+            let settled =
+                !matches!(row.effect, Effect::Copied) || !modal_visible(&self.fixture.overlay);
+            if (outcome.is_some() && settled) || Instant::now() > deadline {
                 return outcome;
             }
             pump(10);
@@ -509,7 +527,7 @@ fn default_map_direct_verbs_skip_an_unselected_focused_row() {
 }
 
 /// The default map has no 10xer Escape stage, so its own Escape must end a
-/// search a direct key started.
+/// search a direct key started, which the footer names meanwhile.
 #[test]
 fn default_map_escape_ends_a_direct_search() {
     crate::test_support::gtk_test(
@@ -532,8 +550,10 @@ fn default_map_escape_ends_a_direct_search() {
             wait_until(|| {
                 fixture.view.listing_search_active() && fixture.view.item_view_has_focus()
             });
+            wait_until(|| fixture.shortcuts.filter_mark().as_deref() == Some("search: a.txt"));
             assert!(fixture.press(Key::Escape, ModifierType::empty()));
             wait_until(|| !fixture.view.listing_search_active());
+            wait_until(|| fixture.shortcuts.filter_mark().is_none());
             wait_until(|| entry_count(&fixture.view.browser()) == direct.names.len());
             assert!(fixture.view.item_view_has_focus());
         },

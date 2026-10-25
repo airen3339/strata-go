@@ -732,8 +732,6 @@ shows no hint. Default-map hints that are unbound or remapped (**y** for copy pa
 **Ctrl+R** for rename) are hidden. Copy path is **c c**; Properties is
 **Alt+Enter**.
 
-## Not bound
-
 Tabs use the same shortcuts in both modes: **Ctrl+T** creates a tab,
 **Ctrl+W** closes it, **Ctrl+Tab / Ctrl+Shift+Tab** cycles tabs, and
 **Ctrl+Page Up / Ctrl+Page Down** selects the previous / next tab, wrapping at
@@ -743,25 +741,12 @@ stopping at either end of the strip.
 **Ctrl+Shift+1–9 / 0** selects a tab directly. Hold **Ctrl+Shift** to show tab
 numbers. See [browser tabs](keyboard-navigation.md#browser-tabs).
 
-These default-map shortcuts are unbound or remapped while the mode is on. The
-table lists the shipped keys; overrides saved under `[keymap.tenxer]` change
-them (see [Keymap](preferences.md#keymap)), and **Settings → Keyboard** shows
-the live 10xer table, with **Not bound** on every command it leaves out. Jump to
-folder, arrow scope, duplicate and pin have no 10xer key, but a key bound to one
-of them in the 10xer table works; Settings marks any other command 10xer does
-not run. The default table can likewise bind Open with, Move to, Copy to,
-Restore, invert selection, search subfolders, **z** / **Z**, half-page paging and
-the Sort, Copy and Action steps as plain keys without their chord (see
-[Keyboard shortcuts](keyboard-shortcuts.md#commands-bindings-and-the-catalog)):
+## Not bound
 
-| Default-map key | In 10xer mode |
-| --- | --- |
-| **Ctrl+Shift+K** | Unbound. Use **z** / **Z**. |
-| **Ctrl+Alt+T** | Opens a terminal from the file list and the sidebar, as in the default map; elsewhere, such as in a text field, it does nothing. **;** **t** opens one in the keyboard-focused folder. |
-| **Ctrl+\\** | Unbound. Arrows never leave the file list. |
-| **Ctrl+D** | Half page down. Duplicate is unbound. |
-| **Ctrl+F** | Full page down. Filter is **f**. |
-| **Ctrl+B** | Full page up. Sidebar toggle is **Ctrl+N**. |
-| **Ctrl+R** | Invert selection. Rename is **r** / **F2**. |
-| **y** / **p** (default map) | Yank / paste. Path copy is **c c**; pin with **g +** and jump to a pin with **g** then a digit. |
-| **Space** | Toggle selection. In List and Columns, preview is **l** / **→**. |
+Some default-map keys do something else in 10xer mode or nothing at all: for
+example, **Ctrl+R** inverts the selection there, and rename is **r** / **F2**.
+**Settings → Keyboard** shows both tables as they are, with any changes: switch
+it to **10xer mode** to see each action's 10xer keys and **Not bound** on the
+ones 10xer leaves out. A key bound in the 10xer table to jump to folder, arrow
+scope, duplicate or pin works there, and the default table can bind several
+10xer verbs; see [Keymap](keymap.md#two-tables).

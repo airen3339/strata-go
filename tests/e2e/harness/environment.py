@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import tempfile
 from dataclasses import dataclass, field
@@ -75,10 +76,26 @@ def process_environment() -> dict[str, str]:
 
 
 def _render_toml(values: dict[str, object]) -> str:
+    return "\n".join(_render_table([], values)) + "\n"
+
+
+def _render_table(path: list[str], values: dict[str, object]) -> list[str]:
+    """A dict value becomes a `[table]` after its parent's plain keys."""
+
     lines = []
+    if path and not (values and all(isinstance(value, dict) for value in values.values())):
+        lines = ["", "[" + ".".join(_render_key(part) for part in path) + "]"]
     for key, value in values.items():
-        lines.append(f"{key} = {_render_value(value)}")
-    return "\n".join(lines) + "\n"
+        if not isinstance(value, dict):
+            lines.append(f"{_render_key(key)} = {_render_value(value)}")
+    for key, value in values.items():
+        if isinstance(value, dict):
+            lines.extend(_render_table([*path, key], value))
+    return lines
+
+
+def _render_key(key: str) -> str:
+    return key if re.fullmatch(r"[A-Za-z0-9_-]+", key) else _render_value(key)
 
 
 def _render_value(value: object) -> str:
@@ -157,7 +174,7 @@ class TestEnvironment:
         self.settings_path.write_text(_render_toml(values))
 
     def read_preferences(self) -> dict[str, str]:
-        """The persisted preferences as raw `key = value` strings."""
+        """The persisted top-level preferences as raw `key = value` strings."""
 
         try:
             text = self.settings_path.read_text()
@@ -165,6 +182,9 @@ class TestEnvironment:
             return {}
         values: dict[str, str] = {}
         for line in text.splitlines():
+            # Tables such as `[keymap.default]` hold command ids, not preferences.
+            if line.startswith("["):
+                break
             key, separator, value = line.partition("=")
             if separator:
                 values[key.strip()] = value.strip()

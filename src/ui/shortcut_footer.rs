@@ -1075,7 +1075,8 @@ impl ShortcutFooter {
 
     /// Reports `source`'s filter in place of the directory count while its
     /// results are displayed, in every key map; the query mark and hit path
-    /// show only in 10xer mode. Call [`Self::refresh_filter`] when it changes.
+    /// show in 10xer mode and for a subfolder search in either map. Call
+    /// [`Self::refresh_filter`] when it changes.
     pub(in crate::ui) fn observe_filter(
         &self,
         source: impl Fn() -> Option<Option<FilterStatus>> + 'static,
@@ -1096,10 +1097,11 @@ impl ShortcutFooter {
             },
             None => None,
         };
-        // The default map keeps the pane's filter field on screen.
+        // The default map keeps the pane's filter field on screen, but a
+        // search started by a direct key has no field there.
         let named = status
             .as_ref()
-            .filter(|_| crate::ui::tenxer_mode::chrome_suppressed());
+            .filter(|status| status.search || crate::ui::tenxer_mode::chrome_suppressed());
         match named {
             Some(status) => {
                 let mark = if status.search {
