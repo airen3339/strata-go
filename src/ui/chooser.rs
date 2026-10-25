@@ -1818,6 +1818,7 @@ fn build_chooser_hosted(
             let entry = form_entry();
             entry.set_hexpand(true);
             entry.set_placeholder_text(Some(&crate::i18n::tr("Enter a filename")));
+            crate::ui::accessibility::set_label(&entry, &crate::i18n::tr("Name"));
             if let Some(name) = current_name {
                 entry.set_text(&name.to_string_lossy());
                 entry.select_region(0, -1);
@@ -1845,6 +1846,7 @@ fn build_chooser_hosted(
             let entry = form_entry();
             entry.set_hexpand(true);
             entry.set_placeholder_text(Some(&crate::i18n::tr("Enter a filename or https:// URL")));
+            crate::ui::accessibility::set_label(&entry, &crate::i18n::tr("Name"));
             row.append(&entry);
             details.append(&row);
             Some(entry)
