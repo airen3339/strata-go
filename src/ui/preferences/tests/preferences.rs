@@ -281,36 +281,6 @@ fn one_malformed_entry_keeps_the_rest_of_its_collection() {
 }
 
 #[test]
-fn malformed_collection_entries_survive_startup_and_an_unrelated_save() {
-    gtk_test(
-        "ui::preferences::tests::preferences::malformed_collection_entries_survive_startup_and_an_unrelated_save",
-        || {
-            assert_recovered_preferences_survive_save(
-                |saved| {
-                    saved.extend(
-                        toml::from_str::<toml::Table>(
-                            r#"
-                            search_exclusions = [".venv", 12, "/fixture/custom_excluded"]
-
-                            [omarchy_variants]
-                            fixture = "lighter"
-                            broken = "not-a-variant"
-
-                            [send_to_recent_destinations]
-                            "volume:fixture-kingston" = ["Academia/2026", 7, "Teaching"]
-                            "volume:fixture-sandisk" = ["Backup"]
-                            "#,
-                        )
-                        .expect("fixture TOML"),
-                    );
-                },
-                non_default_preferences(),
-            );
-        },
-    );
-}
-
-#[test]
 fn a_missing_required_preference_does_not_discard_the_others() {
     let mut saved = toml::Table::try_from(non_default_preferences()).expect("saved preferences");
     saved.remove("theme");
@@ -757,6 +727,22 @@ fn multiple_invalid_preferences_do_not_block_later_valid_entries() {
                     saved.insert("show_hidden".into(), "yes".into());
                     saved.insert("future_preference".into(), true.into());
                     saved.insert("auto_refresh_interval".into(), 600.into());
+                    saved.extend(
+                        toml::from_str::<toml::Table>(
+                            r#"
+                            search_exclusions = [".venv", 12, "/fixture/custom_excluded"]
+
+                            [omarchy_variants]
+                            fixture = "lighter"
+                            broken = "not-a-variant"
+
+                            [send_to_recent_destinations]
+                            "volume:fixture-kingston" = ["Academia/2026", 7, "Teaching"]
+                            "volume:fixture-sandisk" = ["Backup"]
+                            "#,
+                        )
+                        .expect("fixture TOML"),
+                    );
                 },
                 Preferences {
                     watch_network_folders: true,
