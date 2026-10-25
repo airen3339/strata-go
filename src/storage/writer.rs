@@ -27,7 +27,7 @@ pub(crate) enum Policy {
 type Produce = Box<dyn FnOnce() -> io::Result<Vec<u8>> + Send>;
 
 /// Also returns a lock the writer holds until the file has been replaced.
-type ProduceLocked = Box<dyn FnOnce() -> io::Result<(Vec<u8>, fs::File)> + Send>;
+type ProduceLocked = Box<dyn FnOnce() -> io::Result<(Vec<u8>, Option<fs::File>)> + Send>;
 
 enum Contents {
     Bytes(Vec<u8>),
@@ -118,7 +118,7 @@ impl Writer {
             Contents::Bytes(contents) => Ok(Some(contents)),
             Contents::Produced(produce) => produce().map(Some),
             Contents::ProducedLocked(produce) => produce().map(|(contents, lock)| {
-                _lock = Some(lock);
+                _lock = lock;
                 Some(contents)
             }),
             Contents::Removed => Ok(None),
@@ -313,7 +313,7 @@ pub(crate) fn save_produced(
 pub(crate) fn save_locked(
     path: PathBuf,
     policy: Policy,
-    produce: impl FnOnce() -> io::Result<(Vec<u8>, fs::File)> + Send + 'static,
+    produce: impl FnOnce() -> io::Result<(Vec<u8>, Option<fs::File>)> + Send + 'static,
 ) -> oneshot::Receiver<io::Result<()>> {
     shared().save(
         path,

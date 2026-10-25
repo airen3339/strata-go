@@ -648,13 +648,10 @@ pub struct PreferenceManager {
     changes: bindings::PreferenceChanges,
     persistence_dirty: Cell<bool>,
     saves_requested: Cell<u64>,
-    saves_finished: Cell<u64>,
     /// The settings as of the last load or queued save, to see what a save changes.
     last_queued: RefCell<toml::Table>,
-    /// Keys this process changed since a save last succeeded; a save writes only these.
-    dirty_keys: RefCell<BTreeSet<String>>,
-    /// A repaired file is rewritten whole by the next save.
-    repair_pending: Cell<bool>,
+    /// Changed or repaired since a save last succeeded; a save writes only these.
+    dirty_keys: RefCell<BTreeSet<SettingKey>>,
     this: std::rc::Weak<Self>,
     /// Why saving is off for this session: the file existed but could not be read.
     load_failure: Option<io::Error>,
@@ -685,7 +682,7 @@ impl PreferenceManager {
             Err(error) => {
                 tracing::warn!(%error, path = %settings_path().display(),
                     "unable to load settings; using temporary defaults without saving; fix the file and restart Strata");
-                (Preferences::default(), Some(error), false)
+                (Preferences::default(), Some(error), BTreeSet::new())
             }
         };
         let parsed = preferences.clone();
@@ -715,8 +712,14 @@ impl PreferenceManager {
             sanitize_list_hidden_columns(&preferences.list_hidden_columns);
         super::motion::set_reduce_motion(preferences.reduce_motion);
         crate::util::set_date_format(crate::util::DateFormat::parse(&preferences.date_format));
-        let repair_pending = salvaged || preferences != parsed;
         let saved_base = toml::Table::try_from(&preferences).unwrap_or_default();
+        let mut repaired: BTreeSet<SettingKey> =
+            salvaged.into_iter().map(|key| (key, None)).collect();
+        record_changes(
+            &mut repaired,
+            &toml::Table::try_from(&parsed).unwrap_or_default(),
+            &saved_base,
+        );
 
         let startup_locale = preferences.language.locale();
         rust_i18n::set_locale(startup_locale);
@@ -726,10 +729,8 @@ impl PreferenceManager {
             changes: bindings::PreferenceChanges::new(preferences.clone()),
             persistence_dirty: Cell::new(false),
             saves_requested: Cell::new(0),
-            saves_finished: Cell::new(0),
             last_queued: RefCell::new(saved_base),
-            dirty_keys: RefCell::new(BTreeSet::new()),
-            repair_pending: Cell::new(repair_pending),
+            dirty_keys: RefCell::new(repaired),
             this: this.clone(),
             load_failure,
             save_notices: save_notice::SaveNotices::default(),
@@ -760,6 +761,11 @@ impl PreferenceManager {
             preferences.mode = "theme".to_owned();
         } else if !settings_path().is_file() && omarchy_available {
             preferences.mode = "omarchy".to_owned();
+        }
+        if let Ok(normalized) = toml::Table::try_from(&*preferences) {
+            let mut last = self.last_queued.borrow_mut();
+            record_changes(&mut self.dirty_keys.borrow_mut(), &last, &normalized);
+            *last = normalized;
         }
         self.changes.reset_baseline(&preferences);
     }
@@ -1973,22 +1979,18 @@ impl PreferenceManager {
         let keys = {
             let mut last = self.last_queued.borrow_mut();
             let mut dirty = self.dirty_keys.borrow_mut();
-            for key in snapshot.keys().chain(last.keys()) {
-                if snapshot.get(key) != last.get(key) {
-                    dirty.insert(key.clone());
-                }
-            }
+            record_changes(&mut dirty, &last, &snapshot);
             *last = snapshot.clone();
             // Never serialized, so a migration cannot show up as a change.
             if self.preferences.borrow().legacy_omarchy_variant.is_none() {
-                dirty.insert("omarchy_variant".to_owned());
+                dirty.insert(("omarchy_variant".to_owned(), None));
             }
+            dirty.extend(RETIRED_SETTINGS.map(|key| (key.to_owned(), None)));
             dirty.clone()
         };
-        let whole = self.repair_pending.get();
         let target = path.clone();
         let saved = writer::save_locked(path.clone(), Policy::Config, move || {
-            merged_settings(&target, &snapshot, &keys, whole)
+            merged_settings(&target, &snapshot, &keys)
         });
         let this = self.this.clone();
         glib::MainContext::default().spawn_local(async move {
@@ -2002,8 +2004,6 @@ impl PreferenceManager {
     }
 
     fn settings_saved(&self, generation: u64, path: &Path, result: io::Result<()>) {
-        self.saves_finished
-            .set(self.saves_finished.get().max(generation));
         if generation != self.saves_requested.get() {
             return;
         }
@@ -2011,15 +2011,18 @@ impl PreferenceManager {
             Ok(()) => {
                 self.persistence_dirty.set(false);
                 self.dirty_keys.borrow_mut().clear();
-                self.repair_pending.set(false);
                 self.save_notices.saved();
             }
             Err(error) => self.save_notices.write_failed(path, &error),
         }
     }
 
-    fn settings_save_pending(&self) -> bool {
-        self.saves_finished.get() < self.saves_requested.get()
+    /// Whether a save not yet written, or one that failed, would replace `key` on disk.
+    fn setting_unsaved(&self, key: &str) -> bool {
+        self.dirty_keys
+            .borrow()
+            .iter()
+            .any(|(dirty, _)| dirty == key)
     }
 }
 
@@ -2036,10 +2039,10 @@ fn read_preferences() -> io::Result<Preferences> {
     read_preferences_checked().map(|(preferences, _)| preferences)
 }
 
-/// Also says whether invalid entries had to be dropped.
-fn read_preferences_checked() -> io::Result<(Preferences, bool)> {
+/// Also returns the keys salvage had to repair.
+fn read_preferences_checked() -> io::Result<(Preferences, BTreeSet<String>)> {
     let Some(contents) = read_state_file(&settings_path())? else {
-        return Ok((Preferences::default(), false));
+        return Ok((Preferences::default(), BTreeSet::new()));
     };
     parse_preferences_checked(&contents)
 }
@@ -2048,47 +2051,116 @@ fn parse_preferences(contents: &str) -> io::Result<Preferences> {
     parse_preferences_checked(contents).map(|(preferences, _)| preferences)
 }
 
-fn parse_preferences_checked(contents: &str) -> io::Result<(Preferences, bool)> {
+fn parse_preferences_checked(contents: &str) -> io::Result<(Preferences, BTreeSet<String>)> {
     let table: toml::Table = toml::from_str(contents)
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
     match table.clone().try_into() {
-        Ok(preferences) => Ok((preferences, false)),
+        Ok(preferences) => Ok((preferences, BTreeSet::new())),
         Err(error) => {
             tracing::warn!(%error, "settings file has invalid entries; keeping the valid ones");
-            Ok((salvage_preferences(table), true))
+            Ok(salvage_preferences(table))
         }
     }
 }
 
 const SETTINGS_LOCK_WAIT: Duration = Duration::from_millis(500);
 
+/// Dropped by every save.
+const RETIRED_SETTINGS: [&str; 1] = ["auto_refresh_interval"];
+
+/// A changed key, or one entry of a key in [`ENTRY_MERGED_SETTINGS`].
+type SettingKey = (String, Option<String>);
+
+/// Maps whose entries are merged one by one, so entries another process added survive.
+const ENTRY_MERGED_SETTINGS: [&str; 5] = [
+    "omarchy_variants",
+    "folder_colors",
+    "custom_icons",
+    "send_to_recent_destinations",
+    "device_labels",
+];
+
+fn record_changes(changed: &mut BTreeSet<SettingKey>, before: &toml::Table, after: &toml::Table) {
+    let empty = toml::Table::new();
+    for key in after.keys().chain(before.keys()) {
+        let (old, new) = (before.get(key), after.get(key));
+        if old == new {
+            continue;
+        }
+        fn entries<'a>(
+            value: Option<&'a toml::Value>,
+            empty: &'a toml::Table,
+        ) -> Option<&'a toml::Table> {
+            value.map_or(Some(empty), toml::Value::as_table)
+        }
+        match (entries(old, &empty), entries(new, &empty)) {
+            (Some(old), Some(new)) if ENTRY_MERGED_SETTINGS.contains(&key.as_str()) => {
+                for entry in new.keys().chain(old.keys()) {
+                    if old.get(entry) != new.get(entry) {
+                        changed.insert((key.clone(), Some(entry.clone())));
+                    }
+                }
+            }
+            _ => {
+                changed.insert((key.clone(), None));
+            }
+        }
+    }
+}
+
 /// Another Strata process, such as the portal chooser, saves the same file, so a save
-/// replaces only the keys this process changed and keeps the rest as they are on disk,
-/// including keys this version does not know. A repaired, missing or unreadable file
-/// is written whole.
+/// replaces only what this process changed and keeps the rest as it is on disk,
+/// including keys this version does not know. A file that cannot be read or parsed
+/// is left alone.
 fn merged_settings(
     path: &Path,
     snapshot: &toml::Table,
-    changed: &BTreeSet<String>,
-    whole: bool,
-) -> io::Result<(Vec<u8>, fs::File)> {
-    let lock = folder_view_settings::lock_saves(path, SETTINGS_LOCK_WAIT)?;
-    let on_disk = if whole {
-        None
+    changed: &BTreeSet<SettingKey>,
+) -> io::Result<(Vec<u8>, Option<fs::File>)> {
+    let lock = folder_view_settings::lock_saves(path, SETTINGS_LOCK_WAIT)
+        .inspect_err(|error| {
+            tracing::debug!(%error, path = %path.display(), "saving settings unlocked");
+        })
+        .ok();
+    // Anything but a file is left for the write to report.
+    let on_disk = if path.is_file() {
+        read_state_file(path)?
     } else {
-        read_state_file(path)
-            .ok()
-            .flatten()
-            .and_then(|contents| toml::from_str::<toml::Table>(&contents).ok())
+        None
     };
     let merged = match on_disk {
         None => snapshot.clone(),
-        Some(mut table) => {
-            for key in changed {
-                match snapshot.get(key) {
-                    Some(value) => table.insert(key.clone(), value.clone()),
-                    None => table.remove(key),
+        Some(contents) => {
+            let mut table: toml::Table = toml::from_str(&contents)
+                .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+            for (key, entry) in changed {
+                let Some(entry) = entry else {
+                    match snapshot.get(key) {
+                        Some(value) => table.insert(key.clone(), value.clone()),
+                        None => table.remove(key),
+                    };
+                    continue;
                 };
+                let value = snapshot
+                    .get(key)
+                    .and_then(toml::Value::as_table)
+                    .and_then(|entries| entries.get(entry));
+                let slot = table
+                    .entry(key.clone())
+                    .or_insert_with(|| toml::Value::Table(toml::Table::new()));
+                if !slot.is_table() {
+                    *slot = toml::Value::Table(toml::Table::new());
+                }
+                let Some(entries) = slot.as_table_mut() else {
+                    continue;
+                };
+                match value {
+                    Some(value) => entries.insert(entry.clone(), value.clone()),
+                    None => entries.remove(entry),
+                };
+                if entries.is_empty() {
+                    table.remove(key);
+                }
             }
             table
         }
@@ -2100,11 +2172,15 @@ fn merged_settings(
 /// Rebuilds preferences from every entry that deserializes on its own, so one
 /// malformed value does not reset the rest (and, on the next save, overwrite
 /// them with defaults). A malformed list or table keeps its other entries.
-fn salvage_preferences(saved: toml::Table) -> Preferences {
+/// Also returns the keys whose saved value was dropped or filled in.
+fn salvage_preferences(saved: toml::Table) -> (Preferences, BTreeSet<String>) {
     let Ok(mut merged) = toml::Table::try_from(Preferences::default()) else {
-        return Preferences::default();
+        return (
+            Preferences::default(),
+            saved.into_iter().map(|(key, _)| key).collect(),
+        );
     };
-    for (key, value) in saved {
+    for (key, value) in saved.clone() {
         let kept = {
             let accepts = |candidate: &toml::Value| {
                 let mut trial = merged.clone();
@@ -2117,7 +2193,13 @@ fn salvage_preferences(saved: toml::Table) -> Preferences {
             merged.insert(key, kept);
         }
     }
-    merged.try_into().unwrap_or_default()
+    let repaired = merged
+        .keys()
+        .chain(saved.keys())
+        .filter(|key| merged.get(*key) != saved.get(*key))
+        .cloned()
+        .collect();
+    (merged.try_into().unwrap_or_default(), repaired)
 }
 
 /// Returns `value` if `accepts` takes it, otherwise the entries that still pass

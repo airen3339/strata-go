@@ -397,7 +397,9 @@ impl PreferenceManager {
         let this = self.this.clone();
         glib::MainContext::default().spawn_local(async move {
             if let (Ok(Ok(Some(saved))), Some(manager)) = (saved.await, this.upgrade())
-                && !manager.settings_save_pending()
+                && !["sort_key", "sort_direction", "icons_thumbnail_size"]
+                    .iter()
+                    .any(|key| manager.setting_unsaved(key))
             {
                 manager.adopt_defaults(saved);
             }
@@ -427,7 +429,7 @@ impl PreferenceManager {
                         Some(value) => last.insert(key.to_owned(), value.clone()),
                         None => last.remove(key),
                     };
-                    dirty.remove(key);
+                    dirty.remove(&(key.to_owned(), None));
                 }
             }
         }
