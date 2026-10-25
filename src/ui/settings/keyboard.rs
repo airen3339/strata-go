@@ -933,7 +933,7 @@ fn key_label(binding: Binding) -> String {
 /// accessible name the page gives it.
 fn set_button_text(button: &gtk::Button, text: &str) {
     button.set_label(text);
-    button.reset_relation(gtk::AccessibleRelation::LabelledBy);
+    accessibility::clear_labelled_by(button);
 }
 
 fn groups(table: &gtk::Box) -> impl Iterator<Item = gtk::Widget> {

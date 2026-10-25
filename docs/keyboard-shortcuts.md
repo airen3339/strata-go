@@ -644,9 +644,13 @@ checks that the shipped tables reach none of them.
 `window::tests::keyboard_dispatch::file_verbs::default_map_custom_action_slots_run_their_listed_action`
 binds custom action slots and requires each to run its listed action or
 nothing.
-`tests/e2e/scenarios/test_keymap.py` rebinds through the real Settings page and
-through a saved `settings.toml`, keeps the two tables apart, uses Enter and
-Escape aliases, records a key on a Russian layout, and refuses a taken key.
+The QA scenarios in `tests/qa/scenarios/keymap/` rebind through the real
+Settings page (`settings-capture-rebinds-rename`) and through a saved
+`settings.toml` (`saved-keymap-applies-at-launch`), keep the two tables apart
+(`keymap-tables-change-independently`), use Enter and Escape aliases
+(`structural-aliases-act-as-enter-and-escape`), record a key on a Russian
+layout (`capture-records-latin-key-on-russian-layout`), and refuse a taken key
+(`capture-refuses-a-taken-key`).
 
 QA scenarios switch layouts on the run's private Xvfb with a `layout` step:
 `setxkbmap` loads the layouts and an XKB group lock selects the active one. Never change the
