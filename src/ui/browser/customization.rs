@@ -515,7 +515,7 @@ fn build_folder_color_bar(
     custom_btn.set_has_frame(false);
     custom_btn.add_css_class("folder-color-dot");
     custom_btn.add_css_class("folder-color-custom");
-    crate::ui::accessibility::set_tooltip_and_label(&custom_btn, &crate::i18n::tr("Custom color…"));
+    custom_btn.set_tooltip_text(Some(&crate::i18n::tr("Custom color…")));
 
     let custom_stack = gtk::Stack::new();
     custom_stack.set_transition_type(gtk::StackTransitionType::None);
