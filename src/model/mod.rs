@@ -92,9 +92,6 @@ pub(crate) const GIO_URI_BUILD_FLAGS: gio::glib::UriFlags = gio::glib::UriFlags:
     .union(gio::glib::UriFlags::ENCODED_QUERY)
     .union(gio::glib::UriFlags::ENCODED_FRAGMENT);
 
-/// Decoded form when the URI is valid UTF-8, otherwise the percent-encoded form GIO produced.
-/// A path with an encoded slash also stays encoded, because decoding it would turn a name
-/// into a path separator when the displayed text is edited and submitted.
 /// Removes user-info (including an SMB domain), query, and fragment from a URI for logs.
 pub fn diagnostic_uri(uri: &str) -> String {
     parse_display_uri(uri)
@@ -109,6 +106,9 @@ pub fn diagnostic_uri(uri: &str) -> String {
         .unwrap_or_else(|_| "<invalid-uri>".into())
 }
 
+/// Decoded form when the URI is valid UTF-8, otherwise the percent-encoded form GIO produced.
+/// A path with an encoded slash also stays encoded, because decoding it would turn a name
+/// into a path separator when the displayed text is edited and submitted.
 fn parse_display_uri(uri: &str) -> Result<gio::glib::Uri, gio::glib::Error> {
     let encoded = gio::glib::Uri::parse(uri, GIO_URI_PARSE_FLAGS);
     if encoded
