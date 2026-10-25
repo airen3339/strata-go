@@ -256,18 +256,6 @@ pub(crate) fn clear_active_drag() {
     });
 }
 
-pub(in crate::ui) fn cancel_file_drag() -> bool {
-    let drag = ACTIVE_DRAG
-        .with(|cell| cell.borrow_mut().take())
-        .and_then(|active| active.source.upgrade()?.drag());
-    let Some(drag) = drag else {
-        return false;
-    };
-    // DragSource::drag_cancel() does not release the native X11 drag grab.
-    drag.emit_by_name::<()>("cancel", &[&gtk::gdk::DragCancelReason::UserCancelled]);
-    true
-}
-
 pub(crate) const SPRING_LOAD_NAVIGATE_DELAY: Duration = Duration::from_millis(750);
 
 /// Reuses one classification for cursor feedback and the eventual transfer.

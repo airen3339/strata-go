@@ -1142,10 +1142,6 @@ fn a_cached_internal_drag_never_replaces_another_drops_sources() {
             let prepared = prepare_file_drop_target(|| Some(Location::local("/fixture/dest")));
 
             assert!(prepared.state.sources(&prepared.target).is_empty());
-            assert!(
-                !cancel_file_drag(),
-                "preparing content is not an active drag"
-            );
         },
     );
 }

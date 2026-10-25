@@ -777,10 +777,6 @@ impl Dispatcher {
     }
 
     fn input_owner(&self, browser: &Browser, press: &KeyPress) -> KeyResult {
-        if press.is(ESCAPE_ANY) && crate::ui::browser::cancel_file_drag() {
-            self.shortcuts.cancel_chord();
-            return Some(Propagation::Stop);
-        }
         if let Some(layer) = topmost_modal_layer(&self.window, &is_closing_layer) {
             let focus_is_inside = gtk::prelude::RootExt::focus(&self.window)
                 .is_some_and(|focus| focus == layer || focus.is_ancestor(&layer));
