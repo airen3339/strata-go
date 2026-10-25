@@ -28,7 +28,7 @@ use super::keys::{
     self, KeyPress,
     bindings::{
         COPY, MEDIA_MUTE, MEDIA_NEXT, MEDIA_PLAY_PAUSE, MEDIA_PREVIOUS, MEDIA_SEEK_BACK,
-        MEDIA_SEEK_FORWARD, MEDIA_VOLUME_DOWN, MEDIA_VOLUME_UP, PEEK, SELECT_ALL, SPACE,
+        MEDIA_SEEK_FORWARD, MEDIA_VOLUME_DOWN, MEDIA_VOLUME_UP, PREVIEW, SELECT_ALL,
     },
 };
 use super::{
@@ -328,11 +328,11 @@ impl PreviewDrawer {
         let close = gtk::Button::builder().valign(gtk::Align::Center).build();
         super::preferences::PreferenceManager::shared().bind_preference(
             &close,
-            super::preferences::PreferenceManager::tenxer_mode,
-            |close, tenxer| {
+            super::preferences::PreferenceManager::shown_keys,
+            |close, _| {
                 let label = crate::ui::shortcut_reference::with_keys(
                     "Close preview (%{keys})",
-                    keys::Keys::One(if tenxer { PEEK } else { SPACE }),
+                    keys::Keys::One(PREVIEW.shown()),
                 );
                 close.set_tooltip_text(Some(&label));
                 super::accessibility::set_label(close, &label);
@@ -2721,10 +2721,11 @@ impl PreviewState {
         let pause_icon = crate::assets::primary_icon(crate::assets::icons::PAUSE, 18);
         let play_button = gtk::Button::new();
         play_button.add_css_class("preview-media-button");
-        play_button.set_tooltip_text(Some(&crate::ui::shortcut_reference::with_keys(
+        crate::ui::shortcut_reference::follow_tooltip(
+            &play_button,
             "Play/Pause (%{keys})",
-            keys::Keys::One(MEDIA_PLAY_PAUSE),
-        )));
+            keys::Keys::One(MEDIA_PLAY_PAUSE.shown()),
+        );
         play_button.set_child(Some(if media.is_playing() {
             &pause_icon
         } else {
@@ -3317,10 +3318,11 @@ impl VolumeControls {
     ) -> Self {
         let toggle = gtk::Button::new();
         toggle.add_css_class("preview-media-button");
-        toggle.set_tooltip_text(Some(&crate::ui::shortcut_reference::with_keys(
+        crate::ui::shortcut_reference::follow_tooltip(
+            &toggle,
             "Mute/unmute (%{keys})",
-            keys::Keys::One(MEDIA_MUTE),
-        )));
+            keys::Keys::One(MEDIA_MUTE.shown()),
+        );
         let muted = preferences.preview_muted();
         let icon = crate::assets::primary_icon(
             if muted {
