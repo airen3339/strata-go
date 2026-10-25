@@ -5,15 +5,39 @@ use std::{
     fs,
     os::unix::{ffi::OsStrExt as _, fs::PermissionsExt as _},
     path::{Path, PathBuf},
+    process::Command,
+    time::{Duration, Instant},
 };
 
 use super::{
     SetupContext, disable_config, enable_config, install_at, install_file_manager_at,
-    refresh_configured_portal_at, refresh_stale_portal_at, secure_executable, uninstall_at,
-    uninstall_file_manager_at,
+    refresh_configured_portal_at, refresh_stale_portal_at, secure_executable, succeeds_within,
+    uninstall_at, uninstall_file_manager_at,
 };
 
 const FILE_CHOOSER: &str = "org.freedesktop.impl.portal.FileChooser";
+
+#[test]
+fn a_helper_that_never_exits_is_stopped_at_the_deadline() {
+    let started = Instant::now();
+    assert!(!succeeds_within(
+        Command::new("sleep").arg("30"),
+        Duration::from_millis(200)
+    ));
+    assert!(started.elapsed() < Duration::from_secs(10));
+    assert!(succeeds_within(
+        &mut Command::new("true"),
+        Duration::from_secs(10)
+    ));
+    assert!(!succeeds_within(
+        &mut Command::new("false"),
+        Duration::from_secs(10)
+    ));
+    assert!(!succeeds_within(
+        &mut Command::new("strata-definitely-missing-tool"),
+        Duration::from_secs(10)
+    ));
+}
 
 #[test]
 fn chooser_preference_uses_existing_backends_and_round_trips() {

@@ -128,7 +128,7 @@ class InstallerFixture:
         for name in (
             "bash", "uname", "getconf", "awk", "sort", "head", "install", "sed", "grep",
             "dirname", "mkdir", "cp", "rm", "tar", "gzip", "sha256sum", "mktemp", "sleep", "cat",
-            "tee", "stty", "date", "tail", "wc", "openssl",
+            "tee", "stty", "date", "tail", "wc", "openssl", "timeout",
         ):
             (self.commands / name).symlink_to(shutil.which(name))
         distro = self.root / "os-release"
@@ -443,7 +443,7 @@ class InstallerTests(unittest.TestCase):
                 root = pathlib.Path(home)
                 commands = root / "commands"
                 commands.mkdir()
-                for name in ("mkdir", "dirname", "install", "sed", "grep", "head"):
+                for name in ("mkdir", "dirname", "install", "sed", "grep", "head", "timeout"):
                     (commands / name).symlink_to(shutil.which(name))
                 if reload_status is not None:
                     gdbus = commands / "gdbus"
@@ -494,6 +494,29 @@ class InstallerTests(unittest.TestCase):
                 else:
                     self.assertNotIn(active_message, result.stdout)
                     self.assertIn("Log out and back in", result.stderr)
+
+    def test_file_manager_service_continues_when_the_bus_never_replies(self) -> None:
+        with tempfile.TemporaryDirectory() as home:
+            root = pathlib.Path(home)
+            commands = root / "commands"
+            commands.mkdir()
+            for name in ("mkdir", "dirname", "install", "sed", "grep", "head", "timeout", "sleep"):
+                (commands / name).symlink_to(shutil.which(name))
+            gdbus = commands / "gdbus"
+            gdbus.write_text("#!/bin/sh\nexec sleep 20\n", encoding="utf-8")
+            gdbus.chmod(0o755)
+            started = time.monotonic()
+            result = bash(
+                'TEMP_DIR="$HOME/tmp"; mkdir -p "$TEMP_DIR"; '
+                'BIN_PATH="$HOME/.local/bin/strata"; '
+                'install_file_manager_service "$(dirname "$1")/data"; '
+                'printf "installer continued\\n"',
+                env={"HOME": home, "XDG_DATA_HOME": f"{home}/data", "PATH": str(commands)},
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertLess(time.monotonic() - started, 15)
+            self.assertIn("installer continued", result.stdout)
+            self.assertIn("Log out and back in", result.stderr)
 
     def test_file_manager_service_refuses_another_per_user_provider(self) -> None:
         with tempfile.TemporaryDirectory() as home:

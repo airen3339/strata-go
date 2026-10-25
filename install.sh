@@ -1542,7 +1542,7 @@ install_file_manager_service() {
   sed "s|^Exec=/usr/bin/strata |Exec=$escaped_bin |" \
     "$extracted/$APP_ID.FileManager1.service" >"$staged"
   install -Dm644 "$staged" "$target"
-  if gdbus call --session --timeout 5 \
+  if timeout 5 gdbus call --session --timeout 5 \
     --dest org.freedesktop.DBus \
     --object-path /org/freedesktop/DBus \
     --method org.freedesktop.DBus.ReloadConfig >/dev/null 2>&1; then
@@ -1681,7 +1681,7 @@ main() {
       || die "$(text udiskie_requires)"
   fi
   resolve_default_integrations "$arch_based" "$omarchy_major"
-  for command in curl tar sha256sum openssl wc install sed; do
+  for command in curl tar sha256sum openssl wc install sed timeout; do
     command -v "$command" >/dev/null 2>&1 || die "Required command not found: $command"
   done
 

@@ -14,7 +14,9 @@ use std::{
         fs::{MetadataExt, OpenOptionsExt, PermissionsExt},
     },
     path::{Path, PathBuf},
-    process::Stdio,
+    process::{Command, Stdio},
+    thread,
+    time::{Duration, Instant},
 };
 
 use serde::{Deserialize, Serialize};
@@ -365,19 +367,51 @@ fn restore_file_manager_error(error: impl std::fmt::Display) -> String {
 }
 
 fn reload_dbus() {
-    let _ = run_trusted(
-        "gdbus",
-        &[
+    let _ = reload_dbus_config();
+}
+
+/// gdbus's own `--timeout` starts only after the connection exists, so a bus that never
+/// answers the handshake needs a deadline on the process.
+fn reload_dbus_config() -> bool {
+    let Ok(mut command) = crate::trusted_command::command("gdbus") else {
+        return false;
+    };
+    command
+        .args([
             "call",
             "--session",
+            "--timeout",
+            "5",
             "--dest",
             "org.freedesktop.DBus",
             "--object-path",
             "/org/freedesktop/DBus",
             "--method",
             "org.freedesktop.DBus.ReloadConfig",
-        ],
-    );
+        ])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    succeeds_within(&mut command, DBUS_RELOAD_DEADLINE)
+}
+
+const DBUS_RELOAD_DEADLINE: Duration = Duration::from_secs(5);
+
+fn succeeds_within(command: &mut Command, limit: Duration) -> bool {
+    let Ok(mut child) = command.spawn() else {
+        return false;
+    };
+    let deadline = Instant::now() + limit;
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return status.success(),
+            Ok(None) if Instant::now() < deadline => thread::sleep(Duration::from_millis(20)),
+            _ => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return false;
+            }
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -1137,19 +1171,7 @@ fn path_error(action: &str, path: &Path, error: io::Error) -> String {
 
 fn refresh_portals() -> &'static str {
     let backend_stopped = run_trusted("systemctl", &["--user", "stop", PORTAL_BACKEND_UNIT]);
-    let dbus_reloaded = run_trusted(
-        "gdbus",
-        &[
-            "call",
-            "--session",
-            "--dest",
-            "org.freedesktop.DBus",
-            "--object-path",
-            "/org/freedesktop/DBus",
-            "--method",
-            "org.freedesktop.DBus.ReloadConfig",
-        ],
-    );
+    let dbus_reloaded = reload_dbus_config();
     let portal_restarted = run_trusted(
         "systemctl",
         &["--user", "restart", "xdg-desktop-portal.service"],
