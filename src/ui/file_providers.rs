@@ -54,15 +54,13 @@ struct Slot {
     path: String,
 }
 /// A provider a reload dropped while it still owed the answer to an activation.
+/// The transport's per-request deadline guarantees each waiting action settles.
 struct Retiring {
     client: Client,
     id: String,
     name: String,
     waiting: HashMap<u64, glib::WeakRef<gtk::Widget>>,
-    since: Instant,
 }
-/// How long a reload waits for an activation the provider has not answered.
-const RETIRING_GRACE: Duration = Duration::from_secs(30);
 struct Hub {
     discovery: mpsc::Receiver<Vec<Registration>>,
     discovered: bool,
@@ -130,7 +128,8 @@ pub(crate) fn category_icon(category: Option<Category>) -> &'static str {
 }
 
 /// Stops every provider and discovers the registrations again, so edits
-/// under the providers directory take effect without a restart.
+/// under the providers directory take effect without a restart. A provider
+/// still owing an activation outcome runs until it answers.
 pub(crate) fn reload() {
     reload_with(spawn_discovery());
 }
@@ -235,8 +234,8 @@ impl Hub {
 
     /// Drops the running providers, which ends their processes, and waits
     /// for a new discovery result. Tracked rows lose their badges until the
-    /// new providers answer. A provider with an unanswered activation lives
-    /// on until it answers, so the outcome is still shown.
+    /// new providers answer. A provider with an unanswered activation retires
+    /// instead, so the outcome is still shown.
     fn reload(&mut self, discovery: mpsc::Receiver<Vec<Registration>>) {
         self.discovery = discovery;
         self.discovered = false;
@@ -255,7 +254,6 @@ impl Hub {
                     id: provider.id,
                     name: provider.name,
                     waiting,
-                    since: Instant::now(),
                 });
             }
         }
@@ -296,6 +294,7 @@ impl Hub {
         }
     }
     fn settle_retiring(&mut self) {
+        let mut answered = Vec::new();
         for retiring in &mut self.retiring {
             let (updates, closed) = retiring.client.updates.drain();
             for update in updates {
@@ -303,6 +302,7 @@ impl Hub {
                     Update::Reply(reply) => {
                         if let Some(owner) = reply.id.and_then(|id| retiring.waiting.remove(&id)) {
                             present_activation(&owner, &retiring.id, &retiring.name, *reply);
+                            answered.push(retiring.id.clone());
                         }
                     }
                     Update::Offline { unsent, in_flight } => {
@@ -320,9 +320,13 @@ impl Hub {
                 }
             }
         }
-        self.retiring.retain(|retiring| {
-            !retiring.waiting.is_empty() && retiring.since.elapsed() < RETIRING_GRACE
-        });
+        self.retiring
+            .retain(|retiring| !retiring.waiting.is_empty());
+        for index in 0..self.providers.len() {
+            if answered.contains(&self.providers[index].id) {
+                self.invalidate(index);
+            }
+        }
     }
 
     fn tick(&mut self) {
