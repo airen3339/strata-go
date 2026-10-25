@@ -385,7 +385,7 @@ pub(super) async fn aggregate_directory_summary(entries: &[FileEntry]) -> Direct
                     total.total_size = total.total_size.saturating_add(size);
                 }
                 MetadataValue::Unknown | MetadataValue::Unavailable => {
-                    if !entry.is_symbolic_link() {
+                    if !entry.is_symbolic_link() || entry.kind == EntryKind::FileSymbolicLink {
                         total.issues.unreadable = true;
                     }
                 }

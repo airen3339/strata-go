@@ -3,7 +3,7 @@
 use crate::adapters::directory_summary::{DirectorySummary, summarize_directory};
 use crate::adapters::trash::{EmptyTrashOutcome, empty_trash};
 use crate::adapters::trash_restore::restore_destinations_for_locations;
-use crate::model::{EntryKind, FileEntry, Location};
+use crate::model::{EntryKind, FileEntry, Location, MetadataValue};
 use crate::services::{LoadHandle, RestoreTrashItem};
 use crate::ui::blur::BlurBin;
 use crate::ui::browser::ViewState;
@@ -930,6 +930,7 @@ impl ViewState {
         let files = gtk::Box::new(gtk::Orientation::Vertical, 3);
         files.add_css_class("delete-confirmation-files");
         let (visible, hidden) = delete_confirmation_rows(&entries);
+        let mut metadata_labels = Vec::with_capacity(visible.len());
         for entry in visible {
             let row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
             row.add_css_class("delete-confirmation-file");
@@ -945,12 +946,15 @@ impl ViewState {
                 } else if entry.is_directory() {
                     crate::i18n::tr("Folder")
                 } else {
-                    match entry.size {
-                        crate::model::MetadataValue::Known(size) => format_file_size(size),
-                        crate::model::MetadataValue::Unknown
-                        | crate::model::MetadataValue::Unavailable => "—".to_owned(),
+                    match (entry.kind, &entry.size) {
+                        (EntryKind::FileSymbolicLink, _)
+                        | (_, MetadataValue::Unknown | MetadataValue::Unavailable) => {
+                            "—".to_owned()
+                        }
+                        (_, MetadataValue::Known(size)) => format_file_size(*size),
                     }
                 }));
+            metadata_labels.push(metadata.downgrade());
             metadata.add_css_class("delete-confirmation-file-metadata");
             row.append(&icon);
             row.append(&name);
@@ -1114,14 +1118,32 @@ impl ViewState {
         } else {
             focus_button(&confirm);
         }
-        if trash {
-            return;
-        }
-
         let weak_subtitle = subtitle.downgrade();
         let weak_spinner = spinner.downgrade();
         let task = glib::MainContext::default().spawn_local(async move {
-            let summary = aggregate_directory_summary(&entries).await;
+            // Browser metadata follows file links; deletion measures the links themselves.
+            let mut measured_entries = entries.as_ref().clone();
+            for (index, entry) in measured_entries.iter_mut().enumerate() {
+                if trash && index >= metadata_labels.len() {
+                    break;
+                }
+                if entry.kind != EntryKind::FileSymbolicLink {
+                    continue;
+                }
+                entry.size = crate::adapters::query_file_entry(entry.location.clone())
+                    .await
+                    .map_or(MetadataValue::Unavailable, |link| link.size);
+                if let Some(label) = metadata_labels.get(index).and_then(|label| label.upgrade()) {
+                    label.set_label(&match entry.size {
+                        MetadataValue::Known(size) => format_file_size(size),
+                        MetadataValue::Unknown | MetadataValue::Unavailable => "—".to_owned(),
+                    });
+                }
+            }
+            if trash {
+                return;
+            }
+            let summary = aggregate_directory_summary(&measured_entries).await;
             let (Some(subtitle), Some(spinner)) = (weak_subtitle.upgrade(), weak_spinner.upgrade())
             else {
                 return;
