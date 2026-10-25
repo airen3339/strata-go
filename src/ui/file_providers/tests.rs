@@ -74,6 +74,7 @@ fn install_hub() {
                 disconnected: false,
                 last_busy: None,
             }],
+            retiring: Vec::new(),
             slots: Default::default(),
             pending: Default::default(),
             serial: 0,
@@ -959,6 +960,57 @@ for line in sys.stdin:
 }
 
 #[test]
+fn a_reload_still_shows_the_outcome_of_a_pending_activation() {
+    crate::test_support::gtk_test(
+        "ui::file_providers::tests::a_reload_still_shows_the_outcome_of_a_pending_activation",
+        || {
+            install_hub();
+            let release = tempfile::tempdir().expect("fixture").keep().join("release");
+            let script = format!(
+                r#"import json,os,sys,time
+for line in sys.stdin:
+ r=json.loads(line)
+ while not os.path.exists({release:?}): time.sleep(0.01)
+ print(json.dumps({{'version':1,'id':r['id'],'message':'Link copied','outcome':{{'status':'accepted','accepted':1,'total':1}},'feedback':'notice'}}),flush=True)
+"#
+            );
+            with_hub(|hub| start_scripted_provider(hub, &script));
+            let overlay = gtk::Overlay::new();
+            overlay.set_child(Some(&gtk::Label::new(None)));
+            let owner: gtk::Widget = overlay.clone().upcast();
+            with_hub(|hub| {
+                let mut activation = request("activate", vec!["/file".into()], false);
+                activation.action = Some("keep".into());
+                hub.send(0, activation, Pending::Activate(0, owner.downgrade()));
+            });
+            let (_, discovery) = mpsc::channel();
+            with_hub(|hub| hub.reload(discovery));
+            std::fs::write(&release, "go").expect("release provider");
+
+            let notices = || {
+                overlay_layers(&overlay)
+                    .iter()
+                    .filter(|layer| layer.has_css_class("file-operation-dock"))
+                    .filter_map(|dock| dock.first_child()?.first_child()?.first_child())
+                    .filter(|row| row.has_css_class("overlay-notice"))
+                    .count()
+            };
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while notices() == 0 {
+                assert!(
+                    Instant::now() < deadline,
+                    "the reply to a pending activation was dropped by a reload"
+                );
+                with_hub(Hub::tick);
+                glib::MainContext::default().iteration(false);
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            assert!(with_hub(|hub| hub.retiring.is_empty()));
+        },
+    );
+}
+
+#[test]
 fn provider_icon_heading_keeps_the_name_and_action_positions() {
     crate::test_support::gtk_test(
         "ui::file_providers::tests::provider_icon_heading_keeps_the_name_and_action_positions",
@@ -1039,6 +1091,7 @@ fn hub_timer_stops_and_tracking_ends_once_discovery_finds_no_providers() {
                     discovery,
                     discovered: false,
                     providers: Vec::new(),
+                    retiring: Vec::new(),
                     slots: Default::default(),
                     pending: Default::default(),
                     serial: 0,

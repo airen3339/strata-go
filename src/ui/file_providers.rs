@@ -53,10 +53,21 @@ struct Slot {
     widget: glib::WeakRef<ThumbnailSlot>,
     path: String,
 }
+/// A provider a reload dropped while it still owed the answer to an activation.
+struct Retiring {
+    client: Client,
+    id: String,
+    name: String,
+    waiting: HashMap<u64, glib::WeakRef<gtk::Widget>>,
+    since: Instant,
+}
+/// How long a reload waits for an activation the provider has not answered.
+const RETIRING_GRACE: Duration = Duration::from_secs(30);
 struct Hub {
     discovery: mpsc::Receiver<Vec<Registration>>,
     discovered: bool,
     providers: Vec<Provider>,
+    retiring: Vec<Retiring>,
     slots: HashMap<usize, Slot>,
     pending: HashMap<u64, Pending>,
     serial: u64,
@@ -79,6 +90,7 @@ fn with_hub<T>(f: impl FnOnce(&mut Hub) -> T) -> T {
                 discovery: spawn_discovery(),
                 discovered: false,
                 providers: Vec::new(),
+                retiring: Vec::new(),
                 slots: HashMap::new(),
                 pending: HashMap::new(),
                 serial: 0,
@@ -95,7 +107,7 @@ fn with_hub<T>(f: impl FnOnce(&mut Hub) -> T) -> T {
 fn tick_hub() -> glib::ControlFlow {
     let idle = with_hub(|hub| {
         hub.tick();
-        if hub.has_no_providers() {
+        if hub.has_no_providers() && hub.retiring.is_empty() {
             hub.ticking = false;
         }
         !hub.ticking
@@ -223,11 +235,30 @@ impl Hub {
 
     /// Drops the running providers, which ends their processes, and waits
     /// for a new discovery result. Tracked rows lose their badges until the
-    /// new providers answer.
+    /// new providers answer. A provider with an unanswered activation lives
+    /// on until it answers, so the outcome is still shown.
     fn reload(&mut self, discovery: mpsc::Receiver<Vec<Registration>>) {
         self.discovery = discovery;
         self.discovered = false;
-        self.providers.clear();
+        for (index, provider) in std::mem::take(&mut self.providers).into_iter().enumerate() {
+            let waiting: HashMap<_, _> = self
+                .pending
+                .iter()
+                .filter_map(|(id, pending)| match pending {
+                    Pending::Activate(i, owner) if *i == index => Some((*id, owner.clone())),
+                    _ => None,
+                })
+                .collect();
+            if !waiting.is_empty() {
+                self.retiring.push(Retiring {
+                    client: provider.client,
+                    id: provider.id,
+                    name: provider.name,
+                    waiting,
+                    since: Instant::now(),
+                });
+            }
+        }
         self.pending.clear();
         for slot in self.slots.values() {
             if let Some(widget) = slot.widget.upgrade() {
@@ -264,7 +295,38 @@ impl Hub {
             }
         }
     }
+    fn settle_retiring(&mut self) {
+        for retiring in &mut self.retiring {
+            let (updates, closed) = retiring.client.updates.drain();
+            for update in updates {
+                match update {
+                    Update::Reply(reply) => {
+                        if let Some(owner) = reply.id.and_then(|id| retiring.waiting.remove(&id)) {
+                            present_activation(&owner, &retiring.id, &retiring.name, *reply);
+                        }
+                    }
+                    Update::Offline { unsent, in_flight } => {
+                        for id in unsent.iter().copied().chain(in_flight) {
+                            if let Some(owner) = retiring.waiting.remove(&id) {
+                                notify_disconnected(&owner, &retiring.id, unsent.contains(&id));
+                            }
+                        }
+                    }
+                }
+            }
+            if closed {
+                for (_, owner) in retiring.waiting.drain() {
+                    notify_disconnected(&owner, &retiring.id, false);
+                }
+            }
+        }
+        self.retiring.retain(|retiring| {
+            !retiring.waiting.is_empty() && retiring.since.elapsed() < RETIRING_GRACE
+        });
+    }
+
     fn tick(&mut self) {
+        self.settle_retiring();
         if let Ok(registrations) = self.discovery.try_recv() {
             self.discovered = true;
             if registrations.is_empty() {
@@ -410,15 +472,7 @@ impl Hub {
                                 );
                             }
                             Pending::Activate(i, owner) if i == index => {
-                                match reply.feedback() {
-                                    Feedback::None => (),
-                                    Feedback::Notice => {
-                                        notice(&owner, &provider.name, &reply.message);
-                                    }
-                                    Feedback::Dialog | Feedback::Unrecognized => {
-                                        notify(&owner, &activation_summary(&provider.id, *reply));
-                                    }
-                                }
+                                present_activation(&owner, &provider.id, &provider.name, *reply);
                                 self.invalidate(index);
                             }
                             _ => (),
@@ -532,12 +586,7 @@ impl Hub {
             .collect();
         for id in ids {
             if let Some(Pending::Activate(_, owner)) = self.pending.remove(&id) {
-                let message = if unsent.contains(&id) {
-                    "The provider disconnected before this action was sent."
-                } else {
-                    "The provider disconnected. The action may already have been accepted; check its state before retrying."
-                };
-                notify(&owner, &format!("{}: {message}", self.providers[index].id));
+                notify_disconnected(&owner, &self.providers[index].id, unsent.contains(&id));
             }
         }
     }
@@ -618,6 +667,30 @@ fn activation_summary(provider: &str, reply: protocol::Reply) -> String {
             &message
         }
     )
+}
+
+fn present_activation(
+    owner: &glib::WeakRef<gtk::Widget>,
+    provider_id: &str,
+    provider_name: &str,
+    reply: protocol::Reply,
+) {
+    match reply.feedback() {
+        Feedback::None => (),
+        Feedback::Notice => notice(owner, provider_name, &reply.message),
+        Feedback::Dialog | Feedback::Unrecognized => {
+            notify(owner, &activation_summary(provider_id, reply));
+        }
+    }
+}
+
+fn notify_disconnected(owner: &glib::WeakRef<gtk::Widget>, provider_id: &str, unsent: bool) {
+    let message = if unsent {
+        "The provider disconnected before this action was sent."
+    } else {
+        "The provider disconnected. The action may already have been accepted; check its state before retrying."
+    };
+    notify(owner, &format!("{provider_id}: {message}"));
 }
 
 const NOTICE_DURATION: Duration = Duration::from_secs(4);
