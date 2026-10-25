@@ -1661,6 +1661,50 @@ fn a_hard_link_the_destination_cannot_hold_is_copied_and_the_rest_still_extracts
     Ok(())
 }
 
+#[test]
+fn a_colon_after_the_first_component_is_a_name_and_a_leading_drive_prefix_is_refused()
+-> Result<(), Box<dyn Error>> {
+    use Member::{File, Folder, Hard};
+    let root = tempfile::tempdir()?;
+    let mut report = TransferReport::default();
+    let members: &[(&[u8], Member<'_>)] = &[
+        (b"before.txt", File),
+        (b"names", Folder),
+        (b"names/c:notes", File),
+        (b"names/linked", Hard("names/c:notes")),
+        (b"after.txt", File),
+    ];
+
+    extract_members(root.path(), ARCHIVE, members, Ok(()), &mut report)?;
+
+    assert_eq!(
+        entries(root.path())?,
+        [
+            "archive/",
+            "archive/after.txt",
+            "archive/before.txt",
+            "archive/names/",
+            "archive/names/c:notes",
+            "archive/names/linked"
+        ]
+    );
+    assert_eq!(fs::read(root.path().join("archive/names/linked"))?, b"data");
+
+    let refused = tempfile::tempdir()?;
+    let leading: &[(&[u8], Member<'_>)] = &[(b"before.txt", File), (b"c:notes", File)];
+    assert!(
+        extract_members(
+            refused.path(),
+            ARCHIVE,
+            leading,
+            Ok(()),
+            &mut TransferReport::default()
+        )
+        .is_err()
+    );
+    Ok(())
+}
+
 fn refuses_colons(name: &OsStr) -> Option<Errno> {
     name.as_bytes().contains(&b':').then_some(Errno::INVAL)
 }
