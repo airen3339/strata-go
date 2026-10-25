@@ -8,7 +8,8 @@ use crate::services::{LoadHandle, RestoreTrashItem};
 use crate::ui::blur::BlurBin;
 use crate::ui::browser::ViewState;
 use crate::ui::browser::entry::{
-    aggregate_directory_summary, entry_icon, entry_kind_summary, format_file_size, item_count_label,
+    aggregate_directory_summary, delete_entry_size, entry_icon, entry_kind_summary,
+    format_file_size, item_count_label,
 };
 use crate::ui::controls::{
     ModalTone, focus_button, message_dialog_description, message_dialog_layout, modal_layout,
@@ -218,6 +219,13 @@ fn delete_confirmation_rows(entries: &[FileEntry]) -> (&[FileEntry], usize) {
 /// Summary for the hidden remainder, or nothing when everything is shown.
 fn delete_confirmation_overflow_label(hidden: usize) -> Option<String> {
     (hidden > 0).then(|| crate::i18n::count("more_items", hidden))
+}
+
+fn delete_confirmation_file_size(size: &MetadataValue<u64>) -> String {
+    match size {
+        MetadataValue::Known(size) => format_file_size(*size),
+        MetadataValue::Unknown | MetadataValue::Unavailable => "—".to_owned(),
+    }
 }
 
 impl ViewState {
@@ -946,13 +954,12 @@ impl ViewState {
                 } else if entry.is_directory() {
                     crate::i18n::tr("Folder")
                 } else {
-                    match (entry.kind, &entry.size) {
-                        (EntryKind::FileSymbolicLink, _)
-                        | (_, MetadataValue::Unknown | MetadataValue::Unavailable) => {
-                            "—".to_owned()
-                        }
-                        (_, MetadataValue::Known(size)) => format_file_size(*size),
-                    }
+                    let size = if entry.kind == EntryKind::FileSymbolicLink {
+                        &MetadataValue::Unknown
+                    } else {
+                        &entry.size
+                    };
+                    delete_confirmation_file_size(size)
                 }));
             metadata_labels.push(metadata.downgrade());
             metadata.add_css_class("delete-confirmation-file-metadata");
@@ -1118,32 +1125,30 @@ impl ViewState {
         } else {
             focus_button(&confirm);
         }
+        if trash
+            && !visible
+                .iter()
+                .any(|entry| entry.kind == EntryKind::FileSymbolicLink)
+        {
+            return;
+        }
         let weak_subtitle = subtitle.downgrade();
         let weak_spinner = spinner.downgrade();
         let task = glib::MainContext::default().spawn_local(async move {
-            // Browser metadata follows file links; deletion measures the links themselves.
-            let mut measured_entries = entries.as_ref().clone();
-            for (index, entry) in measured_entries.iter_mut().enumerate() {
-                if trash && index >= metadata_labels.len() {
-                    break;
-                }
-                if entry.kind != EntryKind::FileSymbolicLink {
-                    continue;
-                }
-                entry.size = crate::adapters::query_file_entry(entry.location.clone())
-                    .await
-                    .map_or(MetadataValue::Unavailable, |link| link.size);
+            let update_symlink_size = |index: usize, size: &MetadataValue<u64>| {
                 if let Some(label) = metadata_labels.get(index).and_then(|label| label.upgrade()) {
-                    label.set_label(&match entry.size {
-                        MetadataValue::Known(size) => format_file_size(size),
-                        MetadataValue::Unknown | MetadataValue::Unavailable => "—".to_owned(),
-                    });
+                    label.set_label(&delete_confirmation_file_size(size));
                 }
-            }
+            };
             if trash {
+                for (index, entry) in entries.iter().take(metadata_labels.len()).enumerate() {
+                    if entry.kind == EntryKind::FileSymbolicLink {
+                        update_symlink_size(index, &delete_entry_size(entry).await);
+                    }
+                }
                 return;
             }
-            let summary = aggregate_directory_summary(&measured_entries).await;
+            let summary = aggregate_directory_summary(&entries, update_symlink_size).await;
             let (Some(subtitle), Some(spinner)) = (weak_subtitle.upgrade(), weak_spinner.upgrade())
             else {
                 return;
