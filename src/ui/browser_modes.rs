@@ -2191,6 +2191,8 @@ struct ModeClickOptions {
 fn search_collection_options(
     presentation: super::inline_search::SearchPresentation,
     browser: &Rc<Browser>,
+    previews: Rc<Cell<bool>>,
+    activation: Rc<Cell<ClickActivation>>,
     multiple_selection: Rc<Cell<bool>>,
     selection_handlers: super::inline_search::SearchSelectionHandlers,
     context_state: Rc<RefCell<Option<Weak<super::browser::ViewState>>>>,
@@ -2207,18 +2209,29 @@ fn search_collection_options(
         }
     });
     let weak_browser = Rc::downgrade(browser);
-    let single_click = Rc::new(move |entry: FileEntry| {
+    let pointer_click = Rc::new(move |entry: FileEntry, presses: i32| {
         let Some(browser) = weak_browser.upgrade() else {
             return;
         };
-        if browser.is_chooser_mode() {
-            if entry.is_directory() {
+        if entry.is_directory() {
+            if presses == 1 {
                 browser.navigate(entry.location);
             }
-        } else if entry.is_directory() {
-            browser.navigate(entry.location);
-        } else {
-            browser.open_location(entry.location);
+            return;
+        }
+        let chooser = browser.is_chooser_mode();
+        let files = activation.get().files;
+        if presses >= 2 {
+            // With one-click files the first press already opened it.
+            if !chooser && files != ClickCount::One {
+                browser.open_location(entry.location);
+            }
+            return;
+        }
+        match filtered_file_click(&entry, chooser, previews.get(), files) {
+            FilteredFileClick::Open => browser.open_location(entry.location),
+            FilteredFileClick::Preview => browser.request_preview(entry),
+            FilteredFileClick::Ignore => {}
         }
     });
     let focus_state = context_state.clone();
@@ -2241,7 +2254,7 @@ fn search_collection_options(
         presentation,
         multiple_selection,
         activate,
-        single_click,
+        pointer_click,
         selection_changed,
         focus_items,
         results_changed,
@@ -2731,6 +2744,8 @@ fn build_icons_pane(
                 max_columns: density_icons_columns(context.density.get()),
             },
             &context.browser,
+            context.click.previews.clone(),
+            context.click.activation.clone(),
             context.click.multiple_selection.clone(),
             search_selection_handlers,
             options.search_context_state.clone(),
@@ -2798,6 +2813,7 @@ fn build_icons_view(context: &Rc<IconsContext>, model: &impl IsA<gio::ListModel>
     let bound_items_for_setup = bound_items.clone();
     let filter_query_for_setup = context.filter_query.clone();
     let selection_for_setup = selection.clone();
+    let syncing_for_setup = syncing_selection.clone();
     let browser_for_setup = Rc::downgrade(&context.browser);
     let previews_for_setup = context.click.previews.clone();
     let activation_for_setup = context.click.activation.clone();
@@ -2840,6 +2856,7 @@ fn build_icons_view(context: &Rc<IconsContext>, model: &impl IsA<gio::ListModel>
             &card,
             item,
             selection_for_setup.clone(),
+            syncing_for_setup.clone(),
             browser_for_setup.clone(),
             weak_state_for_clicks.clone(),
             depth,
@@ -3910,8 +3927,9 @@ fn build_list_pane(
             view: view_model_object.clone(),
         },
         selection: selection.clone(),
-        previews: click_options.previews,
-        activation: click_options.activation,
+        syncing: syncing_selection.clone(),
+        previews: click_options.previews.clone(),
+        activation: click_options.activation.clone(),
         transfers: transfer_handler.clone(),
         marks: clipboard_marks.clone(),
         columns: columns.clone(),
@@ -4076,6 +4094,8 @@ fn build_list_pane(
         search_collection_options(
             super::inline_search::SearchPresentation::Rows,
             &browser,
+            click_options.previews.clone(),
+            click_options.activation.clone(),
             click_options.multiple_selection.clone(),
             search_selection_handlers,
             options.search_context_state.clone(),
@@ -4817,6 +4837,7 @@ fn install_modified_selection_click(
     widget: &impl IsA<gtk::Widget>,
     item: &gtk::ListItem,
     selection: gtk::MultiSelection,
+    syncing: Rc<Cell<bool>>,
     browser: Weak<Browser>,
     weak_state: Weak<super::browser::ViewState>,
     depth: usize,
@@ -4899,6 +4920,12 @@ fn install_modified_selection_click(
         if !shift && let Some(anchor) = change.anchor {
             anchor_at(&browser, depth, &positions, anchor);
         }
+        if control
+            && !shift
+            && let Some(row) = gesture.widget()
+        {
+            move_range_origin(&row, &selection, &syncing, position);
+        }
         selection.set_selection(
             &change.selected,
             &gtk::Bitset::new_range(0, selection.n_items()),
@@ -4921,6 +4948,27 @@ fn install_modified_selection_click(
     });
     widget.add_controller(click.clone());
     click
+}
+
+/// Modified clicks are claimed before GTK's own click handling, so GTK's Shift+arrow origin
+/// stays put. Only `list.select-item` moves it, and it replaces the selection, so the bits
+/// are put back.
+fn move_range_origin(
+    row: &gtk::Widget,
+    selection: &gtk::MultiSelection,
+    syncing: &Cell<bool>,
+    position: u32,
+) {
+    let selected = selection.selection().copy();
+    syncing.set(true);
+    if let Err(error) = row.activate_action(
+        "list.select-item",
+        Some(&(position, false, false).to_variant()),
+    ) {
+        tracing::warn!(%error, "range origin action unavailable");
+    }
+    selection.set_selection(&selected, &gtk::Bitset::new_range(0, selection.n_items()));
+    syncing.set(false);
 }
 
 fn anchor_at(browser: &Rc<Browser>, depth: usize, positions: &PanePositions, view_position: u32) {
@@ -5142,18 +5190,21 @@ fn install_preview_click(
         };
         if should_activate_filtered_pointer(press_count, &filter_query) {
             gesture.set_state(gtk::EventSequenceState::Claimed);
-            if press_count == 1 {
-                browser.select(depth, position);
-                if (!browser.is_chooser_mode() || entry.is_directory())
-                    && (!is_trash_location(&entry.location) || entry.is_directory())
-                {
-                    browser.activate_in_place(depth, position);
-                } else if enabled.get()
-                    && !entry.is_directory()
-                    && super::preview::entry_supports_quick_preview(&entry)
-                {
-                    browser.preview(depth, position);
-                }
+            browser.select(depth, position);
+            let click = if entry.is_directory() {
+                FilteredFileClick::Open
+            } else {
+                filtered_file_click(
+                    &entry,
+                    browser.is_chooser_mode(),
+                    enabled.get(),
+                    click_activation.get().files,
+                )
+            };
+            match click {
+                FilteredFileClick::Open => browser.activate_in_place(depth, position),
+                FilteredFileClick::Preview => browser.preview(depth, position),
+                FilteredFileClick::Ignore => {}
             }
             return;
         }
@@ -5189,6 +5240,30 @@ fn install_preview_click(
         }
     });
     widget.add_controller(click);
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum FilteredFileClick {
+    Open,
+    Preview,
+    Ignore,
+}
+
+/// One plain click on a filtered file follows the unfiltered click-count and
+/// preview rules, except that chooser and trashed files never open from it.
+pub(super) fn filtered_file_click(
+    entry: &FileEntry,
+    chooser: bool,
+    previews: bool,
+    files: ClickCount,
+) -> FilteredFileClick {
+    if files == ClickCount::One && !chooser && !is_trash_location(&entry.location) {
+        FilteredFileClick::Open
+    } else if previews && super::preview::entry_supports_quick_preview(entry) {
+        FilteredFileClick::Preview
+    } else {
+        FilteredFileClick::Ignore
+    }
 }
 
 fn should_activate_filtered_pointer(press_count: i32, query: &RefCell<String>) -> bool {
