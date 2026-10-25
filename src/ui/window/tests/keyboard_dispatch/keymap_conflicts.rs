@@ -471,6 +471,24 @@ const ROWS: &[Row] = &[
         acts: Effect::Feedback,
         owner: Some(Effect::Renames),
     },
+    // So do custom action slots, which say when theirs is empty.
+    Row {
+        map: Map::Default,
+        state: State::List,
+        command: CUSTOM_ACTION_1,
+        key: "F2",
+        acts: Effect::Feedback,
+        owner: Some(Effect::Renames),
+    },
+    // NoPath: 10xer runs custom actions from its Action chord only.
+    Row {
+        map: Map::Tenxer,
+        state: State::List,
+        command: CUSTOM_ACTION_1,
+        key: "<Control><Alt>e",
+        acts: Effect::Feedback,
+        owner: None,
+    },
     // NoPath: the default map runs no Go step.
     Row {
         map: Map::Default,

@@ -1522,5 +1522,6 @@
   "%{distance} mi": "%{distance}마일",
   "%{minimum}–%{maximum} ft": "%{minimum}–%{maximum}피트",
   "%{elevation} m": "%{elevation} m",
-  "%{elevation} ft": "%{elevation} 피트"
+  "%{elevation} ft": "%{elevation} 피트",
+  "No action": "동작 없음"
 }

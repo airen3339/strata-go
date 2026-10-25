@@ -1120,5 +1120,6 @@
   "Remove %{keys} from “%{action}”": "Remove %{keys} from “%{action}”",
   "Press the new key for “%{action}”": "Press the new key for “%{action}”",
   "%{escape} cancels, and %{backspace} removes every key of this action.": "%{escape} cancels, and %{backspace} removes every key of this action.",
-  "“%{group}” has no key, so this action cannot run.": "“%{group}” has no key, so this action cannot run."
+  "“%{group}” has no key, so this action cannot run.": "“%{group}” has no key, so this action cannot run.",
+  "Custom action %{number}": "Custom action %{number}"
 }

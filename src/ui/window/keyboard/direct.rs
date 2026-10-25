@@ -46,6 +46,15 @@ impl Dispatcher {
         let press = &event.press;
         let map = self.active_map();
         let listing = self.view.item_view_has_focus();
+        if map == Map::Default
+            && let Some(index) = keys::CUSTOM_ACTIONS.iter().position(|slot| press.is(*slot))
+        {
+            if !listing {
+                return None;
+            }
+            self.run_listed_action(index);
+            return Some(Propagation::Stop);
+        }
         // Shift does not reverse a direct sort key, which would take the
         // Shifted key from whatever else holds it.
         let command = keys::direct_commands(map)

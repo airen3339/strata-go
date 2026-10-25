@@ -1522,5 +1522,6 @@
   "%{distance} mi": "%{distance} 英里",
   "%{minimum}–%{maximum} ft": "%{minimum}–%{maximum} 英尺",
   "%{elevation} m": "%{elevation} m",
-  "%{elevation} ft": "%{elevation} 英尺"
+  "%{elevation} ft": "%{elevation} 英尺",
+  "No action": "無動作"
 }

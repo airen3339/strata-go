@@ -93,6 +93,17 @@ catalog! {
         JUMP_TO_FOLDER: Command "jump_to_folder" = Binding::ctrl_shift(Key::k);
         TERMINAL: Command "terminal" = Binding::ctrl_alt(Key::t), live in both;
         ARROW_SCOPE: Command "arrow_scope" = Binding::ctrl(Key::backslash);
+        // Ship no key; slot N runs the Nth action Settings → Actions lists.
+        CUSTOM_ACTION_1: Command "custom_action.1" => default [], tenxer [];
+        CUSTOM_ACTION_2: Command "custom_action.2" => default [], tenxer [];
+        CUSTOM_ACTION_3: Command "custom_action.3" => default [], tenxer [];
+        CUSTOM_ACTION_4: Command "custom_action.4" => default [], tenxer [];
+        CUSTOM_ACTION_5: Command "custom_action.5" => default [], tenxer [];
+        CUSTOM_ACTION_6: Command "custom_action.6" => default [], tenxer [];
+        CUSTOM_ACTION_7: Command "custom_action.7" => default [], tenxer [];
+        CUSTOM_ACTION_8: Command "custom_action.8" => default [], tenxer [];
+        CUSTOM_ACTION_9: Command "custom_action.9" => default [], tenxer [];
+        CUSTOM_ACTION_10: Command "custom_action.10" => default [], tenxer [];
     }
     unlisted {
         /// While type-to-search is on, **/** opens the filter without typing.

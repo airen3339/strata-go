@@ -1522,5 +1522,6 @@
   "%{distance} mi": "%{distance} mi",
   "%{minimum}–%{maximum} ft": "%{minimum}–%{maximum} pés",
   "%{elevation} m": "%{elevation} m",
-  "%{elevation} ft": "%{elevation} pés"
+  "%{elevation} ft": "%{elevation} pés",
+  "No action": "Nenhuma ação"
 }

@@ -15,6 +15,7 @@ use gtk::{gdk::Key, glib, prelude::*};
 use super::{append_heading, page_content, scrollable_page, search};
 use crate::{
     assets::{self, icons},
+    services::{ActionCatalog, ActionRegistry},
     ui::{
         accessibility,
         controls::{keep_words_whole, segmented_control},
@@ -88,6 +89,7 @@ pub(super) fn keyboard_page(preferences: Rc<PreferenceManager>) -> gtk::Widget {
         });
         Page {
             preferences: preferences.clone(),
+            actions: crate::ui::actions::shared(),
             rows,
             tables,
             sections,
@@ -159,6 +161,18 @@ pub(super) fn keyboard_page(preferences: Rc<PreferenceManager>) -> gtk::Widget {
     keys::on_press(&reader, |_, _| glib::Propagation::Proceed);
     content.add_controller(reader);
 
+    let weak = Rc::downgrade(&page);
+    let observer = RefCell::new(Some(page.actions.observe(Rc::new(move || {
+        if let Some(page) = weak.upgrade() {
+            page.name_slot_actions();
+            if !page.query.borrow().trim().is_empty() {
+                page.filter();
+            }
+        }
+    }))));
+    content.connect_destroy(move |_| {
+        observer.borrow_mut().take();
+    });
     preferences.bind_preference(
         &content,
         |preferences| (preferences.keymap_revision(), preferences.type_to_search()),
@@ -170,12 +184,14 @@ pub(super) fn keyboard_page(preferences: Rc<PreferenceManager>) -> gtk::Widget {
 /// A searchable row: its action name and the keys both maps give it.
 pub(super) struct SearchTarget {
     pub(super) id: String,
-    pub(super) title: &'static str,
+    /// The name in English and the interface language, and a slot's action.
+    pub(super) names: String,
     pub(super) aliases: String,
 }
 
 pub(super) fn search_targets() -> Vec<SearchTarget> {
     let locale = rust_i18n::locale();
+    let catalog = crate::ui::actions::shared().catalog();
     keys::registry()
         .map(|command| {
             let mut aliases = Vec::new();
@@ -188,7 +204,7 @@ pub(super) fn search_targets() -> Vec<SearchTarget> {
             }
             SearchTarget {
                 id: target_id(command),
-                title: name(command),
+                names: search_names(command, &catalog),
                 aliases: aliases.join(" "),
             }
         })
@@ -208,6 +224,7 @@ fn target_id(command: Command) -> String {
 
 struct Page {
     preferences: Rc<PreferenceManager>,
+    actions: Rc<ActionRegistry>,
     rows: Vec<Rc<Row>>,
     tables: [(Map, gtk::Box); 2],
     sections: Vec<Section>,
@@ -257,6 +274,16 @@ impl Page {
             row.render(self, &keymap, found);
         }
         self.update_reset_all();
+        self.name_slot_actions();
+    }
+
+    fn name_slot_actions(&self) {
+        let catalog = self.actions.catalog();
+        for row in &self.rows {
+            if let Some(action) = slot_action(row.command, &catalog) {
+                row.action.set_text(&action);
+            }
+        }
     }
 
     fn update_reset_all(&self) {
@@ -283,11 +310,12 @@ impl Page {
     fn filter(&self) {
         let query = self.query.borrow();
         let query = query.trim();
+        let catalog = self.actions.catalog();
         let mut shown_any = false;
         for section in &self.sections {
             let mut any = false;
-            for (slot, name) in &section.rows {
-                let matches = name.contains(query);
+            for (slot, command) in &section.rows {
+                let matches = search_names(*command, &catalog).contains(query);
                 slot.set_visible(matches);
                 any |= matches;
             }
@@ -326,7 +354,7 @@ impl Page {
             &row.capture,
             &rust_i18n::t!(
                 "Press the new key for “%{action}”",
-                action = crate::i18n::tr(name(row.command))
+                action = title(row.command)
             ),
         );
         accessibility::set_description(&row.capture, Some(&capture_help()));
@@ -453,6 +481,8 @@ fn capture_help() -> String {
 struct Row {
     map: Map,
     command: Command,
+    /// The action a custom action slot runs.
+    action: gtk::Label,
     prefix: gtk::Label,
     chips: super::wrap::WrapRow,
     unbound: gtk::Label,
@@ -471,7 +501,7 @@ impl Row {
         widget.add_css_class("settings-option");
         widget.add_css_class("keymap-row");
         search::tag_id(&widget, &target_id(command));
-        let action = crate::i18n::tr(name(command));
+        let action = title(command);
 
         let copy = gtk::Box::new(gtk::Orientation::Vertical, 4);
         copy.set_hexpand(true);
@@ -482,6 +512,13 @@ impl Row {
         title.set_wrap_mode(gtk::pango::WrapMode::WordChar);
         title.add_css_class("settings-option-title");
         copy.append(&title);
+        let runs = gtk::Label::new(None);
+        runs.set_xalign(0.0);
+        runs.set_wrap(true);
+        runs.set_wrap_mode(gtk::pango::WrapMode::WordChar);
+        runs.add_css_class("settings-option-description");
+        runs.set_visible(keys::custom_action_slot(command).is_some());
+        copy.append(&runs);
         let findings = gtk::Box::new(gtk::Orientation::Vertical, 2);
         let pending = gtk::Box::new(gtk::Orientation::Vertical, 2);
         copy.append(&findings);
@@ -545,6 +582,7 @@ impl Row {
         let row = Rc::new(Self {
             map,
             command,
+            action: runs,
             prefix,
             chips,
             unbound,
@@ -592,7 +630,7 @@ impl Row {
 
     fn render(&self, page: &Page, keymap: &keys::Keymap, findings: &[Finding]) {
         let entry = keymap.bindings(self.map, self.command);
-        let action = crate::i18n::tr(name(self.command));
+        let action = title(self.command);
         let trigger = match (self.map, self.command.kind()) {
             (Map::Tenxer, CommandKind::Step(group)) => trigger(group),
             _ => None,
@@ -613,7 +651,7 @@ impl Row {
             notes.push((
                 rust_i18n::t!(
                     "“%{group}” has no key, so this action cannot run.",
-                    group = crate::i18n::tr(name(trigger))
+                    group = title(trigger)
                 )
                 .into_owned(),
                 Severity::Warning,
@@ -756,12 +794,12 @@ impl Row {
     }
 }
 
-/// A section of one table: its heading and group, and each row's slot with the
-/// lowercase action names the page filter matches.
+/// A section of one table: its heading and group, and each row's slot with
+/// the command whose names the page filter matches.
 struct Section {
     map: Map,
     widget: gtk::Box,
-    rows: Vec<(gtk::Box, String)>,
+    rows: Vec<(gtk::Box, Command)>,
 }
 
 fn table(
@@ -790,9 +828,7 @@ fn table(
             let slot = gtk::Box::new(gtk::Orientation::Vertical, 0);
             slot.append(&row_widget);
             group.append(&slot);
-            let english = name(command);
-            let names = format!("{}\n{english}", crate::i18n::tr(english)).to_lowercase();
-            slots.push((slot, names));
+            slots.push((slot, command));
             rows.push(row);
         }
         table.append(&widget);
@@ -942,7 +978,7 @@ fn finding_label(text: &str, severity: Severity) -> gtk::Label {
 fn message(map: Map, command: Command, finding: Finding) -> String {
     let keys = key_label(finding.binding);
     let keys = keys.as_str();
-    let named = |command: Command| crate::i18n::tr(name(command));
+    let named = title;
     let plain = |message: &str| rust_i18n::t!(message, keys = keys).into_owned();
     let shift = keys::modifiers_label(gtk::gdk::ModifierType::SHIFT_MASK);
     match finding.kind {
@@ -1029,8 +1065,38 @@ fn message(map: Map, command: Command, finding: Finding) -> String {
     }
 }
 
-/// The name a row shows. Commands whose reference row describes several keys
-/// at once have their own.
+/// The row's name in the interface language.
+fn title(command: Command) -> String {
+    title_in(command, &rust_i18n::locale())
+}
+
+fn title_in(command: Command, locale: &str) -> String {
+    match keys::custom_action_slot(command) {
+        Some(number) => rust_i18n::t!(name(command), locale = locale, number = number),
+        None => rust_i18n::t!(name(command), locale = locale),
+    }
+    .into_owned()
+}
+
+/// The action a custom action slot runs, as Settings → Actions names it.
+fn slot_action(command: Command, catalog: &ActionCatalog) -> Option<String> {
+    let number = keys::custom_action_slot(command)?;
+    Some(catalog.actions().get(number - 1).map_or_else(
+        || crate::i18n::tr("No action"),
+        |action| action.name().to_owned(),
+    ))
+}
+
+/// The lowercase names searches match: the row's in English and the interface
+/// language, and a slot's action.
+fn search_names(command: Command, catalog: &ActionCatalog) -> String {
+    let mut names = vec![title(command), title_in(command, "en")];
+    names.extend(slot_action(command, catalog));
+    names.join("\n").to_lowercase()
+}
+
+/// The message key of a row's name. Commands whose reference row describes
+/// several keys at once have their own.
 fn name(command: Command) -> &'static str {
     NAMES
         .iter()
@@ -1204,4 +1270,14 @@ const NAMES: &[(Command, &str)] = &[
     (FIND_IN_PREVIEW, "Find in preview"),
     (PDF_ZOOM_RESET, "Reset zoom"),
     (PREVIOUS_MATCH, "Previous match"),
+    (CUSTOM_ACTION_1, shortcut_reference::CUSTOM_ACTION),
+    (CUSTOM_ACTION_2, shortcut_reference::CUSTOM_ACTION),
+    (CUSTOM_ACTION_3, shortcut_reference::CUSTOM_ACTION),
+    (CUSTOM_ACTION_4, shortcut_reference::CUSTOM_ACTION),
+    (CUSTOM_ACTION_5, shortcut_reference::CUSTOM_ACTION),
+    (CUSTOM_ACTION_6, shortcut_reference::CUSTOM_ACTION),
+    (CUSTOM_ACTION_7, shortcut_reference::CUSTOM_ACTION),
+    (CUSTOM_ACTION_8, shortcut_reference::CUSTOM_ACTION),
+    (CUSTOM_ACTION_9, shortcut_reference::CUSTOM_ACTION),
+    (CUSTOM_ACTION_10, shortcut_reference::CUSTOM_ACTION),
 ];

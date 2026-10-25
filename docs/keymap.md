@@ -10,9 +10,9 @@ layout is in [Keyboard shortcuts](keyboard-shortcuts.md).
 
 Every action that **Settings → Keyboard** lists: window and file commands,
 navigation, previews, dialogs, the F1 reference, the file chooser, 10xer verbs
-and chords, and Escape, Enter, Tab and the arrows. An action can have several
-keys. The first is its primary key, which menus and hints show; every key on
-the list works.
+and chords, custom action slots, and Escape, Enter, Tab and the arrows. An
+action can have several keys. The first is its primary key, which menus and
+hints show; every key on the list works.
 
 These keys stay fixed:
 
@@ -47,6 +47,21 @@ jumps, half-page paging, and the Sort, Copy and Action chord steps. 10xer mode
 can run duplicate, pin, jump to folder and arrow scope, and copy path on a key
 that types nothing, such as one with Ctrl or an F key. A key on any other such action, such as yank or a Go
 step in the default table, does nothing, and Settings says so on its row.
+
+## Custom action slots
+
+The default table has ten slots, **Custom action 1** to **Custom action 10**,
+under **Custom actions**, with no keys shipped. Slot N runs the Nth action in
+the order **Settings → Actions** lists them, disabled ones included, and its
+row names that action, or says **No action**. Adding or removing an action can
+move the ones listed after it to other slots; renaming one or turning it off
+does not. The key runs the action on the selection in the file list, as its
+context menu entry does, confirmation included. An empty slot, or an action
+that is turned off, cannot run or does not match the selection, runs nothing
+else in its place: the footer says **No action N** or **No matching actions**.
+The F1 reference lists a slot under **Custom actions** once it has a key.
+10xer mode has no slots; its Action chord, **;** then a digit, numbers the
+actions that match the selection instead.
 
 ## Chord groups
 
@@ -91,10 +106,10 @@ a tab.
 ## Settings → Keyboard
 
 The **Search keybinds** field at the top narrows the shown table to actions
-whose name contains the text. The switch below it shows the **Default** or
-**10xer mode** table, starting with the active mode. Rows follow the F1
-reference's sections, and Settings search finds a row by its action or by a key
-either table gives it. Each key is
+whose name contains the text, or whose slot runs a custom action that does.
+The switch below it shows the **Default** or **10xer mode** table, starting with the active mode. Rows follow the F1
+reference's sections, and Settings search finds a row by its action, a slot's
+custom action, or a key either table gives it. Each key is
 a chip with a remove button; an action without keys shows **Not bound**.
 
 **Add** waits for a key: press it to append it to the action, **Escape** to

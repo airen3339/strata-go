@@ -92,6 +92,29 @@ pub(crate) fn direct_commands(map: Map) -> &'static [Command] {
     }
 }
 
+/// The default map's custom action slots: slot N runs the Nth action in the
+/// order Settings → Actions lists them. Only the direct stage runs them.
+pub(crate) const CUSTOM_ACTIONS: [Command; 10] = [
+    bindings::CUSTOM_ACTION_1,
+    bindings::CUSTOM_ACTION_2,
+    bindings::CUSTOM_ACTION_3,
+    bindings::CUSTOM_ACTION_4,
+    bindings::CUSTOM_ACTION_5,
+    bindings::CUSTOM_ACTION_6,
+    bindings::CUSTOM_ACTION_7,
+    bindings::CUSTOM_ACTION_8,
+    bindings::CUSTOM_ACTION_9,
+    bindings::CUSTOM_ACTION_10,
+];
+
+/// The 1-based slot `command` names, if it is a custom action slot.
+pub(crate) fn custom_action_slot(command: Command) -> Option<usize> {
+    CUSTOM_ACTIONS
+        .iter()
+        .position(|slot| *slot == command)
+        .map(|index| index + 1)
+}
+
 /// A canonical key and its exact modifiers. Letters are lowercase with Shift
 /// explicit, a symbol names the symbol, and a digit means its digit-row position.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

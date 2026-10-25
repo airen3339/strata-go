@@ -1072,9 +1072,10 @@ fn catalog_bindings_use_the_canonical_key() {
 #[test]
 fn every_listed_binding_has_its_own_row_in_its_maps() {
     use super::{
-        Keys, Map,
+        CUSTOM_ACTIONS, Keymap, Keys, Map,
         bindings::{Entry, Listed},
         command::{Kind, registry},
+        use_keymap,
     };
     /// What a row shows for `constant` in `map`: its bindings, the chord key
     /// they follow, or its digit range.
@@ -1095,8 +1096,8 @@ fn every_listed_binding_has_its_own_row_in_its_maps() {
                     Kind::Single | Kind::Trigger(_) | Kind::Structural => constant.after,
                 };
                 Wanted::Keys(
-                    command.defaults(map).to_vec(),
-                    after.and_then(|after| after.defaults(map).first().copied()),
+                    command.bindings_in(map),
+                    after.and_then(|after| after.bindings_in(map).first().copied()),
                 )
             }
         }
@@ -1131,6 +1132,28 @@ fn every_listed_binding_has_its_own_row_in_its_maps() {
             _ => false,
         }
     }
+    // Custom action slots ship no key, so bind each to find its row.
+    let slot_keys = [
+        Key::F1,
+        Key::F2,
+        Key::F3,
+        Key::F4,
+        Key::F5,
+        Key::F6,
+        Key::F7,
+        Key::F8,
+        Key::F9,
+        Key::F10,
+    ];
+    let keymap =
+        CUSTOM_ACTIONS
+            .iter()
+            .zip(slot_keys)
+            .fold(Keymap::defaults(), |keymap, (slot, key)| {
+                let binding = Binding::new(key, Modifiers::ALT_MASK | Modifiers::SUPER_MASK);
+                keymap.with(Map::Default, *slot, vec![binding])
+            });
+    let _keymap = use_keymap(keymap);
     let listed: Vec<Listed> = super::bindings::listed().collect();
     assert!(!listed.is_empty());
     for map in [Map::Default, Map::Tenxer] {

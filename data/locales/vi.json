@@ -1522,5 +1522,6 @@
   "%{distance} mi": "%{distance} dặm",
   "%{minimum}–%{maximum} ft": "%{minimum}–%{maximum} ft",
   "%{elevation} m": "%{elevation} m",
-  "%{elevation} ft": "%{elevation} ft"
+  "%{elevation} ft": "%{elevation} ft",
+  "No action": "Không có hành động"
 }

@@ -643,7 +643,10 @@ fn rows_of_one_table_have_distinct_names() {
     for map in [Map::Default, Map::Tenxer] {
         let mut seen: Vec<Command> = Vec::new();
         for command in sections(map).into_iter().flat_map(|(_, commands)| commands) {
-            if let Some(other) = seen.iter().find(|other| name(**other) == name(command)) {
+            if let Some(other) = seen
+                .iter()
+                .find(|other| title_in(**other, "en") == title_in(command, "en"))
+            {
                 shared.push(format!("{map:?}: {other:?} and {command:?}"));
             }
             seen.push(command);
@@ -665,4 +668,103 @@ fn every_command_row_has_a_name_in_every_catalog() {
             );
         }
     }
+}
+
+fn write_action(id: &str, name: &str) {
+    let directory = crate::storage::config_directory().join("actions").join(id);
+    std::fs::create_dir_all(&directory).expect("action folder");
+    std::fs::write(
+        directory.join("action.toml"),
+        format!(
+            "schema_version = 1\nid = \"{id}\"\nname = \"{name}\"\n\n[when]\nextensions = [\"txt\"]\n\n[run]\nruntime = \"command\"\nprogram = \"/bin/sh\"\nargs = [\"-c\", \"true\", \"sh\", \"{{paths}}\"]\n"
+        ),
+    )
+    .expect("action manifest");
+}
+
+fn reload_actions() {
+    glib::MainContext::default().block_on(crate::ui::actions::shared().reload());
+    settle();
+}
+
+fn labels(row: &gtk::Widget) -> Vec<String> {
+    descendants(row)
+        .into_iter()
+        .filter(|widget| widget.is_visible())
+        .filter_map(|widget| widget.downcast::<gtk::Label>().ok())
+        .map(|label| label.text().to_string())
+        .collect()
+}
+
+#[test]
+fn custom_action_slots_name_the_action_they_run() {
+    gtk_test(
+        "ui::settings::keyboard::tests::custom_action_slots_name_the_action_they_run",
+        || {
+            write_action("b-resize", "Resize images");
+            reload_actions();
+            let open = OpenPage::open();
+            let slots: Vec<Command> = sections(Map::Default)
+                .into_iter()
+                .filter(|(title, _)| *title == "Custom actions")
+                .flat_map(|(_, commands)| commands)
+                .collect();
+            assert_eq!(slots, keys::CUSTOM_ACTIONS);
+            assert!(
+                sections(Map::Tenxer)
+                    .iter()
+                    .flat_map(|(_, commands)| commands)
+                    .all(|command| !keys::CUSTOM_ACTIONS.contains(command)),
+                "10xer runs custom actions from its Action chord"
+            );
+            let slot =
+                |number: usize| labels(&open.row(Map::Default, keys::CUSTOM_ACTIONS[number - 1]));
+            assert_eq!(slot(1)[..2], ["Custom action 1", "Resize images"]);
+            assert_eq!(slot(2)[..2], ["Custom action 2", "No action"]);
+            assert_eq!(slot(10)[..2], ["Custom action 10", "No action"]);
+
+            write_action("a-thumbs", "Make thumbnails");
+            reload_actions();
+            assert_eq!(
+                slot(1)[1],
+                "Make thumbnails",
+                "slots follow the listed order"
+            );
+            assert_eq!(slot(2)[1], "Resize images");
+
+            std::fs::remove_dir_all(crate::storage::config_directory().join("actions/a-thumbs"))
+                .expect("remove action");
+            write_action("b-resize", "Shrink images");
+            reload_actions();
+            assert_eq!(slot(1)[1], "Shrink images");
+            assert_eq!(slot(2)[1], "No action");
+
+            let filter = descendants(&open.page)
+                .into_iter()
+                .filter_map(|widget| widget.downcast::<gtk::Entry>().ok())
+                .find(|entry| entry.placeholder_text().as_deref() == Some("Search keybinds"))
+                .expect("keybind filter");
+            let shown = |number: usize| {
+                open.row(Map::Default, keys::CUSTOM_ACTIONS[number - 1])
+                    .is_drawable()
+            };
+            filter.set_text("shrink");
+            settle();
+            assert!(shown(1) && !shown(2));
+            filter.set_text("custom action 2");
+            settle();
+            assert!(shown(2) && !shown(1));
+
+            let names = |number: usize| {
+                let id = target_id(keys::CUSTOM_ACTIONS[number - 1]);
+                search_targets()
+                    .into_iter()
+                    .find(|target| target.id == id)
+                    .map(|target| target.names)
+                    .expect("slot target")
+            };
+            assert!(names(1).contains("shrink images"), "{}", names(1));
+            assert!(names(3).contains("custom action 3"), "{}", names(3));
+        },
+    );
 }

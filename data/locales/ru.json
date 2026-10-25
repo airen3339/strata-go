@@ -1522,5 +1522,6 @@
   "%{distance} mi": "%{distance} мили",
   "%{minimum}–%{maximum} ft": "%{minimum}–%{maximum} фут.",
   "%{elevation} m": "%{elevation} м",
-  "%{elevation} ft": "%{elevation} фут."
+  "%{elevation} ft": "%{elevation} фут.",
+  "No action": "Нет действия"
 }

@@ -1120,5 +1120,6 @@
   "Remove %{keys} from “%{action}”": "%{keys} aus „%{action}“ entfernen",
   "Press the new key for “%{action}”": "Neue Taste für „%{action}“ drücken",
   "%{escape} cancels, and %{backspace} removes every key of this action.": "%{escape} bricht ab, und %{backspace} entfernt alle Tasten dieser Aktion.",
-  "“%{group}” has no key, so this action cannot run.": "„%{group}“ hat keine Taste, daher kann diese Aktion nicht ausgeführt werden."
+  "“%{group}” has no key, so this action cannot run.": "„%{group}“ hat keine Taste, daher kann diese Aktion nicht ausgeführt werden.",
+  "Custom action %{number}": "Benutzerdefinierte Aktion %{number}"
 }

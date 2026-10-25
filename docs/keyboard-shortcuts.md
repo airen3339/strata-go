@@ -274,6 +274,17 @@ ships no key for, such as yank or a Go step in the default map. Such a key can
 only come from a hand edit: the Settings table of that map leaves the command
 out.
 
+The direct stage also runs the default map's ten custom action slots,
+`keys::CUSTOM_ACTIONS` (`custom_action.1` to `custom_action.10`), which no
+table binds by default. Slot N runs the Nth action of `ActionCatalog::actions`,
+the order **Settings → Actions** lists, disabled ones included, so a slot keeps
+its action when another is turned off. `ActionCatalog::listed` returns it only
+when it is enabled, runnable and matches the selection; the key then runs it
+through `run_numbered_action`, as the 10xer Action chord does. Otherwise
+nothing runs and the footer says **No action N** for an empty slot or
+**No matching actions**. 10xer keeps its chord, so the slots are `NoPath`
+there.
+
 Every shortcut is a named constant in the catalog, `ui::keys::bindings`, with
 one file per area under `src/ui/keys/bindings/`. The `catalog!` macro declares
 each area's constants, such as `COPY: Command "copy" = Binding::ctrl(Key::c);`
@@ -284,7 +295,8 @@ or, written `=> [first, second]`, to alternates; `, live in both` also binds it
 in the other map, for a handler that reads it there, and an unlisted command
 names its maps with `live in default`, `live in tenxer` or `live in both`. A
 command whose maps bind different keys lists each,
-`=> default [..], tenxer [..]`. One action is one command: a map's alternates
+`=> default [..], tenxer [..]`; the custom action slots list neither, since
+they ship no key. One action is one command: a map's alternates
 belong in its entry, not in another constant. A chord key names its group,
 `"go" trigger(Go)` or `"go.home" step(Go)`, a structural key is
 `"up" structural`, and a command that follows another names it with
@@ -368,7 +380,7 @@ places.
 | `ChooserMnemonic` | Warning | Alt with a letter, which the file chooser's accept button may take as its mnemonic. |
 | `FixedKey(fixed)` | Error | A key a fixed role holds where the command acts: a pin, action or tab digit after its chord (an armed chord reads steps first, so `go.home = ["1"]` takes pin 1), **Ctrl+Shift** with a tab digit, **Backspace** (with or without Shift or Super), **Space** in the 10xer file list, which selects the cursor's item, or **Space** on a media preview command, which plays and pauses first, as the page keys, **Home** and **End** seek before the commands the preview reads after them. Only the key as bound counts: a modifier a surface tolerates beside it loses to the fixed role. |
 | `NeverMatches` | Error | No press reaches it where it acts: Shift with a symbol Shift types (`<Shift>exclam`), a chord trigger in the default map, which has no chords, or a typed key for a command the 10xer stage leaves to later stages (copy path included) or for the 10xer folder accept, which the focused 10xer file list keeps. An alias on another structural key's canonical key is a `Duplicate`: modifier-tolerant matchers, such as Escape's, still read it as pressed. Inactive. |
-| `NoPath` | Error | The map ships no key for the command and none of its stages runs it: a 10xer verb or a Go or Tabs step in the default map, or the type-to-search filter key in 10xer. The direct stage's commands, and copy path, which the 10xer file list reads on a key that types nothing, have a path. It is the binding's only finding. Inactive. |
+| `NoPath` | Error | The map ships no key for the command and none of its stages runs it: a 10xer verb or a Go or Tabs step in the default map, or the type-to-search filter key and the custom action slots in 10xer. The direct stage's commands, the default map's custom action slots, and copy path, which the 10xer file list reads on a key that types nothing, have a path. It is the binding's only finding. Inactive. |
 
 `never_fires` is the cheap part of `check` that labels use to leave a binding
 out, and `duplicate_outcome` says which side of a `Duplicate` keeps the key
@@ -413,12 +425,16 @@ why under the row; otherwise the key is appended to the entry. Findings from
 `conflicts::audit` render as text under each row, never as tooltips; a key with
 `NeverMatches` shows only that finding, and an inactive key is struck through.
 A row's **Reset** appears once its entry differs from the shipped one, and
-**Reset all** restores the shown table. Settings search finds a row by its
+**Reset all** restores the shown table. A custom action slot's row names the
+action it runs under its title, or **No action**, and follows the
+`ActionRegistry` as actions are added, renamed or removed; the page filter and
+Settings search also match that name. Settings search finds a row by its
 action name or by any key either table gives it; action names score like a
 setting's aliases, so a setting that matches as well keeps the query, and the
 table switch stays shown. Each command's name is in the
 page's `NAMES` table and every catalog; a command with a one-row F1 entry reuses
-that row's text.
+that row's text. The ten slots share one name, `Custom action %{number}`, which
+the page and the F1 reference fill with the slot's number.
 
 ### Labels
 
@@ -625,6 +641,9 @@ captures in one window's Settings and presses the key in another.
 `window::tests::keyboard_dispatch::direct_commands` binds each direct command in
 the map it gains and requires the same effect as the other map's key, and
 checks that the shipped tables reach none of them.
+`window::tests::keyboard_dispatch::file_verbs::default_map_custom_action_slots_run_their_listed_action`
+binds custom action slots and requires each to run its listed action or
+nothing.
 `tests/e2e/scenarios/test_keymap.py` rebinds through the real Settings page and
 through a saved `settings.toml`, keeps the two tables apart, uses Enter and
 Escape aliases, records a key on a Russian layout, and refuses a taken key.

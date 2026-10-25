@@ -7,7 +7,7 @@ use crate::{
     test_support::gtk_test,
     ui::keys::{
         Binding, Map,
-        bindings::{COPY, CUT, GO_HOME, RENAME},
+        bindings::{COPY, CUSTOM_ACTION_1, CUSTOM_ACTION_10, CUT, GO_HOME, RENAME},
         registry,
     },
 };
@@ -122,6 +122,29 @@ fn tenxer_override_does_not_touch_default_map() {
             assert!(saved.contains("[keymap.tenxer]"), "{saved}");
             assert!(saved.contains("\"go.home\" = [\"<Shift>h\"]"), "{saved}");
             assert!(!saved.contains("[keymap.default]"), "{saved}");
+        },
+    );
+}
+
+#[test]
+fn custom_action_slots_load_and_save_their_quoted_ids() {
+    gtk_test(
+        "ui::preferences::tests::keymap::custom_action_slots_load_and_save_their_quoted_ids",
+        || {
+            write_settings("[keymap.default]\n\"custom_action.10\" = [\"<Control><Alt>0\"]\n");
+            let manager = PreferenceManager::shared();
+            assert_eq!(
+                manager.keymap().bindings(Map::Default, CUSTOM_ACTION_10),
+                [Binding::ctrl_alt(Key::_0)]
+            );
+            manager.set_bindings(Map::Default, CUSTOM_ACTION_1, vec![Binding::alt(Key::_1)]);
+            let saved = saved_settings();
+            for line in [
+                "\"custom_action.1\" = [\"<Alt>1\"]",
+                "\"custom_action.10\" = [\"<Control><Alt>0\"]",
+            ] {
+                assert!(saved.contains(line), "{line} in {saved}");
+            }
         },
     );
 }

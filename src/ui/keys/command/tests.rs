@@ -6,8 +6,9 @@ use gtk::gdk::{Key, ModifierType as Modifiers};
 
 use super::{
     super::{
-        Binding, KeyPress, Shown,
+        Binding, CUSTOM_ACTIONS, KeyPress, Shown,
         bindings::{self, Entry, Listed, Maps},
+        custom_action_slot,
     },
     Command, Group, Kind, Map, registry,
 };
@@ -94,7 +95,14 @@ fn listed_commands_are_bound_in_the_maps_that_list_them() {
         let live_in_both = LIVE_IN_BOTH_MAPS.iter().any(|(live, _)| *live == name);
         match constant.entry {
             Entry::Command(command) => {
-                let expected = if live_in_both { MAPS.to_vec() } else { block };
+                // Custom action slots ship no key; users bind them.
+                let expected = if CUSTOM_ACTIONS.contains(&command) {
+                    Vec::new()
+                } else if live_in_both {
+                    MAPS.to_vec()
+                } else {
+                    block
+                };
                 assert_eq!(bound_maps(command), expected, "{name} ({})", command.id());
                 assert!(
                     !(live_in_both && constant.maps == Maps::Both),
@@ -175,7 +183,11 @@ fn ids_are_unique_and_round_trip() {
         assert!(ids.insert(id), "{id} is used twice");
         assert_eq!(Command::parse(id), Some(command));
         let well_formed = match command.kind() {
-            Kind::Single | Kind::Structural => word(id),
+            Kind::Single | Kind::Structural => {
+                word(id)
+                    || custom_action_slot(command)
+                        .is_some_and(|number| id == format!("custom_action.{number}"))
+            }
             Kind::Trigger(group) => word(id) && id == group.id(),
             Kind::Step(group) => id
                 .split_once('.')

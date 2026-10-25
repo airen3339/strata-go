@@ -526,7 +526,9 @@ toggle_sidebar = ["<Control>n", "F9"]
   `restore`, `invert_selection`, `search_subfolders`, `jump_visited`,
   `jump_recent`, `half_page_up`, `half_page_down`, and the `sort.*`,
   `copy_as.*` and `actions.*` steps, which act as plain keys there, without a
-  trigger or Shift reversal; in `[keymap.tenxer]`, `duplicate`, `pin`,
+  trigger or Shift reversal, and the custom action slots `"custom_action.1"` to
+  `"custom_action.10"`, which run the Nth action Settings → Actions lists; in
+  `[keymap.tenxer]`, `duplicate`, `pin`,
   `jump_to_folder`, `arrow_scope` and, on a key that types nothing, `copy_path`. Any
   other such entry, such as `yank` or `"go.home"` in `[keymap.default]`, does
   nothing, and the load-time check below logs it.

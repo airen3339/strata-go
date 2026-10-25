@@ -8,7 +8,8 @@
 use gtk::gdk::{Key, ModifierType as Modifiers};
 
 use super::{
-    Binding, Command, DIRECT_IN_TENXER, Digits, Keymap, Map, SHORTCUT_MODIFIERS, alias,
+    Binding, CUSTOM_ACTIONS, Command, DIRECT_IN_TENXER, Digits, Keymap, Map, SHORTCUT_MODIFIERS,
+    alias,
     bindings::{
         ACTIONS_NUMBERS, ARROW_SCOPE, BACKSPACE, CHOOSE_FOLDER, COMPLETE, CONTEXT_MENU, COPY,
         COPY_PATH, CUT, DELETE_PERMANENTLY, DOWN, END_KEY, ENTER, ESCAPE, EXTEND_DOWN, EXTEND_LEFT,
@@ -875,12 +876,14 @@ fn known_overlap(first: Command, second: Command) -> bool {
 
 /// Whether `map` ships no key for `command` and none of its stages reads one:
 /// a 10xer verb or chord step in the default map, or a default-map command in
-/// 10xer, that the direct stage does not run either.
+/// 10xer, that the direct stage does not run either. The direct stage also
+/// runs the default map's custom action slots.
 pub(crate) fn no_path(command: Command, map: Map) -> bool {
     command.defaults(map).is_empty()
         && !is_trigger(command)
         && !direct_commands(map).contains(&command)
         && !READ_UNBOUND.contains(&(command, map))
+        && !(map == Map::Default && CUSTOM_ACTIONS.contains(&command))
 }
 
 fn never_matches(side: Side) -> bool {

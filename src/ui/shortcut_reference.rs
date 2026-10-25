@@ -62,6 +62,8 @@ pub(crate) struct Shortcut {
     pub action: &'static str,
     /// What the action's own `%{keys}` names.
     pub mention: Option<Mention>,
+    /// The action's own `%{number}`.
+    pub number: Option<usize>,
 }
 
 /// Keys named inside action text or beside a chord step.
@@ -127,7 +129,12 @@ impl Shortcut {
                 keys = mention.label_in(locale)
             )
             .into_owned(),
-            None => rust_i18n::t!(self.action, locale = locale).into_owned(),
+            None => match self.number {
+                Some(number) => {
+                    rust_i18n::t!(self.action, locale = locale, number = number).into_owned()
+                }
+                None => rust_i18n::t!(self.action, locale = locale).into_owned(),
+            },
         }
     }
 
@@ -145,6 +152,7 @@ const fn row(keys: Keys, action: &'static str) -> Shortcut {
         context: None,
         action,
         mention: None,
+        number: None,
     }
 }
 
@@ -352,8 +360,27 @@ fn default_sections(mode: BrowserMode) -> Vec<ReferenceSection> {
             title: "Preview media",
             rows: MEDIA.to_vec(),
         },
+        ReferenceSection {
+            title: "Custom actions",
+            rows: custom_action_rows(),
+        },
     ]
 }
+
+/// One row per slot; only the slots a user binds show.
+fn custom_action_rows() -> Vec<Shortcut> {
+    keys::CUSTOM_ACTIONS
+        .iter()
+        .zip(1..)
+        .map(|(slot, number)| Shortcut {
+            number: Some(number),
+            ..row(One(slot.shown()), CUSTOM_ACTION)
+        })
+        .collect()
+}
+
+/// A custom action slot's name, in the reference and in Settings.
+pub(crate) const CUSTOM_ACTION: &str = "Custom action %{number}";
 
 fn tenxer_sections(mode: BrowserMode, chooser: Option<ChooserScope>) -> Vec<ReferenceSection> {
     let mut sections = vec![ReferenceSection {

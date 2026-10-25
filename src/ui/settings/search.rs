@@ -570,12 +570,7 @@ fn find_matches(query: &str) -> Matches {
     }
     // Action names score as aliases, so a setting keeps a query it ties.
     for target in super::keyboard::search_targets() {
-        let aliases = format!(
-            "{} {} {}",
-            target.title,
-            crate::i18n::tr(target.title),
-            target.aliases
-        );
+        let aliases = format!("{} {}", target.names, target.aliases);
         if let Some(score) = score_text(query, "", super::keyboard::PAGE, &aliases) {
             result.ids.insert(target.id);
             // Keeps the table switch shown, since a row may match only in the hidden table.
