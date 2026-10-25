@@ -110,7 +110,7 @@ pub(in crate::ui) fn folder_views_path() -> PathBuf {
 /// Keeps other Strata processes from saving between this one's merge and its
 /// rename, which would drop their changes. Locks the directory, because every
 /// save replaces the file.
-fn lock_saves(path: &Path, wait: Duration) -> io::Result<fs::File> {
+pub(super) fn lock_saves(path: &Path, wait: Duration) -> io::Result<fs::File> {
     let directory = path
         .parent()
         .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput))?;
@@ -419,6 +419,17 @@ impl PreferenceManager {
             preferences.sort_key = saved.sort_key;
             preferences.sort_direction = saved.sort_direction;
             preferences.icons_thumbnail_size = size;
+            if let Ok(current) = toml::Table::try_from(&*preferences) {
+                let mut last = self.last_queued.borrow_mut();
+                let mut dirty = self.dirty_keys.borrow_mut();
+                for key in ["sort_key", "sort_direction", "icons_thumbnail_size"] {
+                    match current.get(key) {
+                        Some(value) => last.insert(key.to_owned(), value.clone()),
+                        None => last.remove(key),
+                    };
+                    dirty.remove(key);
+                }
+            }
         }
         if self.changes.record(&self.preferences.borrow()) {
             self.changes.notify(self);

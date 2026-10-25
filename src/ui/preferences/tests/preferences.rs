@@ -338,6 +338,49 @@ fn assert_recovered_preferences_survive_save(
 }
 
 #[test]
+fn a_save_keeps_the_settings_another_process_wrote() {
+    gtk_test(
+        "ui::preferences::tests::preferences::a_save_keeps_the_settings_another_process_wrote",
+        || {
+            seed_saved_preferences_for_test();
+            let manager = PreferenceManager::load();
+            let (peeking, tenxer) = {
+                let preferences = manager.preferences.borrow();
+                (preferences.folder_peeking, preferences.tenxer_mode)
+            };
+            let mut other: toml::Table =
+                toml::from_str(&fs::read_to_string(settings_path()).expect("saved file"))
+                    .expect("saved table");
+            other.insert("tenxer_mode".into(), toml::Value::Boolean(!tenxer));
+            other.insert("future_setting".into(), toml::Value::String("kept".into()));
+            fs::write(
+                settings_path(),
+                toml::to_string(&other).expect("other process settings"),
+            )
+            .expect("other process saves");
+
+            let saved = || {
+                crate::storage::writer::settle();
+                toml::from_str::<toml::Table>(
+                    &fs::read_to_string(settings_path()).expect("saved file"),
+                )
+                .expect("saved table")
+            };
+            manager.set_folder_peeking(!peeking);
+            let table = saved();
+            assert_eq!(table["folder_peeking"].as_bool(), Some(!peeking));
+            assert_eq!(table["tenxer_mode"].as_bool(), Some(!tenxer));
+            assert_eq!(table["future_setting"].as_str(), Some("kept"));
+
+            manager.set_folder_peeking(peeking);
+            let table = saved();
+            assert_eq!(table["folder_peeking"].as_bool(), Some(peeking));
+            assert_eq!(table["tenxer_mode"].as_bool(), Some(!tenxer));
+        },
+    );
+}
+
+#[test]
 fn unreadable_preferences_are_preserved_while_live_changes_still_apply() {
     gtk_test(
         "ui::preferences::tests::preferences::unreadable_preferences_are_preserved_while_live_changes_still_apply",
