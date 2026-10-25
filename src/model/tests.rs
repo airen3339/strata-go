@@ -290,6 +290,29 @@ fn diagnostic_paths_preserve_native_paths_and_redact_remote_secrets() {
 }
 
 #[test]
+fn diagnostic_uris_drop_user_domain_query_and_fragment() {
+    for (uri, expected) in [
+        (
+            "sftp://alice@fileserver.example/private?token=abc#frag",
+            "sftp://fileserver.example/private",
+        ),
+        (
+            "smb://CORP@fileserver.example/share?token=abc#frag",
+            "smb://fileserver.example/share",
+        ),
+        (
+            "smb://alice:s3cret;domain=CORP@fileserver.example/share",
+            "smb://fileserver.example/share",
+        ),
+        ("recent:///item", "recent:///item"),
+        ("not a uri with alice:password@example.com", "<invalid-uri>"),
+    ] {
+        assert_eq!(diagnostic_uri(uri), expected, "{uri}");
+        assert_eq!(Location::uri(uri).diagnostic_path(), expected, "{uri}");
+    }
+}
+
+#[test]
 fn display_paths_hide_remote_credentials_but_preserve_usernames() {
     for uri in [
         "smb://alice:secret@host/share",
