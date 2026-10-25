@@ -495,7 +495,7 @@ fn format_filesystem_selection_updates_label_limit_and_validity() {
             for (fs, expected_text) in [
                 (FilesystemType::Fat32, "abcdefghijk"),
                 (FilesystemType::Ntfs, "abcdefghijklmnop"),
-                (FilesystemType::Exfat, "abcdefghijklmnop"),
+                (FilesystemType::Exfat, "abcdefghijk"),
             ] {
                 let selector = format_filesystem_selector(&available, Some(fs.label()));
                 let selected = selector
@@ -531,6 +531,30 @@ fn format_filesystem_selection_updates_label_limit_and_validity() {
             let empty_combo = gtk::DropDown::from_strings(&[]);
             refresh_format_validity(&[], &empty_combo, &field.entry, &confirm);
             assert!(!confirm.is_sensitive());
+        },
+    );
+}
+
+#[test]
+fn a_label_over_the_backend_limit_in_utf16_units_blocks_continue() {
+    crate::test_support::gtk_test(
+        "ui::window::drive_dialogs::tests::a_label_over_the_backend_limit_in_utf16_units_blocks_continue",
+        || {
+            let field = FormTextField::with_character_limit(11);
+            let confirm = gtk::Button::new();
+            for (fs, label, allowed) in [
+                (FilesystemType::Exfat, "😀😀😀😀😀", true),
+                (FilesystemType::Exfat, "😀😀😀😀😀😀", false),
+                (FilesystemType::Fat32, "😀😀😀😀😀😀", false),
+                (FilesystemType::Ntfs, "😀😀😀😀😀😀", true),
+            ] {
+                field.entry.set_text("");
+                refresh_format_selection(Some(fs), &field.entry, &confirm);
+                field.entry.set_text(label);
+                refresh_format_selection(Some(fs), &field.entry, &confirm);
+                assert_eq!(field.entry.text(), label, "{fs:?} fits the entry");
+                assert_eq!(confirm.is_sensitive(), allowed, "{} {label}", fs.label());
+            }
         },
     );
 }

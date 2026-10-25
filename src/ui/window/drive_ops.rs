@@ -32,8 +32,13 @@ impl FilesystemType {
         match self {
             Self::Fat32 => 11,
             Self::Ntfs => 32,
-            Self::Exfat => 32,
+            Self::Exfat => 11,
         }
+    }
+
+    /// Backends count UTF-16 code units, so an emoji takes two.
+    pub(super) fn label_len(label: &str) -> usize {
+        label.encode_utf16().count()
     }
 
     pub(super) fn label_character_error(self, label: &str) -> Option<String> {
@@ -321,7 +326,7 @@ pub(super) async fn format_volume(
     if !is_eligible(Some(&volume)) {
         return Err(DriveOpError::DeviceNotFound);
     }
-    if label.chars().count() > fs_type.max_label_len() {
+    if FilesystemType::label_len(&label) > fs_type.max_label_len() {
         return Err(DriveOpError::InvalidLabel(crate::i18n::tr(
             "Filesystem label is too long.",
         )));

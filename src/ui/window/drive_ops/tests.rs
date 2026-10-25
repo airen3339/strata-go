@@ -174,7 +174,15 @@ fn tool_path_finds_shell_and_rejects_missing_tools() {
 fn filesystem_label_limits_match_backends() {
     assert_eq!(FilesystemType::Fat32.max_label_len(), 11);
     assert_eq!(FilesystemType::Ntfs.max_label_len(), 32);
-    assert_eq!(FilesystemType::Exfat.max_label_len(), 32);
+    assert_eq!(FilesystemType::Exfat.max_label_len(), 11);
+}
+
+#[test]
+fn label_length_counts_utf16_code_units() {
+    assert_eq!(FilesystemType::label_len("BACKUP"), 6);
+    assert_eq!(FilesystemType::label_len("日本語"), 3);
+    assert_eq!(FilesystemType::label_len("😀😀😀😀😀"), 10);
+    assert_eq!(FilesystemType::label_len("😀😀😀😀😀😀"), 12);
 }
 
 #[test]

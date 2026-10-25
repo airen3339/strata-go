@@ -253,7 +253,8 @@ fn refresh_format_selection(
     if label_entry.max_length() != max_length {
         label_entry.set_max_length(max_length);
     }
-    confirm_btn.set_sensitive(label_entry.text().chars().count() <= fs_type.max_label_len());
+    confirm_btn
+        .set_sensitive(FilesystemType::label_len(&label_entry.text()) <= fs_type.max_label_len());
 }
 
 fn wire_entry_submission(entry: &gtk::Entry, confirm: &gtk::Button) {
@@ -1052,7 +1053,7 @@ fn fill_format_dialog<S, Fut>(
                 return;
             };
             let label = submitted_label_entry.text().to_string();
-            if label.chars().count() > fs_type.max_label_len() {
+            if FilesystemType::label_len(&label) > fs_type.max_label_len() {
                 return;
             }
             summary.set_text(&rust_i18n::t!("Drive: %{value1} (%{value2}, %{value3})\nFilesystem: %{value4}\nLabel: %{value5}\nMode: %{value6}", value1 = name, value2 = device, value3 = size, value4 = fs_type.label(), value5 = if label.is_empty() { crate::i18n::tr("(none)") } else { label.clone() }, value6 = crate::i18n::tr(if quick_check.is_active() {
