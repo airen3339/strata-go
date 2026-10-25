@@ -522,6 +522,13 @@ toggle_sidebar = ["<Control>b", "<Control>n"]
   verbatim in the file, and left out of the tables, so that command keeps its
   shipped keys and a newer version's entries survive an older version's save.
   A map that is not a table is dropped without touching the other map.
+- Keys an entry adds beyond its shipped ones are checked against the rest of
+  their table when the tables are first built (see
+  [Checking keymap entries](keyboard-shortcuts.md#checking-keymap-entries)),
+  with type-to-search as saved. Each finding is logged once with the file's
+  path, the map, the id, the accelerator and the finding: an error, such as a
+  key another command holds, as a warning, and a key that works only in some
+  places as information. The entry still applies.
 - `PreferenceManager` builds the tables (`keymap()`) on first use and rebuilds
   them on every change through `set_bindings`, `reset_binding` and `reset_map`;
   saving the shipped keys removes the entry, and `reset_map` keeps unknown ids.

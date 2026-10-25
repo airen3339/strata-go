@@ -9,7 +9,10 @@ use std::{collections::BTreeMap, path::Path, rc::Rc};
 use serde::{Deserialize, Serialize};
 
 use super::{PreferenceManager, settings_path};
-use crate::ui::keys::{Binding, Command, Keymap, Map, Rejected};
+use crate::ui::keys::{
+    Binding, Command, Keymap, Map, Rejected,
+    conflicts::{self, Policy, Severity},
+};
 
 /// `[keymap.default]` and `[keymap.tenxer]`: command ids and their
 /// accelerators, primary first. An empty list unbinds the command.
@@ -95,19 +98,45 @@ fn entries(entries: &BTreeMap<String, toml::Value>) -> impl Iterator<Item = (&st
     entries.iter().map(|(id, value)| (id.as_str(), value))
 }
 
+/// Logs what the checker finds about the keys the file's entries add. The
+/// entries still apply.
+fn report_findings(keymap: &Keymap, file: &Path, policy: Policy) {
+    let file = file.display();
+    for map in [Map::Default, Map::Tenxer] {
+        for (command, finding) in conflicts::audit_added(keymap, map, policy) {
+            let id = command.id();
+            let accelerator = finding.binding.accelerator();
+            let kind = finding.kind;
+            match finding.severity {
+                Severity::Error => tracing::warn!(
+                    %file, ?map, id, %accelerator, ?kind,
+                    "keymap entry has a key that never fires there or stops another key working"
+                ),
+                Severity::Warning => tracing::info!(
+                    %file, ?map, id, %accelerator, ?kind,
+                    "keymap entry has a key that works only in some places"
+                ),
+            }
+        }
+    }
+}
+
 impl PreferenceManager {
     /// Both maps' tables with the saved overrides applied. Built on first use,
     /// after GTK can parse accelerators, and logged once for the file's
-    /// entries that cannot apply.
+    /// entries that cannot apply and the conflicts their keys cause.
     pub(crate) fn keymap(&self) -> Rc<Keymap> {
         if let Some(keymap) = self.keymap.borrow().as_ref() {
             return keymap.clone();
         }
-        let keymap = Rc::new(
-            self.preferences
-                .borrow()
-                .keymap
-                .resolve(Some(&settings_path())),
+        let file = settings_path();
+        let keymap = Rc::new(self.preferences.borrow().keymap.resolve(Some(&file)));
+        report_findings(
+            &keymap,
+            &file,
+            Policy {
+                type_to_search: self.type_to_search(),
+            },
         );
         self.keymap.replace(Some(keymap.clone()));
         keymap

@@ -1036,3 +1036,88 @@ fn default_map_enter_keeps_single_selection_and_folder_navigation() {
         },
     );
 }
+
+/// The 10xer stage and the chooser's own first keys read before the folder
+/// accept, so `conflicts::check` must refuse an accept key either takes. Rows
+/// are driven like the window's in `keyboard_dispatch::keymap_conflicts`.
+#[test]
+fn folder_accept_order_matches_the_conflict_check() {
+    crate::test_support::gtk_test(
+        "ui::chooser::tests::keyboard::folder_accept_order_matches_the_conflict_check",
+        || {
+            use crate::ui::keys::{
+                Binding, Keymap, Map,
+                bindings::CHOOSE_FOLDER,
+                conflicts::{Policy, Severity, check},
+                use_keymap,
+            };
+            let open = || {
+                let folders = ChooserKind::Open {
+                    directory: true,
+                    multiple: false,
+                };
+                let chooser = Chooser::open(folders, BrowserMode::List, &["alpha/", "beta/"]);
+                chooser.focus_files();
+                chooser
+            };
+            let press = |chooser: &Chooser,
+                         binding: Binding,
+                         owner: Option<fn(&Chooser) -> bool>| {
+                chooser.press_with(binding.key(), binding.modifiers());
+                let owned = || owner.is_some_and(|owner| owner(chooser));
+                let deadline = std::time::Instant::now() + std::time::Duration::from_millis(300);
+                while chooser.responses.get() == 0
+                    && !owned()
+                    && std::time::Instant::now() < deadline
+                {
+                    glib::MainContext::default().iteration(false);
+                    std::thread::sleep(std::time::Duration::from_millis(2));
+                }
+                (chooser.responses.get() > 0, owned())
+            };
+            let shipped = CHOOSE_FOLDER.defaults(Map::Tenxer)[0];
+            assert_eq!(press(&open(), shipped, None), (true, false));
+            let edits_location: fn(&Chooser) -> bool =
+                |chooser| chooser.state.view.location_has_focus();
+            for (key, owner) in [
+                // The chooser's handler reads location first.
+                ("<Control>l", Some(edits_location)),
+                // The 10xer stage pages first.
+                ("<Control>u", None),
+                // The focused 10xer listing keeps typed keys.
+                ("e", None),
+            ] {
+                let binding = Binding::parse(key).expect("accelerator");
+                let mut entry = CHOOSE_FOLDER.defaults(Map::Tenxer).to_vec();
+                entry.push(binding);
+                let keymap = Keymap::defaults().with(Map::Tenxer, CHOOSE_FOLDER, entry);
+                let findings = check(
+                    &keymap,
+                    Map::Tenxer,
+                    CHOOSE_FOLDER,
+                    binding,
+                    Policy::default(),
+                );
+                let error = findings
+                    .iter()
+                    .any(|finding| finding.severity == Severity::Error);
+                let chooser = open();
+                let (fired, owned) = {
+                    let _keymap = use_keymap(keymap);
+                    press(&chooser, binding, owner)
+                };
+                if owner.is_some() && !owned {
+                    assert!(
+                        press(&open(), binding, owner).1,
+                        "{key}: the owner kept no key"
+                    );
+                }
+                assert_eq!(
+                    error,
+                    !fired || owner.is_some(),
+                    "{key}: fired={fired}, findings={findings:?}"
+                );
+            }
+        },
+    );
+}

@@ -126,10 +126,6 @@ impl Command {
         }
     }
 
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "only the registry tests read kinds so far")
-    )]
     pub(crate) fn kind(self) -> Kind {
         self.0.kind
     }

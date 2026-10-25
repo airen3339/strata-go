@@ -214,3 +214,55 @@ fn typed_reference_key_toggles_the_reference() {
         },
     );
 }
+
+/// A focused document resets its zoom on its own keys, wherever text size's
+/// keys have moved.
+#[test]
+fn document_zoom_reset_follows_its_own_keys() {
+    crate::test_support::gtk_test(
+        "ui::window::tests::keyboard_dispatch::keymap_overrides::document_zoom_reset_follows_its_own_keys",
+        || {
+            PreferenceManager::seed_saved_keymap_for_test(
+                &[
+                    ("text_reset", &["<Control>9"]),
+                    ("pdf_zoom_reset", &["<Control>0", "<Control>e"]),
+                ],
+                &[],
+            );
+            let preferences = PreferenceManager::shared();
+            let fixture = super::preview_ownership::ownership_fixture();
+            preferences.set_tenxer_mode(false);
+            let resets = Rc::new(Cell::new(0));
+            let reset = gtk::gio::SimpleAction::new("reset-zoom", None);
+            let counter = resets.clone();
+            reset.connect_activate(move |_, _| counter.set(counter.get() + 1));
+            let actions = gtk::gio::SimpleActionGroup::new();
+            actions.add_action(&reset);
+            fixture
+                .preview
+                .pane_widget()
+                .insert_action_group("pdf", Some(&actions));
+            select_named(&fixture, "long.txt");
+            assert!(fixture.press(Key::space, ModifierType::empty()));
+            let document = || {
+                widget_with_class(&fixture.preview.widget(), "preview-virtual-list")
+                    .filter(gtk::Widget::is_mapped)
+            };
+            wait_until(|| document().is_some());
+            assert!(document().expect("document").grab_focus());
+            let enlarged = preferences.text_size().stepped(1);
+            preferences.set_text_size(enlarged);
+            for (key, count) in [(Key::_0, 1), (Key::e, 2)] {
+                assert!(fixture.press(key, ModifierType::CONTROL_MASK), "{key:?}");
+                assert_eq!(resets.get(), count, "{key:?}");
+            }
+            assert_eq!(preferences.text_size(), enlarged);
+            assert!(fixture.press(Key::_9, ModifierType::CONTROL_MASK));
+            assert_eq!(resets.get(), 2);
+            assert_eq!(
+                preferences.text_size(),
+                crate::ui::preferences::TextSize::default()
+            );
+        },
+    );
+}

@@ -298,6 +298,50 @@ move, a text field's caret move or the window's `move-focus` for Tab, and
 Escape closes the popover that has focus. Effects GTK widgets implement outside
 key bindings, such as a text view's new line, are the text-field limit.
 
+### Checking keymap entries
+
+`ui::keys::conflicts` checks a binding against the rest of its map's table.
+`check(keymap, map, command, binding, policy)` returns the findings for one
+proposed binding, `audit(keymap, map, policy)` those for every binding of a
+table, and `audit_added` those for the keys entries hold beyond their shipped
+ones. `Policy` carries what the table cannot say: whether type-to-search is on.
+Each `Finding` names its `severity`, its `kind` and the `binding` it is about,
+and `inactive()` marks a binding that never fires in the state checked. An
+error means the key never fires where it is bound, or fires and stops another
+key or a fixed role from working there; a warning means it works only in some
+places.
+
+| Kind | Severity | Rule |
+| --- | --- | --- |
+| `Duplicate(other)` | Error | Another command the same surface matches holds the key, a text size command, which runs before every surface, a tab command, which a tabbed window's tab strip takes before any surface but dialogs and the file chooser, a key the file chooser reads before it accepts a folder (Escape, rename, properties, the filter, the location, the sidebar, the context menu, 10xer mode, and in 10xer mode every 10xer command its stage claims, the clipboard commands it refuses there included), the F1 reference's key, which toggles it before a media preview command or the open reference's own keys read theirs, Escape, which closes the reference before its own keys, or a key a 10xer media preview reads before a media command (its exits and scrolling, volume on the up and down keys, seeking on left and right, and **h**). A plain digit also matches with Shift, so it is the same key as Shift and that digit. Chord steps count only against steps of their group and against the keys an armed chord reads first: the tab commands, text size, the F1 reference, 10xer mode, Settings and Escape. |
+| `ShadowsChordGroup(group)` | Error | A top-level key equals a 10xer chord trigger. |
+| `ShiftedSortStep` | Error | A Sort step holds Shift, which reverses a step. |
+| `SortStepCannotReverse` | Warning | A Sort step is a digit, which already accepts Shift, or a symbol that Shift turns into another, so Shift cannot reverse it. |
+| `TypeToSearchShadowed` | Warning | A plain printable key in the default map while type-to-search is on: one a user adds, on any surface, or a shipped one in the file list other than Space and the **/** that opens the filter. Inactive. |
+| `TextFieldLimit(Typing)` | Warning | A plain printable key that focused text fields keep: an alias of a structural key, a key a user adds to a command that also acts in text fields, or one a user adds to a 10xer window command, which a focused text preview keeps. |
+| `TextFieldLimit(FieldKey)` | Warning | An alias of a structural key that `gtk::Text` binds itself, such as **Ctrl+A** or **Ctrl+Backspace**. |
+| `ContextOverlap(other)` | Warning | Both commands take the key in some state, and the stage that sees it first decides: a pair listed as sharing by design (10xer **Ctrl+Page Up** pages where no tab strip takes it), the 10xer list's **<** and **>**, which change the track only while a media preview is open, a focused document's zoom reset, which runs before text size, a preview command, which a focused preview reads before the window's commands, the file chooser's keys read after its folder accept or only in some states, a 10xer key the 10xer stage leaves to the chooser, a modifier a surface tolerates beside the key, or an alias read on a surface the other command belongs to. |
+| `ReservedByGtk` | Error | **Ctrl+Space**, or Shift with an arrow, Home, End, Page Up or Page Down, on a command the file list or file chooser matches. |
+| `InputMethodKey` | Error | **Ctrl+Space** or **Super+Space**, which switch input methods, on a command that acts while a text field has focus, or a shipped plain digit or `-` `,` `.` `/` `;` `'` `[` `]` on one. |
+| `ChooserMnemonic` | Warning | Alt with a letter, which the file chooser's accept button may take as its mnemonic. |
+| `FixedKey(fixed)` | Error | A key a fixed role holds where the command acts: a pin, action or tab digit after its chord (an armed chord reads steps first, so `go.home = ["1"]` takes pin 1), **Ctrl+Shift** with a tab digit, **Backspace** (with or without Shift or Super), **Space** in the 10xer file list, which selects the cursor's item, or **Space** on a media preview command, which plays and pauses first, as the page keys, **Home** and **End** seek before the commands the preview reads after them. Only the key as bound counts: a modifier a surface tolerates beside it loses to the fixed role. |
+| `NeverMatches` | Error | No press reaches it where it acts: Shift with a symbol Shift types (`<Shift>exclam`), Ctrl or Super on history, the parent folder or the home folder, which the window reads only without them (in 10xer, only the home folder), a chord trigger in the default map, which has no chords, or a typed key for a command the 10xer stage leaves to later stages or for the 10xer folder accept, which the focused 10xer file list keeps. An alias on another structural key's canonical key is a `Duplicate`: modifier-tolerant matchers, such as Escape's, still read it as pressed. Inactive. |
+
+A chord step on its own trigger's key, such as **g g**, is a step like any other:
+the armed chord reads the second press as the step. Surfaces are a short table in
+`conflicts.rs`: the preview, the F1 reference, global search, the file chooser's
+own keys, path completion and the trash confirmation each match their own
+commands, and everything else is the window's. The chooser's handler, which
+reads some window commands before and after its folder accept, is listed in
+that order. So are the commands that act in
+text fields and the modifiers each command's surfaces tolerate. These tables
+copy the dispatchers' stage order by hand, so a change to where or in what order
+a stage reads its keys must update `conflicts.rs` in the same change;
+`window::tests::keyboard_dispatch::keymap_conflicts` and
+`chooser::tests::keyboard::folder_accept_order_matches_the_conflict_check`
+drive the real dispatchers with a row per table and fail when `check` and the
+dispatcher disagree.
+
 ### Labels
 
 `keys::label` is the only code that turns bindings into text; `label_in`
@@ -438,6 +482,10 @@ and **Ctrl+A** clears it first.
    US shifted symbol) to cover another layout.
 4. Extend the normalizer table tests when a binding uses a symbol or digit, and
    add end-to-end coverage for a new input route.
+5. A command only one surface matches, one a stage matches while a text field
+   has focus, or one matched with `ignoring(..)` goes in the matching table of
+   `ui::keys::conflicts`. `audit_of_default_tables_is_clean` checks the shipped
+   tables against every rule.
 
 ## Testing
 
@@ -460,7 +508,14 @@ right after its first, or is explicitly marked as unlisted. `ui::keys::command`
 tests check that commands are bound in exactly the maps their block and
 `live in both` name, that each merged command keeps the keys each map had, that
 no entry lists a binding twice, that ids round-trip, that chord steps follow
-their trigger, and that every fixed binding has a reason not to be a command. Run
+their trigger, and that every fixed binding has a reason not to be a command.
+`ui::keys::conflicts` tests give each finding kind a row that reports it and
+one that does not, and audit both shipped tables: they hold no errors, and only
+the expected notes for **h j k l**, **Ctrl+0** (text size and a focused
+document's zoom reset), the Ctrl page keys in 10xer, preview keys that a
+focused preview reads before the window's (**Ctrl+F**, **Shift+Enter**, and in
+10xer **/**, **G**, **+**, **=** and **-**), and the default map's plain keys
+while type-to-search is on. Run
 them with `./scripts/test-headless.py keys::`, and run
 `./scripts/test-headless.py i18n::` after changing key names.
 

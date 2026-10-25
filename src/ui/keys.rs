@@ -14,6 +14,7 @@ mod alias;
 pub(crate) mod bindings;
 mod command;
 mod composition;
+pub(crate) mod conflicts;
 mod label;
 
 #[cfg(test)]

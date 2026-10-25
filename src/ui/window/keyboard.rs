@@ -700,13 +700,16 @@ impl Dispatcher {
             self.open_with.invalidate();
         }
         let preferences = &self.type_to_search.preferences;
-        if let Some(size) = preferences.text_size().for_shortcut(press) {
-            // Text-size shortcuts run before the chord consumer. Drop the mark
-            // first, then resize, matching Ctrl+, opening Settings.
+        // Text-size shortcuts and a focused document's zoom reset run before
+        // the chord consumer. Drop the mark first, matching Ctrl+, opening
+        // Settings.
+        if self.preview.reset_pdf_zoom(press) {
             self.shortcuts.cancel_chord();
-            if !self.preview.reset_pdf_zoom(press) {
-                self.view.set_text_size(size);
-            }
+            return Propagation::Stop;
+        }
+        if let Some(size) = preferences.text_size().for_shortcut(press) {
+            self.shortcuts.cancel_chord();
+            self.view.set_text_size(size);
             return Propagation::Stop;
         }
         if let Some(change) = ThumbnailResize::for_shortcut(press)

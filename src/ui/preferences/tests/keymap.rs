@@ -177,3 +177,39 @@ fn keymap_setters_save_only_overrides_and_publish_changes() {
         },
     );
 }
+
+#[test]
+fn conflicting_keys_in_the_file_are_logged_once_with_its_path() {
+    gtk_test(
+        "ui::preferences::tests::keymap::conflicting_keys_in_the_file_are_logged_once_with_its_path",
+        || {
+            write_settings("[keymap.default]\nrename = [\"F2\", \"<Control>c\"]\n");
+            let manager = PreferenceManager::shared();
+            let output = crate::test_support::capture_logs(|| {
+                manager.keymap();
+                manager.keymap();
+            });
+            let line = crate::test_support::captured_event(
+                &output,
+                "keymap entry has a key that never fires there or stops another key working",
+            );
+            assert!(
+                line.contains(&settings_path().display().to_string()),
+                "{line}"
+            );
+            assert!(
+                line.contains("rename") && line.contains("<Control>c") && line.contains("copy"),
+                "{line}"
+            );
+            assert_eq!(
+                output.matches("keymap entry has a key").count(),
+                1,
+                "{output}"
+            );
+            assert_eq!(
+                manager.keymap().bindings(Map::Default, RENAME),
+                [Binding::plain(Key::F2), Binding::ctrl(Key::c)]
+            );
+        },
+    );
+}
