@@ -36,14 +36,11 @@ pub(super) const PAGE: &str = "keyboard";
 pub(super) fn keyboard_page(preferences: Rc<PreferenceManager>) -> gtk::Widget {
     let content = page_content();
     content.add_css_class("settings-keyboard-page");
-    append_heading(&content, "KEYBOARD SHORTCUTS");
-    let description = gtk::Label::new(Some(&crate::i18n::tr(
-        "Choose the keys that run each action. Default and 10xer mode each keep their own keys, and changes apply at once in every window.",
-    )));
-    description.set_xalign(0.0);
-    description.set_wrap(true);
-    description.add_css_class("settings-section-description");
-    content.append(&description);
+    append_heading(&content, "KEYBINDS");
+    let controls = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    search::tag(&controls, "Keyboard shortcuts");
+    let (filter_field, filter, clear_filter) = super::search_field("Search keybinds");
+    controls.append(&filter_field);
 
     let shown = if preferences.tenxer_mode() {
         Map::Tenxer
@@ -54,7 +51,6 @@ pub(super) fn keyboard_page(preferences: Rc<PreferenceManager>) -> gtk::Widget {
     toolbar.set_hexpand(true);
     toolbar.set_margin_top(8);
     toolbar.set_margin_bottom(8);
-    search::tag(&toolbar, "Keyboard shortcuts");
     let (maps, map_buttons) = segmented_control(
         &["Default", "10xer mode"],
         usize::from(shown == Map::Tenxer),
@@ -73,12 +69,19 @@ pub(super) fn keyboard_page(preferences: Rc<PreferenceManager>) -> gtk::Widget {
     );
     toolbar.append(&maps);
     toolbar.append(&reset_all);
-    content.append(&toolbar);
+    controls.append(&toolbar);
+    let no_match = gtk::Label::new(Some(&crate::i18n::tr("No matching shortcuts")));
+    no_match.set_xalign(0.0);
+    no_match.add_css_class("settings-option-description");
+    no_match.set_visible(false);
+    controls.append(&no_match);
+    content.append(&controls);
 
     let page = Rc::new_cyclic(|weak: &Weak<Page>| {
         let mut rows = Vec::new();
+        let mut sections = Vec::new();
         let tables = [Map::Default, Map::Tenxer].map(|map| {
-            let table = table(map, weak, &mut rows);
+            let table = table(map, weak, &mut rows, &mut sections);
             table.set_visible(map == shown);
             content.append(&table);
             (map, table)
@@ -87,9 +90,21 @@ pub(super) fn keyboard_page(preferences: Rc<PreferenceManager>) -> gtk::Widget {
             preferences: preferences.clone(),
             rows,
             tables,
+            sections,
+            no_match,
+            query: RefCell::new(String::new()),
             reset_all: reset_all.clone(),
             shown: Cell::new(shown),
             capture: RefCell::new(None),
+        }
+    });
+
+    let weak = Rc::downgrade(&page);
+    filter.connect_changed(move |filter| {
+        clear_filter.set_visible(!filter.text().is_empty());
+        if let Some(page) = weak.upgrade() {
+            page.query.replace(filter.text().to_lowercase());
+            page.filter();
         }
     });
 
@@ -195,6 +210,9 @@ struct Page {
     preferences: Rc<PreferenceManager>,
     rows: Vec<Rc<Row>>,
     tables: [(Map, gtk::Box); 2],
+    sections: Vec<Section>,
+    no_match: gtk::Label,
+    query: RefCell<String>,
     reset_all: gtk::Button,
     shown: Cell<Map>,
     capture: RefCell<Option<Capturing>>,
@@ -258,6 +276,25 @@ impl Page {
             table.set_visible(*table_map == map);
         }
         self.update_reset_all();
+        self.filter();
+    }
+
+    /// Shows the rows whose action name contains the page's filter text.
+    fn filter(&self) {
+        let query = self.query.borrow();
+        let query = query.trim();
+        let mut shown_any = false;
+        for section in &self.sections {
+            let mut any = false;
+            for (slot, name) in &section.rows {
+                let matches = name.contains(query);
+                slot.set_visible(matches);
+                any |= matches;
+            }
+            section.widget.set_visible(any);
+            shown_any |= any && section.map == self.shown.get();
+        }
+        self.no_match.set_visible(!shown_any);
     }
 
     /// Shows the other table when a search leaves no row in the shown one
@@ -719,9 +756,21 @@ impl Row {
     }
 }
 
-fn table(map: Map, page: &Weak<Page>, rows: &mut Vec<Rc<Row>>) -> gtk::Box {
+/// A section of one table: its heading and group, and each row's slot with the
+/// lowercase action names the page filter matches.
+struct Section {
+    map: Map,
+    widget: gtk::Box,
+    rows: Vec<(gtk::Box, String)>,
+}
+
+fn table(
+    map: Map,
+    page: &Weak<Page>,
+    rows: &mut Vec<Rc<Row>>,
+    filtered: &mut Vec<Section>,
+) -> gtk::Box {
     let table = gtk::Box::new(gtk::Orientation::Vertical, 0);
-    // Search hides the headings of sections without a match inside this.
     table.add_css_class("settings-preferences");
     table.add_css_class("keymap-table");
     table.set_widget_name(match map {
@@ -729,19 +778,38 @@ fn table(map: Map, page: &Weak<Page>, rows: &mut Vec<Rc<Row>>) -> gtk::Box {
         Map::Tenxer => "keymap-tenxer",
     });
     for (title, commands) in sections(map) {
-        let group = super::settings_group(&table, title);
+        let widget = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        // Settings search hides the heading when nothing under it matches.
+        widget.add_css_class("settings-search-section");
+        let group = super::settings_group(&widget, title);
+        let mut slots = Vec::new();
         for command in commands {
-            let (widget, row) = Row::new(map, command, page);
-            group.append(&widget);
+            let (row_widget, row) = Row::new(map, command, page);
+            // The page filter hides the slot, leaving the row's own
+            // visibility to Settings search.
+            let slot = gtk::Box::new(gtk::Orientation::Vertical, 0);
+            slot.append(&row_widget);
+            group.append(&slot);
+            let english = name(command);
+            let names = format!("{}\n{english}", crate::i18n::tr(english)).to_lowercase();
+            slots.push((slot, names));
             rows.push(row);
         }
+        table.append(&widget);
+        filtered.push(Section {
+            map,
+            widget,
+            rows: slots,
+        });
     }
     table
 }
 
 /// The reference's sections and order: each command sits in the first
 /// section that names it in `map`'s reference, then in the other map's.
-/// Chord triggers stay out of the default map, which has no chords.
+/// Commands `map` cannot run stay out, chord triggers in the default map
+/// among them, and the default map files the 10xer mode section's commands
+/// it can run under "Search and tools".
 fn sections(map: Map) -> Vec<(&'static str, Vec<Command>)> {
     let tenxer = shortcut_reference::command_sections(Map::Tenxer);
     let default = shortcut_reference::command_sections(Map::Default);
@@ -756,10 +824,13 @@ fn sections(map: Map) -> Vec<(&'static str, Vec<Command>)> {
         Map::Tenxer => (&tenxer, &default),
     };
     let commands: Vec<Command> = keys::registry()
-        .filter(|command| map == Map::Tenxer || !matches!(command.kind(), CommandKind::Trigger(_)))
+        .filter(|command| {
+            (map == Map::Tenxer || !matches!(command.kind(), CommandKind::Trigger(_)))
+                && !conflicts::no_path(*command, map)
+        })
         .collect();
     let section_of = |command: Command| {
-        [own, others]
+        let title = [own, others]
             .into_iter()
             .flatten()
             .find(|(_, listed)| listed.contains(&command))
@@ -770,7 +841,12 @@ fn sections(map: Map) -> Vec<(&'static str, Vec<Command>)> {
                     .find(|(listed, _)| *listed == command)
                     .map(|(_, title)| *title)
             })
-            .unwrap_or(SEARCH_AND_TOOLS)
+            .unwrap_or(SEARCH_AND_TOOLS);
+        if map == Map::Default && title == TENXER_SECTION {
+            SEARCH_AND_TOOLS
+        } else {
+            title
+        }
     };
     order
         .into_iter()
@@ -797,6 +873,7 @@ fn sections(map: Map) -> Vec<(&'static str, Vec<Command>)> {
 }
 
 const SEARCH_AND_TOOLS: &str = "Search and tools";
+const TENXER_SECTION: &str = "10xer mode";
 
 /// Commands no reference row names.
 const FALLBACK_SECTIONS: &[(Command, &str)] = &[
@@ -824,8 +901,13 @@ fn set_button_text(button: &gtk::Button, text: &str) {
 }
 
 fn groups(table: &gtk::Box) -> impl Iterator<Item = gtk::Widget> {
-    std::iter::successors(table.first_child(), gtk::Widget::next_sibling)
+    children(table.upcast_ref())
+        .flat_map(|section| children(&section))
         .filter(|child| child.has_css_class("settings-group"))
+}
+
+fn children(widget: &gtk::Widget) -> impl Iterator<Item = gtk::Widget> + use<> {
+    std::iter::successors(widget.first_child(), gtk::Widget::next_sibling)
 }
 
 fn clear(container: &gtk::Box) {

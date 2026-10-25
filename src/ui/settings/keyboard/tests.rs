@@ -164,22 +164,6 @@ fn error_finding_blocks_commit() {
             assert!(!capturing(&row));
             assert!(notes(&row).is_empty(), "{:?}", notes(&row));
             assert_eq!(rename_entry(Map::Default), RENAME.defaults(Map::Default));
-
-            let yank = open.row(Map::Default, YANK);
-            button(&yank, "Add").emit_clicked();
-            open.press(Key::e, ModifierType::CONTROL_MASK);
-            assert!(capturing(&yank), "no key runs yank in the default map");
-            assert!(
-                PreferenceManager::shared()
-                    .keymap()
-                    .bindings(Map::Default, YANK)
-                    .is_empty()
-            );
-            assert_eq!(
-                notes(&yank),
-                ["Only 10xer mode runs this action, so its keys do nothing here."]
-            );
-            open.press(Key::Escape, ModifierType::empty());
         },
     );
 }
@@ -399,6 +383,85 @@ fn search_finds_rows_by_action_and_key() {
 }
 
 #[test]
+fn filter_shows_rows_whose_action_name_matches() {
+    gtk_test(
+        "ui::settings::keyboard::tests::filter_shows_rows_whose_action_name_matches",
+        || {
+            let open = OpenPage::open();
+            let filter = descendants(&open.page)
+                .into_iter()
+                .filter_map(|widget| widget.downcast::<gtk::Entry>().ok())
+                .find(|entry| entry.placeholder_text().as_deref() == Some("Search keybinds"))
+                .expect("keybind filter");
+            let no_match = descendants(&open.page)
+                .into_iter()
+                .filter_map(|widget| widget.downcast::<gtk::Label>().ok())
+                .find(|label| label.text() == "No matching shortcuts")
+                .expect("empty note");
+            let shown = |map: Map, command: Command| open.row(map, command).is_drawable();
+
+            filter.set_text("RENAME");
+            settle();
+            assert!(shown(Map::Default, RENAME));
+            assert!(!shown(Map::Default, COPY));
+            assert!(!no_match.is_visible());
+
+            // Key labels are not names: F2 is Rename's key.
+            filter.set_text("F2");
+            settle();
+            assert!(!shown(Map::Default, RENAME));
+            assert!(no_match.is_drawable());
+
+            filter.set_text("rename");
+            settle();
+            let tenxer = descendants(&open.page)
+                .into_iter()
+                .filter_map(|widget| widget.downcast::<gtk::ToggleButton>().ok())
+                .find(|button| button.label().as_deref() == Some("10xer mode"))
+                .expect("10xer table choice");
+            tenxer.set_active(true);
+            settle();
+            assert!(
+                shown(Map::Tenxer, RENAME),
+                "the filter follows the shown table"
+            );
+            assert!(!shown(Map::Tenxer, COPY));
+
+            filter.set_text("");
+            settle();
+            assert!(shown(Map::Tenxer, RENAME) && shown(Map::Tenxer, COPY));
+        },
+    );
+}
+
+#[test]
+fn tables_list_only_what_their_map_can_run() {
+    gtk_test(
+        "ui::settings::keyboard::tests::tables_list_only_what_their_map_can_run",
+        || {
+            let listed = |map: Map| sections(map);
+            let has = |map: Map, command: Command| {
+                listed(map)
+                    .iter()
+                    .any(|(_, commands)| commands.contains(&command))
+            };
+            let default = listed(Map::Default);
+            assert!(default.iter().all(|(title, _)| *title != "10xer mode"));
+            assert!(!has(Map::Default, FIND), "a 10xer verb");
+            assert!(!has(Map::Default, YANK), "a 10xer verb");
+            assert!(!has(Map::Default, GO_HOME), "a chord step");
+            assert!(
+                has(Map::Default, SORT_BY_NAME) && has(Map::Default, SEARCH_SUBFOLDERS),
+                "the direct stage runs them"
+            );
+            assert!(!has(Map::Tenxer, FILTER_SLASH), "a default-map key");
+            assert!(has(Map::Tenxer, FIND) && has(Map::Tenxer, GO_HOME));
+            assert!(has(Map::Tenxer, DUPLICATE), "the direct stage runs it");
+        },
+    );
+}
+
+#[test]
 fn captures_in_two_windows_stay_armed() {
     gtk_test(
         "ui::settings::keyboard::tests::captures_in_two_windows_stay_armed",
@@ -494,10 +557,7 @@ fn step_rows_follow_their_trigger() {
 fn rows_text(page: &gtk::Widget) -> Vec<String> {
     let mut rows = Vec::new();
     for map in [Map::Default, Map::Tenxer] {
-        for command in keys::registry() {
-            if map == Map::Default && matches!(command.kind(), CommandKind::Trigger(_)) {
-                continue;
-            }
+        for command in sections(map).into_iter().flat_map(|(_, listed)| listed) {
             let row = row_in(page, map, command);
             let shown = |widget: &gtk::Widget| {
                 let mut current = Some(widget.clone());

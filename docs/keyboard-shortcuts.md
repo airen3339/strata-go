@@ -270,7 +270,9 @@ focus and never in a file chooser, and the focused 10xer file list passes
 typed keys on to it. Neither table binds these commands by default, and Shift
 does not reverse a direct sort key.
 `conflicts::check` reports `NoPath` for a key on any other command its map
-ships no key for, such as yank or a Go step in the default map.
+ships no key for, such as yank or a Go step in the default map. Such a key can
+only come from a hand edit: the Settings table of that map leaves the command
+out.
 
 Every shortcut is a named constant in the catalog, `ui::keys::bindings`, with
 one file per area under `src/ui/keys/bindings/`. The `catalog!` macro declares
@@ -396,17 +398,20 @@ type-to-search off from its warning; it initializes nothing. A segmented
 control shows the default table or the 10xer table, starting with the active
 map. Rows come from the registry under the F1 reference's section titles and
 order: a command sits in the first section of its own map's reference that names
-it, then of the other map's. Every command has a row in both tables, unbound
-ones showing **Not bound**, except chord triggers in the default table, which
-has no chords. A 10xer chord step shows its trigger's key before its own.
+it, then of the other map's. A table lists only the commands its map can run
+(`conflicts::no_path` is false), unbound ones showing **Not bound**, and the
+default table leaves out chord triggers. It has no "10xer mode" section: the
+commands of that section it can run directly sit under "Search and tools". A
+10xer chord step shows its trigger's key before its own.
+A **Search keybinds** field above the tables narrows them to actions whose name
+contains the text.
 
 Each binding is a chip with a remove button. **Add** turns the row into a
 capture: Escape cancels, Backspace unbinds the command, and any other key is
 checked with `conflicts::check`. An error keeps the capture waiting and shows
 why under the row; otherwise the key is appended to the entry. Findings from
 `conflicts::audit` render as text under each row, never as tooltips; a key with
-`NeverMatches` shows only that finding, a row whose command has no path in the
-shown table says so once, and an inactive key is struck through.
+`NeverMatches` shows only that finding, and an inactive key is struck through.
 A row's **Reset** appears once its entry differs from the shipped one, and
 **Reset all** restores the shown table. Settings search finds a row by its
 action name or by any key either table gives it; action names score like a

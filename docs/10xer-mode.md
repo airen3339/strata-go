@@ -747,6 +747,6 @@ Some default-map keys do something else in 10xer mode or nothing at all: for
 example, **Ctrl+R** inverts the selection there, and rename is **r** / **F2**.
 **Settings → Keyboard** shows both tables as they are, with any changes: switch
 it to **10xer mode** to see each action's 10xer keys and **Not bound** on the
-ones 10xer leaves out. A key bound in the 10xer table to jump to folder, arrow
+ones 10xer leaves out. Each table lists only the actions its mode can run. A key bound in the 10xer table to jump to folder, arrow
 scope, duplicate or pin works there, and the default table can bind several
 10xer verbs; see [Keymap](keymap.md#two-tables).

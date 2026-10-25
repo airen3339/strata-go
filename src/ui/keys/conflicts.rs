@@ -872,7 +872,7 @@ fn known_overlap(first: Command, second: Command) -> bool {
 /// Whether `map` ships no key for `command` and none of its stages reads one:
 /// a 10xer verb or chord step in the default map, or a default-map command in
 /// 10xer, that the direct stage does not run either.
-fn no_path(command: Command, map: Map) -> bool {
+pub(crate) fn no_path(command: Command, map: Map) -> bool {
     command.defaults(map).is_empty()
         && !is_trigger(command)
         && !direct_commands(map).contains(&command)

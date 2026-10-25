@@ -615,7 +615,9 @@ fn filter_tree(widget: &gtk::Widget, matches: Option<&Matches>) -> Option<bool> 
     if widget.has_css_class("settings-group") {
         widget.set_visible(visible);
     }
-    if widget.has_css_class("settings-preferences") {
+    if widget.has_css_class("settings-preferences")
+        || widget.has_css_class("settings-search-section")
+    {
         for (index, child) in children.iter().enumerate() {
             if child.has_css_class("settings-search-page-empty") {
                 child.set_visible(matches.is_some() && !visible);

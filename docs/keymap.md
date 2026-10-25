@@ -90,9 +90,11 @@ a tab.
 
 ## Settings → Keyboard
 
-The switch at the top shows the **Default** or **10xer mode** table, starting
-with the active mode. Rows follow the F1 reference's sections, and Settings
-search finds a row by its action or by a key either table gives it. Each key is
+The **Search keybinds** field at the top narrows the shown table to actions
+whose name contains the text. The switch below it shows the **Default** or
+**10xer mode** table, starting with the active mode. Rows follow the F1
+reference's sections, and Settings search finds a row by its action or by a key
+either table gives it. Each key is
 a chip with a remove button; an action without keys shows **Not bound**.
 
 **Add** waits for a key: press it to append it to the action, **Escape** to
@@ -114,7 +116,7 @@ Settings checks each key against the rest of its table when you press it:
   another key from working there. Examples are a key another action on the same
   surface holds, such as **Ctrl+C** on Rename, a 10xer chord trigger, a key GTK
   uses to select, a tab digit, Shift on a Sort step, a key an input method needs
-  while you type, and any key on an action the table cannot run.
+  while you type. An action the mode cannot run has no row in its table.
 - **Saved with a note**: the key works, but not everywhere. Examples are a plain
   key while type-to-search is on, a plain key for an action that also runs in
   text fields, a key another action takes first in some states, and

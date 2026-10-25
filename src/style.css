@@ -6611,6 +6611,10 @@ two-column presentation. */
   padding: 0;
 }
 
+.keymap-table > box:first-child > .menu-heading {
+  margin-top: 0;
+}
+
 .keymap-chip {
   background: @strata_muted;
   border: 1px solid alpha(@strata_border, 0.8);
