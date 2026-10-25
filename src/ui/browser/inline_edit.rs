@@ -704,7 +704,8 @@ impl ViewState {
                 return gtk::glib::ControlFlow::Continue;
             }
             let Some(row) = row.filter(|row| row.height() > 0 && row.width() > 0) else {
-                // Seed GTK's cursor while the replacement row is still virtualized.
+                // Focusing an unallocated row gives GTK a zero-origin scroll anchor, so
+                // let GTK seed the cursor until the replacement row is allocated.
                 let flags = if state
                     .mode_views
                     .borrow()
