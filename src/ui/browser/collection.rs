@@ -301,6 +301,7 @@ pub(crate) fn bind_listing_filter(
     query: &Rc<RefCell<String>>,
     replaced: Rc<Cell<bool>>,
     state: Option<Weak<super::ViewState>>,
+    enter_target: Option<crate::ui::enter_target::EnterTarget>,
 ) {
     let refresh = Rc::new(move || {
         if let Some(state) = state.as_ref().and_then(Weak::upgrade) {
@@ -312,6 +313,11 @@ pub(crate) fn bind_listing_filter(
     let settled_refresh = refresh.clone();
     debounce_filter_entry(entry, move |text| {
         let text = if replaced.get() { String::new() } else { text };
+        // Every settled edit is a new query to Enter, even one that leaves the
+        // case-folded filter, and so its matches, unchanged.
+        if let Some(enter_target) = &enter_target {
+            enter_target.show_query(&text);
+        }
         notify_filter_query(&settled_filter, &settled_query, text);
         settled_refresh();
     });
@@ -513,8 +519,8 @@ pub(crate) fn filter_change_for(previous: &str, settled: &str) -> gtk::FilterCha
     // Wildcard and typo edits can add and remove matches in the same update.
     if previous.contains('*')
         || settled.contains('*')
-        || filter_query_allows_typos(previous)
-        || filter_query_allows_typos(settled)
+        || previous.split_whitespace().any(filter_query_allows_typos)
+        || settled.split_whitespace().any(filter_query_allows_typos)
     {
         gtk::FilterChange::Different
     } else if settled.starts_with(previous) && settled.len() > previous.len() {
@@ -827,3 +833,6 @@ pub(crate) fn cancel_source(source: &RefCell<Option<glib::SourceId>>) {
         source.remove();
     }
 }
+
+#[cfg(test)]
+mod tests;

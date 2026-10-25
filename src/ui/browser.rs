@@ -79,9 +79,9 @@ pub(super) use crate::ui::browser::clipboard::{
     ClipboardMark, ClipboardMarks, file_drag_content, mark_in, set_mark_result_style,
 };
 pub(crate) use crate::ui::browser::clipboard::{
-    PreparedFileDrop, active_drag_snapshot, arm_spring_load_navigation, clear_active_drag,
-    drag_actions_for_modifiers, file_drag_hover_target, file_drop_action, file_drop_commit,
-    locations_from_file_list_value, prepare_file_drop_target,
+    PreparedFileDrop, active_drag_snapshot, active_file_drag_source, arm_spring_load_navigation,
+    clear_active_drag, drag_actions_for_modifiers, file_drag_hover_target, file_drop_action,
+    file_drop_commit, locations_from_file_list_value, prepare_file_drop_target,
 };
 pub(crate) use crate::ui::browser::collection::{
     ActivePaneFilter, bind_listing_filter, detach_collection_view, filter_placeholder,
@@ -1201,9 +1201,11 @@ impl BrowserView {
         self.state.mode_views.borrow_mut().set_density(density);
         self.state.overlay.remove_css_class("density-compact");
         self.state.overlay.remove_css_class("density-airy");
+        self.state.overlay.remove_css_class("density-custom");
         self.state.overlay.add_css_class(match density {
             BrowserDensity::Compact => "density-compact",
             BrowserDensity::Airy => "density-airy",
+            BrowserDensity::Custom(_) => "density-custom",
         });
     }
 
@@ -1560,6 +1562,14 @@ impl BrowserView {
     #[cfg(test)]
     pub(in crate::ui) fn columns_mirror_selection_enabled(&self) -> bool {
         self.state.columns_mirror_selection.get()
+    }
+
+    /// Runs the cursor mirror at once instead of after its delay.
+    #[cfg(test)]
+    pub(in crate::ui) fn mirror_focused_folder_now(&self) {
+        if let Some((depth, position, _)) = self.state.browser.focused_item() {
+            self.state.apply_child_mirror(depth, position, false);
+        }
     }
 
     pub fn set_click_activation(&self, mode: BrowserMode, activation: ClickActivation) {

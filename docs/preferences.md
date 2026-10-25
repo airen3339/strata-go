@@ -110,11 +110,13 @@ control that might be midway through synchronization.
 | Keymap overrides | Every key dispatcher, the portal chooser included, reads the tables built from the saved overrides at press time, before Settings opens; labels that show shortcuts follow changes live across windows. See [Keymap](#keymap). Edited under **Settings → Keyboard**, one table per mode. |
 | Keybinding hints | Navigation hints and the shortcuts button bind immediately and live. When hidden, the status bar appears only while the clipboard badge or F1 reference needs it; otherwise the empty bar is hidden. |
 | Show thumbnails | Enabled by default. **Settings → Appearance → File icons** switches file thumbnails to the existing file-type icons. Applies before Settings opens and live across browser windows, the portal chooser, searches, peeks, and rebuilt views. Disabling cancels pending thumbnail requests and prevents cache reads and decoding for new requests; re-enabling restores thumbnails for still-bound entries. Live thumbnail changes preserve pending dimensions and duration metadata; rebinding or unbinding a row still discards stale updates. Custom icons and the preview panel are unchanged. |
+| STL model thumbnails | Off by default. **Settings → Appearance → File icons** enables fixed-view, software-rendered thumbnails of local STL models when Show thumbnails is also enabled. Applies before Settings opens and live to bound slots across browser windows, the portal chooser, searches, peeks, and rebuilt views; disabling also hides cached STL artwork and cancels pending requests. Rendering uses the existing queue and sandbox, with at most one background STL render at a time across the application process, within the general worker budget. Cancellation and timeout release the background slot after sending SIGKILL; a detached waiter reaps the helper, so a killed process stuck in I/O does not stop the queue. Quick Preview is independent and may render concurrently. Existing input and geometry limits apply; failures leave the file icon. 3MF, FreeCAD, and G-code continue to use embedded images only for file thumbnails. |
 | Thumbnail workers | Browser construction binds the shared decoder limit before Settings opens. Changes apply across windows and rebuilt views; lowering the limit lets active work finish and retires excess idle supervisors. |
-| List column order and visibility | Browser windows and the portal chooser share column order and visibility, including newly opened List panes. Drag a heading to reorder it; the Columns menu, heading context menu, and Appearance → Customize columns edit the same saved choices. Name cannot be hidden. Hiding, showing, reordering, or resetting columns changes only their presentation, never the sort key or direction. A hidden sort column remains active, including for saved folder sorts, newly opened folders, and view switches; showing it again restores its sort indicator. Widths retain their independent browser and chooser scopes below. |
+| List column order and visibility | Browser windows and the portal chooser share column order and visibility, including newly opened List panes. Dragging a heading previews its destination with an accent-colored line; column order changes only on release. Cancelling or releasing outside the headings leaves the order unchanged. The Columns menu, heading context menu, and Appearance → Customize columns edit the same saved choices. Name cannot be hidden. Hiding, showing, reordering, or resetting columns changes only their presentation, never the sort key or direction. A hidden sort column remains active, including for saved folder sorts, newly opened folders, and view switches; showing it again restores its sort indicator. Widths retain their independent browser and chooser scopes below. |
 | Browser and chooser column widths | A Columns resize or a List heading resize, including double-click autofit, saves the unscaled width. A Columns drag or autofit stops at the visible browser area: the window minus the preview divider and the sidebar at its full width, so while a narrow window rails the sidebar, columns stop short of the window edge by the width the rail gives up. Columns opened later, including a saved width from before, are narrowed to the current area, and so are open columns when the window first lays out and after a text-size change; returning to the earlier text size restores the dragged width. Resizing the window does not narrow open columns; dragging the edge of one that is wider than the area snaps it to the area. New columns and rebuilt List panes read the latest saved defaults before Settings opens. Dragging a Columns edge resizes that column as the pointer moves, with a **Column width** caption that appears once the pointer rests on the edge and follows it through the drag, and when the drag ends the window's other open columns ease to the same width; double-click autofit changes only its own column. Other windows keep their widths. Browser defaults (`browser_column_width`, `browser_list_columns`) and chooser defaults (`chooser_column_width`, `chooser_list_columns`) are independent. The Name column keeps expanding until it is resized itself. Not exposed in Settings. |
 | Icons view thumbnail size | The default size for folders without their own; see [Per-folder sort and thumbnail size](#per-folder-sort-and-thumbnail-size). Every browser binds at construction, and an Icons pane resolves its folder's size before it is built, so it opens at that size. With per-folder settings off, the popover slider sets the default. Visible Icons panes in other windows resize when their folder's size or the default changes. Clamped to 32–256 px; not exposed in Settings. |
 | Hardware video acceleration/backend | Preview providers read the current choice when requesting a preview; changing it does not restart an already playing file. Settings controls and backend availability synchronize live. |
+| Units | Metric by default: kilometres and metres. Imperial uses miles and feet. Settings → General → Units edits the saved `unit_system` choice. Open previews, including the chooser, update immediately without resetting playback; new files and later sessions use the saved choice. |
 | Preview text wrap | Every text preview and header toggle binds to the saved wrap choice, including newly loaded files. Off by default. |
 | Preview autoplay | Read when a video, audio, or GIF preview is first shown. Off by default: playback waits for an explicit play action; the generic player shows its center play affordance, and the audio and video views their transport play button. When on, playback starts silent and fades in on a slow-in, slow-out curve, over 1 s from the first frame for video and over 0.5 s from the first sample for audio, unless the saved audio state is muted or the file is shorter than 10 s, which plays at full volume at once; any play, pause, seek, volume or mute input brings the sound in at once, and the saved volume is never changed. Continuing playback into the next file with `<` / `>` keeps its sound. Does not affect resuming playback that was already active before a preview pane was temporarily hidden by a resize. |
 | Render documents by default | A newly loaded Markdown or HTML preview reads the current choice for its initial Rendered or Source view. Switching the view of an open document does not change the saved default. |
@@ -291,14 +293,18 @@ mixed-DPI monitor transitions still need compositor-specific manual testing.
 ## Omarchy variants
 
 Under **Settings → Appearance**, **Omarchy variant** sits below **Follow Omarchy**.
-**Original** preserves the current mapping; **Darker** uses dark terminal-like
-surfaces; **High contrast** strengthens readability while retaining the palette's
-light/dark character. See [Themes](themes.md#omarchy-quattro) for color behavior.
-Saved as `omarchy_variant = "original"`, `"darker"`, or `"high_contrast"`, the
-choice applies at startup and live across windows and previews, including after
-Omarchy changes themes. It is remembered but inactive when following is off.
-Missing or invalid saved values fall back to Original without resetting other
-preferences.
+**Lighter** keeps file columns on the theme's regular background; **Darker** (the
+default) moves them onto the darker pane color used by the sidebar, headers, and
+preview; **Contrast** strengthens readability on the Darker layout. See [Themes](themes.md#omarchy-quattro) for color behavior.
+The choice is remembered per Omarchy theme and saved under `[omarchy_variants]`
+keyed by the theme name, for example `tokyo-night = "lighter"` or `"contrast"`;
+Darker is the default and is not stored. It applies at startup and live across
+windows and previews, and switching Omarchy themes restores that theme's own
+choice. It is remembered but inactive when following is off. A legacy global
+`omarchy_variant = "high_contrast"` migrates to Contrast for the Omarchy theme
+active when Strata next starts; other legacy values are dropped, since earlier
+versions always saved one. Missing or invalid saved values fall back to Darker
+without resetting other preferences.
 
 ## Language
 
@@ -576,6 +582,43 @@ users, [Keymap](keymap.md).
 Like other preferences, hand edits made while Strata runs are read on the next
 launch.
 
+## Content and Frame density
+
+The Appearance menu's DENSITY section has two sliders, Frame above Content. Each one stores a logical px
+value, with tick marks at its Compact and Airy values. The clickable labels under the
+ticks snap to those presets. Any other value counts as Custom. A slider position
+updates live in every window and is saved immediately; the menu stays open.
+
+| Slider  | Preferences                                     | Range | Compact | Airy | Type             |
+|---------|-------------------------------------------------|-------|---------|------|------------------|
+| Frame   | `frame_density`, `frame_density_custom_px`      | 0–12  | 0       | 4    | `FrameDensity`   |
+| Content | `browser_density`, `browser_density_custom_px`  | 0–16  | 4       | 8    | `BrowserDensity` |
+
+`*_density` is `"compact"`, `"airy"`, or `"custom"`; `*_custom_px` is read only for
+`"custom"`. Old settings files that have only `browser_density` keep loading. Both
+types implement `browser_modes::DensityScale`, whose `from_px` maps a snap-point
+value to its preset. As a result, a slider resting on 4 px is saved as Compact rather
+than as Custom.
+
+**Content** is the vertical margin of Columns and List rows. Compact and Airy keep the
+static `density-compact`/`density-airy` rules in `style.css` and their 20/16 Icons
+column caps. A Custom value sets `density-custom`.
+`browser_modes::browser_density_custom_css` then extrapolates every preset property
+linearly through those two rules, so the slider never jumps at a preset. Those
+properties are row margins and minimum heights, plus the Icons grid padding, cell
+margins, and card padding.
+
+**Frame** is one extra vertical inset applied in lock step to the browser header,
+tab strip, Icons/List pane header, Miller column headers, preview header, and
+sidebar rows, so their heights stay aligned. Miller headers keep the two extra
+bottom pixels that balance their top indicator. The same value spaces out the icon
+buttons in those bars through `margin-left`. At 0 px, which is Compact, no rule is
+emitted.
+
+`ThemeManager::apply_density` loads both generated stylesheets into one provider
+above the static stylesheet. It reloads only when either density changes, so
+dragging a slider never reapplies the theme.
+
 ## Adding a preference
 
 1. Add its backward-compatible serialized field/default, getter and setter.
@@ -593,4 +636,4 @@ launch.
 The regression suites also check no writes from opening Settings, no duplicate
 notifications, reentrant changes, listener cleanup, failed-write retries and
 notices, symlinked settings files, chooser overrides, type-to-search keyboard
-behavior, and synchronized media controls. Run GTK tests on the private display described in `e2e-testing.md`.
+behavior, and synchronized media controls. Run GTK tests on the private display described in [testing](testing.md).

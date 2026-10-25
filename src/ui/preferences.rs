@@ -22,6 +22,7 @@ use crate::{
     },
 };
 
+use super::browser_modes::DensityScale;
 use super::icons_cell::{MAX_ICONS_THUMBNAIL_SIZE, MIN_ICONS_THUMBNAIL_SIZE};
 
 pub(in crate::ui) const SEND_TO_RECENT_DESTINATIONS_LIMIT: usize = 3;
@@ -58,10 +59,12 @@ pub(crate) enum InterfaceRenderer {
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum OmarchyVariant {
+    #[serde(alias = "original")]
+    Lighter,
     #[default]
-    Original,
     Darker,
-    HighContrast,
+    #[serde(alias = "high_contrast")]
+    Contrast,
 }
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
@@ -72,12 +75,23 @@ pub(crate) enum FileIconColors {
     Theme,
 }
 
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum UnitSystem {
+    #[default]
+    Metric,
+    Imperial,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub(in crate::ui) struct Preferences {
     mode: String,
     theme: String,
-    #[serde(default)]
-    omarchy_variant: OmarchyVariant,
+    /// Pre-per-theme global choice, migrated to the active Omarchy theme.
+    #[serde(default, rename = "omarchy_variant", skip_serializing)]
+    legacy_omarchy_variant: Option<OmarchyVariant>,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    omarchy_variants: HashMap<String, OmarchyVariant>,
     #[serde(default)]
     folder_peeking: bool,
     #[serde(default = "default_enabled")]
@@ -126,6 +140,12 @@ pub(in crate::ui) struct Preferences {
     browser_mode: String,
     #[serde(default = "default_browser_density")]
     browser_density: String,
+    #[serde(default = "default_density_custom_px")]
+    browser_density_custom_px: u8,
+    #[serde(default = "default_frame_density")]
+    frame_density: String,
+    #[serde(default = "default_density_custom_px")]
+    frame_density_custom_px: u8,
     #[serde(default)]
     group_by_type: bool,
     #[serde(default = "default_file_clicks", rename = "list_file_clicks")]
@@ -193,6 +213,8 @@ pub(in crate::ui) struct Preferences {
     #[serde(default)]
     preview_text_wrap: bool,
     #[serde(default)]
+    unit_system: UnitSystem,
+    #[serde(default)]
     preview_autoplay: bool,
     #[serde(default = "default_enabled")]
     watch_network_folders: bool,
@@ -200,6 +222,8 @@ pub(in crate::ui) struct Preferences {
     thumbnail_workers: usize,
     #[serde(default = "default_enabled")]
     show_thumbnails: bool,
+    #[serde(default)]
+    stl_thumbnails: bool,
     #[serde(default = "default_icons_thumbnail_size")]
     icons_thumbnail_size: i32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -355,7 +379,8 @@ impl Default for Preferences {
         Self {
             mode: "theme".to_owned(),
             theme: "tokyo-night".to_owned(),
-            omarchy_variant: OmarchyVariant::default(),
+            legacy_omarchy_variant: None,
+            omarchy_variants: HashMap::new(),
             folder_peeking: false,
             single_click_previews: true,
             columns_mirror_selection: true,
@@ -380,6 +405,9 @@ impl Default for Preferences {
             file_icon_colors: FileIconColors::default(),
             browser_mode: default_browser_mode(),
             browser_density: default_browser_density(),
+            browser_density_custom_px: default_density_custom_px(),
+            frame_density: default_frame_density(),
+            frame_density_custom_px: default_density_custom_px(),
             group_by_type: false,
             columns_file_clicks: default_file_clicks(),
             columns_folder_clicks: default_folder_clicks(),
@@ -413,10 +441,12 @@ impl Default for Preferences {
             preview_muted: false,
             preview_volume: default_full_volume(),
             preview_text_wrap: false,
+            unit_system: UnitSystem::Metric,
             preview_autoplay: false,
             watch_network_folders: true,
             thumbnail_workers: crate::sandbox::browser::default_worker_limit(),
             show_thumbnails: true,
+            stl_thumbnails: false,
             icons_thumbnail_size: default_icons_thumbnail_size(),
             chooser_column_width: None,
             browser_column_width: None,
@@ -474,6 +504,36 @@ fn default_video_preview_backend() -> String {
 
 fn default_browser_density() -> String {
     "compact".to_owned()
+}
+
+fn default_frame_density() -> String {
+    "compact".to_owned()
+}
+
+/// Only read when the matching density is `"custom"`.
+fn default_density_custom_px() -> u8 {
+    0
+}
+
+fn stored_density<D: DensityScale>(mode: &str, custom_px: u8) -> D {
+    match mode {
+        "airy" => D::from_px(D::AIRY_PX),
+        "custom" => D::from_px(custom_px),
+        _ => D::from_px(D::COMPACT_PX),
+    }
+}
+
+fn store_density<D: DensityScale>(density: D, mode: &mut String, custom_px: &mut u8) {
+    let px = density.px();
+    *mode = if px == D::COMPACT_PX {
+        "compact"
+    } else if px == D::AIRY_PX {
+        "airy"
+    } else {
+        *custom_px = px;
+        "custom"
+    }
+    .to_owned();
 }
 
 fn default_file_clicks() -> u8 {
@@ -604,6 +664,7 @@ pub struct PreferenceManager {
     item_customizations: item_customizations::ItemCustomizationState,
     keymap: RefCell<Option<Rc<crate::ui::keys::Keymap>>>,
     keymap_revision: Cell<u64>,
+    active_omarchy_theme: RefCell<Option<String>>,
 }
 
 impl PreferenceManager {
@@ -678,6 +739,7 @@ impl PreferenceManager {
             item_customizations: Default::default(),
             keymap: RefCell::new(None),
             keymap_revision: Cell::new(0),
+            active_omarchy_theme: RefCell::new(None),
             preferences: RefCell::new(preferences),
         });
         manager.folder_view_store();
@@ -1060,16 +1122,54 @@ impl PreferenceManager {
         self.save_preferences();
     }
 
+    /// The variant remembered for the active Omarchy theme.
     pub fn omarchy_variant(&self) -> OmarchyVariant {
-        self.preferences.borrow().omarchy_variant
+        let active = self.active_omarchy_theme.borrow();
+        active
+            .as_ref()
+            .and_then(|theme| {
+                self.preferences
+                    .borrow()
+                    .omarchy_variants
+                    .get(theme)
+                    .copied()
+            })
+            .unwrap_or_default()
     }
 
     pub fn set_omarchy_variant(&self, variant: OmarchyVariant) {
+        let Some(theme) = self.active_omarchy_theme.borrow().clone() else {
+            return;
+        };
         if self.omarchy_variant() == variant {
             return;
         }
-        self.preferences.borrow_mut().omarchy_variant = variant;
+        {
+            let variants = &mut self.preferences.borrow_mut().omarchy_variants;
+            if variant == OmarchyVariant::default() {
+                variants.remove(&theme);
+            } else {
+                variants.insert(theme, variant);
+            }
+        }
         self.save_preferences();
+    }
+
+    /// Records which Omarchy theme is current without publishing; the theme
+    /// manager reapplies and notifies once its palette state is updated.
+    pub(in crate::ui) fn set_active_omarchy_theme(&self, theme: &str) {
+        let theme = theme.trim().to_owned();
+        let mut preferences = self.preferences.borrow_mut();
+        // Older versions always saved "original", so only a contrast choice was deliberate.
+        if let Some(legacy) = preferences.legacy_omarchy_variant.take()
+            && legacy == OmarchyVariant::Contrast
+        {
+            preferences
+                .omarchy_variants
+                .entry(theme.clone())
+                .or_insert(legacy);
+        }
+        self.active_omarchy_theme.replace(Some(theme));
     }
 
     pub fn element_glow(&self) -> bool {
@@ -1133,6 +1233,15 @@ impl PreferenceManager {
         self.save_preferences();
     }
 
+    pub(crate) fn unit_system(&self) -> UnitSystem {
+        self.preferences.borrow().unit_system
+    }
+
+    pub(crate) fn set_unit_system(&self, units: UnitSystem) {
+        self.preferences.borrow_mut().unit_system = units;
+        self.save_preferences();
+    }
+
     pub fn preview_text_wrap(&self) -> bool {
         self.preferences.borrow().preview_text_wrap
     }
@@ -1171,6 +1280,15 @@ impl PreferenceManager {
 
     pub fn thumbnail_workers(&self) -> usize {
         self.preferences.borrow().thumbnail_workers
+    }
+
+    pub fn stl_thumbnails(&self) -> bool {
+        self.preferences.borrow().stl_thumbnails
+    }
+
+    pub fn set_stl_thumbnails(&self, enabled: bool) {
+        self.preferences.borrow_mut().stl_thumbnails = enabled;
+        self.save_preferences();
     }
 
     pub fn set_thumbnail_workers(&self, workers: usize) {
@@ -1263,12 +1381,21 @@ impl PreferenceManager {
         self.set_list_hidden_columns(hidden);
     }
 
-    pub fn swap_list_columns(&self, col1: ListColumnId, col2: ListColumnId) {
+    pub fn move_list_column(&self, column: ListColumnId, target: ListColumnId, after: bool) {
         let mut order = self.list_column_order();
-        let pos1 = order.iter().position(|col| *col == col1);
-        let pos2 = order.iter().position(|col| *col == col2);
-        if let (Some(p1), Some(p2)) = (pos1, pos2) {
-            order.swap(p1, p2);
+        let Some(from) = order.iter().position(|item| *item == column) else {
+            return;
+        };
+        let Some(target) = order.iter().position(|item| *item == target) else {
+            return;
+        };
+        let mut to = target + usize::from(after);
+        if from < to {
+            to -= 1;
+        }
+        if from != to {
+            let column = order.remove(from);
+            order.insert(to, column);
             self.set_list_column_order(order);
         }
     }
@@ -1462,18 +1589,44 @@ impl PreferenceManager {
     }
 
     pub fn browser_density(&self) -> super::browser_modes::BrowserDensity {
-        match self.preferences.borrow().browser_density.as_str() {
-            "airy" => super::browser_modes::BrowserDensity::Airy,
-            _ => super::browser_modes::BrowserDensity::Compact,
-        }
+        let preferences = self.preferences.borrow();
+        stored_density(
+            &preferences.browser_density,
+            preferences.browser_density_custom_px,
+        )
     }
 
     pub fn set_browser_density(&self, density: super::browser_modes::BrowserDensity) {
-        self.preferences.borrow_mut().browser_density = match density {
-            super::browser_modes::BrowserDensity::Compact => "compact",
-            super::browser_modes::BrowserDensity::Airy => "airy",
+        {
+            let mut preferences = self.preferences.borrow_mut();
+            let preferences = &mut *preferences;
+            store_density(
+                density,
+                &mut preferences.browser_density,
+                &mut preferences.browser_density_custom_px,
+            );
         }
-        .to_owned();
+        self.save_preferences();
+    }
+
+    pub fn frame_density(&self) -> super::browser_modes::FrameDensity {
+        let preferences = self.preferences.borrow();
+        stored_density(
+            &preferences.frame_density,
+            preferences.frame_density_custom_px,
+        )
+    }
+
+    pub fn set_frame_density(&self, density: super::browser_modes::FrameDensity) {
+        {
+            let mut preferences = self.preferences.borrow_mut();
+            let preferences = &mut *preferences;
+            store_density(
+                density,
+                &mut preferences.frame_density,
+                &mut preferences.frame_density_custom_px,
+            );
+        }
         self.save_preferences();
     }
 
@@ -1881,25 +2034,66 @@ fn parse_preferences(contents: &str) -> io::Result<Preferences> {
 
 /// Rebuilds preferences from every entry that deserializes on its own, so one
 /// malformed value does not reset the rest (and, on the next save, overwrite
-/// them with defaults).
+/// them with defaults). A malformed list or table keeps its other entries.
 fn salvage_preferences(saved: toml::Table) -> Preferences {
     let Ok(mut merged) = toml::Table::try_from(Preferences::default()) else {
         return Preferences::default();
     };
     for (key, value) in saved {
-        let previous = merged.insert(key.clone(), value);
-        if merged.clone().try_into::<Preferences>().is_err() {
-            match previous {
-                Some(previous) => {
-                    merged.insert(key, previous);
-                }
-                None => {
-                    merged.remove(&key);
-                }
-            }
+        let kept = {
+            let accepts = |candidate: &toml::Value| {
+                let mut trial = merged.clone();
+                trial.insert(key.clone(), candidate.clone());
+                trial.try_into::<Preferences>().is_ok()
+            };
+            salvage_value(value, &accepts)
+        };
+        if let Some(kept) = kept {
+            merged.insert(key, kept);
         }
     }
     merged.try_into().unwrap_or_default()
+}
+
+/// Returns `value` if `accepts` takes it, otherwise the entries that still pass
+/// after dropping the bad ones, level by level. Entries are tried alone, so
+/// salvage stays linear in a collection's size, and then checked together. A
+/// value of the wrong shape, or a record missing a required field, yields `None`.
+fn salvage_value(
+    value: toml::Value,
+    accepts: &dyn Fn(&toml::Value) -> bool,
+) -> Option<toml::Value> {
+    if accepts(&value) {
+        return Some(value);
+    }
+    let kept = match value {
+        toml::Value::Table(table) => {
+            let mut kept = toml::Table::new();
+            for (key, child) in table {
+                let alone = |candidate: &toml::Value| {
+                    let trial = toml::Table::from_iter([(key.clone(), candidate.clone())]);
+                    accepts(&toml::Value::Table(trial))
+                };
+                if let Some(child) = salvage_value(child, &alone) {
+                    kept.insert(key, child);
+                }
+            }
+            toml::Value::Table(kept)
+        }
+        toml::Value::Array(items) => {
+            let mut kept = Vec::new();
+            for item in items {
+                let alone =
+                    |candidate: &toml::Value| accepts(&toml::Value::Array(vec![candidate.clone()]));
+                if let Some(item) = salvage_value(item, &alone) {
+                    kept.push(item);
+                }
+            }
+            toml::Value::Array(kept)
+        }
+        _ => return None,
+    };
+    accepts(&kept).then_some(kept)
 }
 
 fn sort_preferences(preferences: &Preferences) -> ViewPreferences {

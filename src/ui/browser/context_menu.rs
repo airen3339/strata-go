@@ -1276,7 +1276,7 @@ pub(in crate::ui) fn install_resolved_item_context_menu(
         let Some(app) = selection.default else {
             return;
         };
-        let context = state.overlay.display().app_launch_context();
+        let context = crate::child_environment::launch_context(&state.overlay.display());
         if let Err(error) = crate::ui::open_with::launch(
             &app,
             &selection.files,
@@ -2202,7 +2202,7 @@ fn set_open_with_explanation(button: &gtk::Button, explanation: Option<&str>) {
     if let Some(option) = button.downcast_ref::<presentation::MenuOption>() {
         option.set_menu_description(explanation.as_str());
     }
-    button.update_property(&[gtk::accessible::Property::Description(&explanation)]);
+    super::super::accessibility::set_description(button, Some(&explanation));
 }
 
 fn prepare_folder_open_with(

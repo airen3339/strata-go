@@ -206,7 +206,7 @@ impl ThumbnailSlot {
         widget.set_slot(slot);
         crate::ui::preferences::PreferenceManager::shared().bind_preference(
             &widget,
-            crate::ui::preferences::PreferenceManager::show_thumbnails,
+            |manager| (manager.show_thumbnails(), manager.stl_thumbnails()),
             |widget, _| {
                 let slot = widget
                     .downcast_ref::<ThumbnailSlot>()
@@ -248,9 +248,7 @@ impl ThumbnailSlot {
             self.imp()
                 .decoration_description
                 .replace(description.map(str::to_owned));
-            self.update_property(&[gtk::accessible::Property::Description(
-                description.unwrap_or(""),
-            )]);
+            crate::ui::accessibility::set_description(self, description);
         }
         if same_texture(self.imp().decoration.borrow().as_ref(), texture) {
             return;

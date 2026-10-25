@@ -893,6 +893,7 @@ pub fn build_layer(
     let close = gtk::Button::builder()
         .tooltip_text(crate::i18n::tr("Close settings"))
         .build();
+    super::accessibility::set_own_label(&close, &crate::i18n::tr("Close settings"));
     close.set_child(Some(&crate::assets::primary_icon(icons::X, 18)));
     close.add_css_class("settings-close");
     close.set_valign(gtk::Align::Center);
@@ -2404,6 +2405,7 @@ fn restart_waiter(current_exe: &std::path::Path, parent_pid: u32) -> Option<Comm
         command.env_remove("GSK_RENDERER");
         command.env_remove(crate::CAIRO_SELECTED_BY_STRATA);
     }
+    crate::child_environment::restore_command(&mut command);
     Some(command)
 }
 
@@ -2985,7 +2987,9 @@ async fn launch_aur_update() -> Result<String, String> {
         .package()
         .ok_or_else(|| crate::i18n::tr("missing AUR package name"))?;
     let uri = format!("https://aur.archlinux.org/packages/{package}");
-    gio::AppInfo::launch_default_for_uri(&uri, None::<&gio::AppLaunchContext>)
+    let context = gtk::gdk::Display::default()
+        .map(|display| crate::child_environment::launch_context(&display));
+    gio::AppInfo::launch_default_for_uri(&uri, context.as_ref())
         .map(|()| crate::i18n::tr("AUR package page opened."))
         .map_err(|error| error.to_string())
 }
@@ -3372,10 +3376,8 @@ fn settings_option(title: &str, description: &str, active: bool) -> (gtk::Box, g
         if let Some(label) = description_label.upgrade() {
             label.set_text(&translated(&description));
         }
-        toggle.update_property(&[
-            gtk::accessible::Property::Label(&translated(&title)),
-            gtk::accessible::Property::Description(&translated(&description)),
-        ]);
+        super::accessibility::set_own_label(toggle, &translated(&title));
+        super::accessibility::set_description(toggle, Some(&translated(&description)));
     };
     if keyed {
         super::shortcut_reference::follow_keys(&toggle, render);
@@ -3478,4 +3480,26 @@ fn append_heading(container: &gtk::Box, text: &str) -> gtk::Label {
     heading.add_css_class("menu-heading");
     container.append(&heading);
     heading
+}
+
+pub(super) fn unit_system_control(manager: &Rc<PreferenceManager>) -> gtk::Box {
+    use super::preferences::UnitSystem;
+    let (control, buttons) = super::controls::segmented_control(
+        &["Metric", "Imperial"],
+        usize::from(manager.unit_system() == UnitSystem::Imperial),
+    );
+    super::accessibility::set_label(&control, &crate::i18n::tr("Units"));
+    for (button, value) in buttons
+        .iter()
+        .zip([UnitSystem::Metric, UnitSystem::Imperial])
+    {
+        bindings::bind_choice(
+            manager,
+            button,
+            value,
+            PreferenceManager::unit_system,
+            PreferenceManager::set_unit_system,
+        );
+    }
+    control
 }

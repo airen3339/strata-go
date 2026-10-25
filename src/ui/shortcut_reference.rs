@@ -231,6 +231,13 @@ pub(crate) fn follow_tooltip(widget: &impl IsA<gtk::Widget>, message: &'static s
     });
 }
 
+/// An accessible label that names a shortcut.
+pub(crate) fn follow_label(widget: &impl IsA<gtk::Widget>, message: &'static str, keys: Keys) {
+    follow_keys(widget.upcast_ref::<gtk::Widget>(), move |widget| {
+        super::accessibility::set_label(widget, &with_keys(message, keys));
+    });
+}
+
 /// An accessible description that names a shortcut.
 pub(crate) fn follow_description(
     widget: &impl IsA<gtk::Widget>,
@@ -1140,6 +1147,7 @@ const DEFAULT_TOOLS: &[Shortcut] = &[
     row(One(LOCATION.shown()), "Edit the location"),
     row(One(TAB_NEW.shown()), "New tab"),
     row(One(TAB_CLOSE.shown()), "Close the active tab"),
+    row(One(TAB_REOPEN.shown()), "Reopen the last closed tab"),
     row(
         Any(shown![TAB_NEXT.alternate(0), TAB_PREVIOUS.alternate(0)]),
         "Next / previous tab",
@@ -1281,6 +1289,7 @@ fn tenxer_tools(mode: BrowserMode, chooser: bool) -> Vec<Shortcut> {
             row(Keys::Digits(TAB_CHORD_NUMBERS), "Select tab 1–9 / 10"),
             row(One(TAB_NEW.shown()), "New tab"),
             row(One(TAB_CLOSE.shown()), "Close the active tab"),
+            row(One(TAB_REOPEN.shown()), "Reopen the last closed tab"),
             row(
                 Any(shown![TAB_NEXT.alternate(0), TAB_PREVIOUS.alternate(0)]),
                 "Next / previous tab",

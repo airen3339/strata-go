@@ -584,14 +584,14 @@ and **Ctrl+A** clears it first.
    `chooser::tests::keyboard::folder_accept_order_matches_the_conflict_check`,
    and give them a row when the command's surface or stage order is new.
 6. **Test it.** Extend the normalizer table tests when a binding uses a symbol
-   or digit, and add end-to-end coverage for a new input route.
+   or digit, and add QA scenario coverage for a new input route.
 
 ## Testing
 
 Rust tests emit `key-pressed` without a GDK event. `KeyPress::from_signal`
 reads such a press as a US-QWERTY press, with Caps Lock matched the way GDK
 matches it, so handler tests stay layout-neutral and the layout cases live in
-the normalizer tests and end-to-end scenarios.
+the normalizer tests and QA scenarios.
 
 `ui::keys::tests` drives the pure normalizer from hand-written keymap rows for
 US, Russian, Ukrainian, Greek, Hebrew, French AZERTY, German QWERTZ, Hungarian,
@@ -629,10 +629,10 @@ checks that the shipped tables reach none of them.
 through a saved `settings.toml`, keeps the two tables apart, uses Enter and
 Escape aliases, records a key on a Russian layout, and refuses a taken key.
 
-End-to-end scenarios switch layouts on the harness's private Xvfb: `setxkbmap`
-loads the layouts and an XKB group lock selects the active one. Never change the
+QA scenarios switch layouts on the run's private Xvfb with a `layout` step:
+`setxkbmap` loads the layouts and an XKB group lock selects the active one. Never change the
 desktop's layout from a test. Scenarios use US, Russian, Russian-only, French
 AZERTY, German QWERTZ, Caps Lock, and Hanyu Pinyin. With Hanyu Pinyin, GTK's
 own input method composes the AltGr tone keys in text fields, which stands in
 for a pinyin input method's composition. See
-[end-to-end testing](e2e-testing.md).
+[testing](testing.md).

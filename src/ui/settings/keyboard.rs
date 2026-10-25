@@ -1120,6 +1120,7 @@ const NAMES: &[(Command, &str)] = &[
     (TENXER_MODE, "Toggle 10xer mode"),
     (TAB_NEW, "New tab"),
     (TAB_CLOSE, "Close tab"),
+    (TAB_REOPEN, "Reopen the last closed tab"),
     (TAB_NEXT, "Next tab"),
     (TAB_PREVIOUS, "Previous tab"),
     (TAB_MOVE_LEFT, "Move tab left"),

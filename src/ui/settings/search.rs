@@ -14,6 +14,12 @@ struct Target {
 
 const TARGETS: &[Target] = &[
     Target {
+        id: "units",
+        page: "general",
+        title: "Units",
+        aliases: "metric imperial kilometres miles metres feet distance elevation route gpx fit kml",
+    },
+    Target {
         id: "language",
         page: "general",
         title: "Language",
@@ -282,6 +288,12 @@ const TARGETS: &[Target] = &[
         page: "theme",
         title: "Show thumbnails",
         aliases: "appearance images pictures photos videos documents thumbnails icons previews disable",
+    },
+    Target {
+        id: "stl-thumbnails",
+        page: "theme",
+        title: "STL model thumbnails",
+        aliases: "appearance 3d stl models printing mesh rendered thumbnails icons",
     },
     Target {
         id: "file-icon-colors",

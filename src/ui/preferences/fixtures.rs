@@ -9,7 +9,8 @@ pub(in crate::ui) fn non_default_preferences() -> Preferences {
     Preferences {
         mode: "theme".into(),
         theme: "nord".into(),
-        omarchy_variant: OmarchyVariant::Darker,
+        legacy_omarchy_variant: None,
+        omarchy_variants: HashMap::from([("fixture".into(), OmarchyVariant::Lighter)]),
         folder_peeking: true,
         single_click_previews: false,
         columns_mirror_selection: false,
@@ -34,6 +35,9 @@ pub(in crate::ui) fn non_default_preferences() -> Preferences {
         file_icon_colors: FileIconColors::Theme,
         browser_mode: "list".into(),
         browser_density: "airy".into(),
+        browser_density_custom_px: 11,
+        frame_density: "custom".into(),
+        frame_density_custom_px: 6,
         group_by_type: true,
         columns_file_clicks: 1,
         columns_folder_clicks: 2,
@@ -78,10 +82,12 @@ pub(in crate::ui) fn non_default_preferences() -> Preferences {
         preview_muted: true,
         preview_volume: 0.35,
         preview_text_wrap: true,
+        unit_system: UnitSystem::Imperial,
         preview_autoplay: true,
         watch_network_folders: false,
         thumbnail_workers: 6,
         show_thumbnails: false,
+        stl_thumbnails: true,
         icons_thumbnail_size: 128,
         chooser_column_width: Some(420),
         browser_column_width: Some(380),
@@ -174,7 +180,7 @@ pub(in crate::ui) fn seed_saved_preferences_for_test() {
 
 pub(in crate::ui) fn seed_omarchy_for_test() {
     seed_omarchy_colors_for_test(
-        "background = '#112233'\nforeground = '#ddeeff'\naccent = '#445566'\n",
+        "background = '#112233'\ndark_background = '#0a1520'\nforeground = '#ddeeff'\naccent = '#445566'\n",
     );
 }
 

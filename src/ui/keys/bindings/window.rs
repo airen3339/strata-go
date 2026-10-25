@@ -72,6 +72,7 @@ catalog! {
 
         TAB_NEW: Command "tab_new" = Binding::ctrl(Key::t);
         TAB_CLOSE: Command "tab_close" = Binding::ctrl(Key::w);
+        TAB_REOPEN: Command "tab_reopen" = Binding::ctrl_shift(Key::t);
         TAB_NEXT: Command "tab_next" =>
             [Binding::ctrl(Key::Tab), Binding::ctrl(Key::Page_Down)];
         TAB_PREVIOUS: Command "tab_previous" =>

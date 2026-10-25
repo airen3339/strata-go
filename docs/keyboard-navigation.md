@@ -21,6 +21,10 @@ for the full rules.
 
 In regular and 10xer modes, **Ctrl+T** opens a tab at the active location,
 **Ctrl+W** closes the active tab, and **Ctrl+Tab / Ctrl+Shift+Tab** cycles tabs.
+**Ctrl+Shift+T** reopens the last closed tab at its previous location and position.
+Repeat it to reopen up to 20 recently closed tabs in reverse closure order.
+Closed-tab history belongs to the current window and is cleared when it closes;
+reopened tabs start with fresh selection, navigation history, and preview state.
 **Ctrl+Page Up / Ctrl+Page Down** selects the previous / next tab in strip order,
 wrapping at either end, like the tab shortcuts in web browsers.
 **Ctrl+Shift+Page Up / Ctrl+Shift+Page Down** moves the active tab one position
@@ -58,9 +62,23 @@ The Material-style strip appears when there is more than one tab. The plus and
 window-close controls move into it and return to the normal header when only
 one tab remains. Scroll the strip horizontally (or use the wheel) when it
 outgrows the window; selecting a tab brings it into view without a scrollbar.
-Drag a tab label to reorder tabs. Drop files on a tab to transfer into its
-current directory, or hover there during a file drag to switch tabs and choose
-a folder in its listing. Existing copy/move modifiers and conflict handling apply.
+Drag a tab label to reorder tabs; an accent-colored insertion line shows where
+it will land. Sidebar locations offer **Open in New Tab** in their context menu
+and open in a new tab on middle-click. Dragging a sidebar location or folders
+from a file view marks on the strip where new tabs will open; drop there to
+create tabs at that position. **+** also accepts these drags, and is the drop
+target when a single tab leaves the strip hidden. Escape cancels the drag.
+Folder-only drags from a file view open tabs even over an existing tab header;
+they never move or copy the folders into that tab. Opening sidebar locations
+also leaves files and sidebar pins unchanged. These tab actions are not offered
+in file choosers.
+
+Drop files (or a mixed selection of files and folders) from a listing on a tab
+to transfer into its current directory, or hover there during a file drag to
+switch tabs and choose a folder in its listing. Existing copy/move modifiers
+and conflict handling apply. Escape cancels a file drag before it dismisses
+anything else: nothing transfers on release, and the selection, preview, and
+filter stay as they were.
 
 ## Input precedence
 
@@ -164,8 +182,11 @@ ignoring case. Queries of at least four letters or digits also allow one inserte
 missing, substituted, or adjacent swapped character within a whole filename word.
 Words are separated by punctuation or spaces. For example, `trahs` finds
 `strata-trash.svg`, but `trash` does not find `strata-search.svg`. Shorter queries
-and queries containing punctuation remain literal. Indexed results rank literal
-matches ahead of typo matches; parent paths do not qualify a result.
+and queries containing punctuation remain literal. A query with spaces first
+matches the whole phrase, then names that contain every word in any order, so
+`duck txt` also finds `ducks_in_the_pool.txt`. Indexed results rank literal
+matches ahead of typo matches and scattered words; parent paths do not qualify
+a result.
 
 Add `*` for a whole-filename pattern without typo tolerance:
 
@@ -200,7 +221,9 @@ exists again; either way the filter ends. Neither adds a history entry.
 
 ## Preview while filtering
 
-In the browser and file chooser, **Down** from the Ctrl+F input focuses the selected result, or the first result if none is selected. **Up/Down** then navigate the results; **Up** from the first result returns to the input without clearing the query. **Ctrl+F** also returns to the input. With no matches, Down leaves focus in the input.
+In the browser and file chooser, **Enter** in the Ctrl+F input opens the top result. While the input has focus, the top result is outlined to show it, and stays scrolled into view as results arrive until you scroll the list yourself. Moving to or clicking another result makes Enter open that one instead, and takes the outline off. Changing the query drops that choice and the results' selection, so the outline and Enter return to the new top result. In a folder without a local path, such as a network share, the input narrows the listing itself instead of showing separate results; there a new query keeps the folder's selection, so Space and file actions still act on it, but Enter returns to the new top result all the same. The outline is not a selection: Space and file actions still need a selected result. The [10xer](10xer-mode.md) **f** and **s** prompts keep their own two-step Enter and show no outline.
+
+**Down** from the Ctrl+F input focuses the outlined top result, or the selected result once you have chosen one. **Up/Down** then navigate the results; **Up** from the first result returns to the input without clearing the query. **Ctrl+F** also returns to the input. With no matches, Down leaves focus in the input.
 
 **Menu/Shift+F10** on a focused result opens its file menu. While the input itself is focused, its text-editing menu remains available. **Space** toggles quick preview for a selected file result in Columns, Icons, and List, including after returning to the query. Previewing a file keeps the query, selection, and current directory intact; on a selected folder result, Space navigates into the folder instead.
 

@@ -32,7 +32,7 @@ use super::{
         arm_spring_load_navigation, file_drag_hover_target, file_drop_action, file_drop_commit,
         locations_from_file_list_value, prepare_file_drop_target, show_error_dialog,
     },
-    browser_modes::{BrowserDensity, BrowserMode},
+    browser_modes::BrowserMode,
     controls::{ModalTone, focus_button, message_dialog_description, message_dialog_layout},
     keys::{
         KeyPress,
@@ -48,6 +48,7 @@ use super::{
 
 mod bookmarks;
 mod composition;
+mod density_slider;
 mod device_labels;
 mod device_release;
 mod devices;
@@ -900,56 +901,21 @@ pub(super) fn build_appearance_menu(
     });
     content.append(&preview_toggle);
 
+    let hidden_files_shown = preferences.sort_preferences().show_hidden;
     content.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
     append_menu_heading(&content, &crate::i18n::tr("DENSITY"));
-    let current_density = preferences.browser_density();
-    let hidden_files_shown = preferences.sort_preferences().show_hidden;
-    let (compact, compact_check, _) = appearance_option(
-        crate::assets::icons::ROWS,
-        "Compact",
-        current_density == BrowserDensity::Compact,
-        true,
-        gtk::AccessibleRole::MenuItemRadio,
-    );
-    let (airy, airy_check, _) = appearance_option(
-        crate::assets::icons::ROWS,
-        "Airy",
-        current_density == BrowserDensity::Airy,
-        true,
-        gtk::AccessibleRole::MenuItemRadio,
-    );
-    preferences.bind_preference(
-        &compact_check,
+    content.append(&density_slider::density_slider(
+        &preferences,
+        "Frame",
+        PreferenceManager::frame_density,
+        PreferenceManager::set_frame_density,
+    ));
+    content.append(&density_slider::density_slider(
+        &preferences,
+        "Content",
         PreferenceManager::browser_density,
-        |widget, density| widget.set_visible(density == BrowserDensity::Compact),
-    );
-    preferences.bind_preference(
-        &airy_check,
-        PreferenceManager::browser_density,
-        |widget, density| widget.set_visible(density == BrowserDensity::Airy),
-    );
-    {
-        let preferences = preferences.clone();
-        let popover_weak = popover_weak.clone();
-        compact.connect_clicked(move |_| {
-            preferences.set_browser_density(BrowserDensity::Compact);
-            if let Some(popover) = popover_weak.upgrade() {
-                popover.popdown();
-            }
-        });
-    }
-    {
-        let preferences = preferences.clone();
-        let popover_weak = popover_weak.clone();
-        airy.connect_clicked(move |_| {
-            preferences.set_browser_density(BrowserDensity::Airy);
-            if let Some(popover) = popover_weak.upgrade() {
-                popover.popdown();
-            }
-        });
-    }
-    content.append(&compact);
-    content.append(&airy);
+        PreferenceManager::set_browser_density,
+    ));
 
     content.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
     append_menu_heading(&content, &crate::i18n::tr("TEXT SIZE"));
@@ -1527,6 +1493,11 @@ fn sync_sidebar_button(button: &gtk::Button, rail: bool) {
                     continue;
                 }
                 button.set_tooltip_text(rail.then_some(label.label().as_str()));
+                if rail {
+                    crate::ui::accessibility::set_stand_in_label(button, &label.label());
+                } else {
+                    crate::ui::accessibility::clear_stand_in_label(button);
+                }
                 label.set_visible(!rail);
             }
         }
@@ -2074,7 +2045,10 @@ impl SidebarState {
         let row = sidebar_button(crate::assets::icons::CLOCK, &crate::i18n::tr("Recent"));
         crate::ui::accessibility::set_description(&row, Some("recent:///"));
         self.add_place_keycap(&row, super::keys::bindings::GO_RECENT);
-        self.bind_place_row(&row, location, PlaceNavigation::Direct);
+        self.bind_place_row(&row, location.clone(), PlaceNavigation::Direct);
+        self.attach_place_context_menu(&row, location, |state| {
+            state.preference_manager.set_sidebar_show_recent(false);
+        });
         self.append_sidebar_row(&row);
         self.make_place_reorderable(&row, "recent");
     }
@@ -2112,6 +2086,13 @@ impl SidebarState {
             .build();
         popover.add_css_class("folder-context-popover");
         popover.set_parent(&row);
+        sidebar::append_open_in_tab(
+            &menu,
+            &popover,
+            &row,
+            &self.view,
+            &Location::uri("trash:///"),
+        );
         let properties_popover = popover.downgrade();
         let properties_view = self.view.downgrade();
         properties.connect_clicked(move |_| {
@@ -2178,38 +2159,25 @@ impl SidebarState {
         row.add_css_class("reorderable");
         row.set_cursor_from_name(Some("pointer"));
 
-        let drag = gtk::DragSource::builder()
-            .actions(gtk::gdk::DragAction::MOVE)
-            .build();
-        let weak_state = Rc::downgrade(self);
-        let source_payload = payload.clone();
-        drag.connect_prepare(move |_, _, _| {
-            let payload = &source_payload;
-            let content = gtk::gdk::ContentProvider::for_value(&payload.to_value());
-            if let Some(index) = parse_pinned_drag_source(payload)
-                && let Some(state) = weak_state.upgrade()
-                && let Some(place) = state.pinned_places.borrow().get(index)
-            {
-                pinned_drop::start_reorder(&content, place.clone());
-            }
-            Some(content)
-        });
-        drag.connect_drag_begin(move |drag, _| {
-            if let Some(row) = drag.widget() {
-                row.add_css_class("dragging");
-                row.set_cursor_from_name(Some("grabbing"));
-            }
-        });
-        let end_feedback = self.drop_feedback.clone();
-        drag.connect_drag_end(move |drag, _, _| {
-            pinned_drop::clear_reorder();
-            end_feedback.reset();
-            if let Some(row) = drag.widget() {
-                row.remove_css_class("dragging");
-                row.set_cursor_from_name(Some("pointer"));
-            }
-        });
-        row.add_controller(drag);
+        let pinned = parse_pinned_drag_source(&payload);
+        let folder = pinned
+            .and_then(|index| self.pinned_places.borrow().get(index).cloned())
+            .or_else(|| {
+                self.place_rows
+                    .borrow()
+                    .iter()
+                    .find(|(_, candidate)| candidate == row)
+                    .map(|(location, _)| (location.clone(), location.display_path()))
+            });
+        if let Some(folder) = folder {
+            sidebar::install_drag(
+                row,
+                folder,
+                payload.clone(),
+                pinned.is_some(),
+                self.drop_feedback.clone(),
+            );
+        }
 
         let on_drop: SidebarReorder = Rc::new(on_drop);
         self.install_reorder_target(row, payload.clone(), None, on_drop.clone());
@@ -2446,6 +2414,7 @@ impl SidebarState {
             return Some(ids);
         }
         if let Some(location) = mounted_location {
+            sidebar::install_open_in_tab(&row, &self.view, &location, &self.drop_feedback);
             self.place_rows
                 .borrow_mut()
                 .push((location.clone(), row.clone()));
@@ -2598,6 +2567,7 @@ impl SidebarState {
             .build();
         popover.add_css_class("folder-context-popover");
         popover.set_parent(&row);
+        sidebar::append_open_in_tab(&menu, &popover, &row, &self.view, &properties_location);
 
         let properties_popover = popover.downgrade();
         let properties_view = self.view.downgrade();
@@ -2748,6 +2718,7 @@ impl SidebarState {
             .build();
         popover.add_css_class("folder-context-popover");
         popover.set_parent(row);
+        sidebar::append_open_in_tab(&menu, &popover, row, &self.view, &location);
 
         if let Some((button, action)) = extra_item {
             let popover = popover.downgrade();
@@ -4366,6 +4337,16 @@ fn attach_device_actions_menu(
         .build();
     popover.add_css_class("folder-context-popover");
     popover.set_parent(row);
+    let mounted_location = properties
+        .as_ref()
+        .and_then(|target| match target {
+            drive_dialogs::PropertiesTarget::Volume(volume) => volume.get_mount(),
+            drive_dialogs::PropertiesTarget::Mount(mount) => Some(mount.clone()),
+        })
+        .and_then(|mount| location_for_file(&mount.root()));
+    if let Some(location) = mounted_location {
+        sidebar::append_open_in_tab(&menu, &popover, row, view, &location);
+    }
     if let (Some(action), Some(on_crypto)) = (actions.encrypted, on_crypto) {
         let option = sidebar_context_option(action.icon(), action.label(), false);
         menu.append(&option);

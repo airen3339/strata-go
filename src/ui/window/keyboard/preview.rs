@@ -94,6 +94,22 @@ impl Dispatcher {
             PreviewSurface::Archive => self.preview_archive_key(browser, press),
             PreviewSurface::Media => self.preview_media_key(browser, press),
             PreviewSurface::Control | PreviewSurface::Text => {
+                if surface == PreviewSurface::Control
+                    && self.preview.feedback_action_focused(&focused)
+                {
+                    // Arrows would otherwise walk GTK focus out of the drawer.
+                    if press.is(LEFT.or_alternates()) {
+                        self.return_from_preview(browser);
+                        return Some(Propagation::Stop);
+                    }
+                    if press.is_any(&[
+                        UP.or_alternates(),
+                        DOWN.or_alternates(),
+                        RIGHT.or_alternates(),
+                    ]) {
+                        return Some(Propagation::Stop);
+                    }
+                }
                 // A focused button or slider keeps GTK's Enter.
                 let listing = surface == PreviewSurface::Control
                     && !press.is(ENTER_ANY)
@@ -155,6 +171,11 @@ impl Dispatcher {
     fn preview_document_key(&self, press: &KeyPress) -> bool {
         if press.is(LEFT.or_alternates()) {
             self.return_from_preview(&self.view.browser());
+            return true;
+        }
+        if (press.is(DOWN.or_alternates()) || press.is(RIGHT.or_alternates()))
+            && self.preview.focus_feedback_action()
+        {
             return true;
         }
         let motions: [(&dyn Match, DocumentScroll); 13] = [

@@ -48,6 +48,10 @@ extend-ignore-re = [
 pard = "pard"
 headerr = "headerr"
 falt = "falt"
+# OpenDocument (ODF) and its XSL-FO attribute namespace.
+ODF = "ODF"
+fo = "fo"
+FO = "FO"
 Omarchy = "Omarchy"
 Hyprland = "Hyprland"
 JetBrains = "JetBrains"
@@ -62,3 +66,5 @@ mak = "mak"
 edn = "edn"
 ags = "ags"
 tese = "tese"
+# The `--qa` reply field for captured GLib warnings and criticals.
+criticals = "criticals"
