@@ -70,12 +70,14 @@ pub(super) fn form_entry() -> gtk::Entry {
     entry
 }
 
+type LengthMeasure = fn(&str) -> usize;
+
 #[derive(Clone)]
 pub(super) struct FormTextField {
     pub widget: gtk::Box,
     pub entry: gtk::Entry,
     remaining: gtk::Label,
-    measure: Rc<Cell<fn(&str) -> usize>>,
+    measure: Rc<Cell<LengthMeasure>>,
 }
 
 fn character_count(text: &str) -> usize {
@@ -117,7 +119,7 @@ impl FormTextField {
 
     /// Measures the limit with `measure`, such as bytes or UTF-16 units, and
     /// trims the current text to fit.
-    pub fn set_limit(&self, max_length: i32, measure: fn(&str) -> usize) {
+    pub fn set_limit(&self, max_length: i32, measure: LengthMeasure) {
         self.measure.set(measure);
         if self.entry.max_length() != max_length {
             self.entry.set_max_length(max_length);
@@ -157,7 +159,7 @@ impl FormTextField {
         Self::update_remaining(&self.entry, &self.remaining, self.measure.get());
     }
 
-    fn update_remaining(entry: &gtk::Entry, remaining: &gtk::Label, measure: fn(&str) -> usize) {
+    fn update_remaining(entry: &gtk::Entry, remaining: &gtk::Label, measure: LengthMeasure) {
         let limit = entry.max_length();
         remaining.set_visible(limit > 0);
         let count = (limit as usize).saturating_sub(measure(&entry.text()));
@@ -165,7 +167,7 @@ impl FormTextField {
     }
 }
 
-fn fitting_prefix(text: &str, room: usize, measure: fn(&str) -> usize) -> &str {
+fn fitting_prefix(text: &str, room: usize, measure: LengthMeasure) -> &str {
     let end = text
         .char_indices()
         .map(|(start, character)| start + character.len_utf8())
