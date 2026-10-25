@@ -20,7 +20,7 @@ use super::{ArchiveError, ArchiveOutcome, ExtractionSession, MemberContent, Memb
 use crate::{
     adapters::local_operations::{
         archive::fixtures::{EXTRACTION_STAGE, expected_mode, stages},
-        tests::fs_quirks::{FsQuirks, Op, Preset, Quirks, skips_malformed_name_on_fuse},
+        tests::fs_quirks::{FsQuirks, Op, Preset, Quirks, Support, skips_malformed_name_on_fuse},
     },
     model::Location,
     services::{RenameCause, RenamedItem, SkippedItem, SpecialKind, TransferReport},
@@ -1611,6 +1611,52 @@ fn links_the_destination_cannot_hold_are_left_out_with_hard_links_to_them()
                 fs::metadata(root.path().join("bin/10_00"))?.ino()
             );
         }
+    }
+    Ok(())
+}
+
+#[test]
+fn a_hard_link_the_destination_cannot_hold_is_copied_and_the_rest_still_extracts()
+-> Result<(), Box<dyn Error>> {
+    use Member::{File, Folder, Hard};
+    let members: &[(&[u8], Member<'_>)] = &[
+        (b"d", Folder),
+        (b"d/a.txt", File),
+        (b"d/b.txt", Hard("d/a.txt")),
+        (b"d/c.txt", Hard("d/b.txt")),
+        (b"d/e.txt", File),
+    ];
+    let refusing = |errno| Quirks {
+        links: Support::Rejected(errno),
+        ..Quirks::ext4()
+    };
+    for (quirks, shares_inode) in [
+        (Quirks::ext4(), true),
+        (Quirks::vfat(), false),
+        (Quirks::exfat_fuse(), false),
+        (refusing(Errno::OPNOTSUPP), false),
+    ] {
+        let root = tempfile::tempdir()?;
+        let _quirks = FsQuirks::install(root.path(), quirks);
+        let mut report = TransferReport::default();
+
+        let outcome = extract_members(root.path(), ARCHIVE, members, Ok(()), &mut report)?;
+
+        assert!(
+            matches!(&outcome, ArchiveOutcome::Completed(Some(name)) if name == "d"),
+            "{outcome:?}"
+        );
+        assert_eq!(
+            entries(root.path())?,
+            ["d/", "d/a.txt", "d/b.txt", "d/c.txt", "d/e.txt"]
+        );
+        for name in ["a.txt", "b.txt", "c.txt", "e.txt"] {
+            assert_eq!(fs::read(root.path().join("d").join(name))?, b"data");
+        }
+        assert!(report.skipped.is_empty(), "{:?}", report.skipped);
+        let inode = |name| fs::metadata(root.path().join("d").join(name)).map(|meta| meta.ino());
+        assert_eq!(inode("a.txt")? == inode("b.txt")?, shares_inode);
+        assert_eq!(inode("a.txt")? == inode("c.txt")?, shares_inode);
     }
     Ok(())
 }

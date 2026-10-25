@@ -325,14 +325,28 @@ impl<'a> ExtractionSession<'a> {
             MemberContent::Symlink(_) => Placement::LeftOut(resolver.requested(staging, &path)?),
             MemberContent::HardLink(_) => match hard_link_target.flatten() {
                 Some(target) => {
-                    let (placed, ()) = resolver
-                        .leaf(staging, &path, |placed| {
-                            staging.create_hard_link(placed, &target)
-                        })
-                        .map_err(|unmade| {
-                            unmade.worded(|error| hard_link_failed(&path, &target, error))
-                        })?;
-                    Placement::Made(resolver.made(placed))
+                    let linked = resolver.leaf(staging, &path, |placed| {
+                        staging.create_hard_link(placed, &target)
+                    });
+                    match linked {
+                        Ok((placed, ())) => Placement::Made(resolver.made(placed)),
+                        Err(unmade) => {
+                            // A mount that cannot hold hard links gets a copy instead.
+                            if matches!(unmade, Unmade::Unheld(_))
+                                && let Ok(Some((mut source, size))) =
+                                    staging.open_extracted(&target)
+                            {
+                                return self.extract_member(
+                                    &path,
+                                    MemberContent::File(&mut source, Some(size)),
+                                    metadata,
+                                );
+                            }
+                            return Err(unmade
+                                .worded(|error| hard_link_failed(&path, &target, error))
+                                .into());
+                        }
+                    }
                 }
                 None => Placement::LeftOut(resolver.requested(staging, &path)?),
             },
