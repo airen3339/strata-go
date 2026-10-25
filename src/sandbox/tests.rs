@@ -32,7 +32,7 @@ fn renderer_outputs_are_never_read_through_symlinks() {
     let dir = tempfile::tempdir().expect("scratch directory");
     let real = dir.path().join("host-file");
     fs::write(&real, b"2 5").expect("host file");
-    for name in ["result.png", "result.meta", "result.model"] {
+    for name in ["result.png", "result.meta", "result.model", "result.error"] {
         let link = dir.path().join(name);
         std::os::unix::fs::symlink(&real, &link).expect("planted symlink");
         assert!(super::read_private_output(&link, 256).is_err());
@@ -1179,4 +1179,76 @@ fn a_sandbox_is_waited_for_until_the_init_of_its_namespace_has_exited() {
         assert_eq!(gone, 1, "{row}: the namespace init still runs");
         assert!(started.elapsed() < Duration::from_secs(2), "{row}");
     }
+}
+
+#[test]
+fn preview_sweep_removes_unlocked_preview_directories_and_keeps_everything_else() {
+    let tmp = tempfile::tempdir().expect("scratch directory");
+    let live = PrivateOutput::create_in(tmp.path()).expect("live preview directory");
+    let live_name = live
+        .path()
+        .file_name()
+        .expect("name")
+        .to_string_lossy()
+        .into_owned();
+    let orphaned_with_our_pid = format!("strata-preview-{}-0", std::process::id());
+    for name in [
+        orphaned_with_our_pid.as_str(),
+        "strata-preview-1-1",
+        "strata-preview-bogus-3",
+        "strata-preview-7",
+        "unrelated",
+    ] {
+        fs::create_dir(tmp.path().join(name)).expect("fixture directory");
+    }
+    fs::write(tmp.path().join("strata-preview-5-9"), b"").expect("fixture file");
+    std::os::unix::fs::symlink(
+        tmp.path().join("unrelated"),
+        tmp.path().join("strata-preview-6-1"),
+    )
+    .expect("fixture symlink");
+
+    super::prune_orphaned_private_outputs(tmp.path());
+
+    let mut remaining: Vec<_> = fs::read_dir(tmp.path())
+        .expect("list scratch directory")
+        .map(|entry| {
+            entry
+                .expect("entry")
+                .file_name()
+                .to_string_lossy()
+                .into_owned()
+        })
+        .collect();
+    remaining.sort();
+    let mut expected = vec![
+        live_name,
+        "strata-preview-5-9".to_owned(),
+        "strata-preview-6-1".to_owned(),
+        "strata-preview-7".to_owned(),
+        "strata-preview-bogus-3".to_owned(),
+        "unrelated".to_owned(),
+    ];
+    expected.sort();
+    assert_eq!(remaining, expected);
+}
+
+#[test]
+fn private_output_skips_leftover_directories_that_reuse_its_name() {
+    let tmp = tempfile::tempdir().expect("scratch directory");
+    let next = super::NEXT_DIRECTORY.load(std::sync::atomic::Ordering::Relaxed);
+    let leftovers: Vec<PathBuf> = (next..next + 4)
+        .map(|sequence| {
+            tmp.path()
+                .join(format!("strata-preview-{}-{sequence}", std::process::id()))
+        })
+        .collect();
+    for leftover in &leftovers {
+        fs::create_dir(leftover).expect("leftover directory");
+    }
+
+    let output = PrivateOutput::create_in(tmp.path()).expect("create past leftovers");
+
+    assert!(output.path().is_dir());
+    assert!(!leftovers.iter().any(|leftover| leftover == output.path()));
 }

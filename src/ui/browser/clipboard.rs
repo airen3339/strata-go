@@ -246,6 +246,10 @@ fn drag_snapshot_for_content(content: &gtk::gdk::ContentProvider) -> Option<Drag
     })
 }
 
+pub(crate) fn active_file_drag_source() -> Option<gtk::DragSource> {
+    ACTIVE_DRAG.with(|cell| cell.borrow().as_ref()?.source.upgrade())
+}
+
 pub(crate) fn clear_active_drag() {
     ACTIVE_DRAG.with(|cell| {
         cell.borrow_mut().take();

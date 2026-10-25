@@ -31,6 +31,7 @@ mod image_conversion;
 mod media;
 mod model;
 mod raw_metadata;
+mod route;
 
 const PROCESS_POLL_INTERVAL: Duration = Duration::from_millis(20);
 
@@ -216,10 +217,27 @@ pub(crate) fn run(arguments: &[String]) -> Result<(), String> {
         "document-inline-math" => (document_media::math(input, false)?, None),
         "preview-pdf" => {
             let (page, size) = pdf_render_request(value)?;
-            let (png, page, pages, text_layer) = render_pdf_page(input, page, size)?;
+            let uri = gio::File::for_path(input).uri();
+            let document = poppler::Document::from_file(&uri, None).map_err(|error| {
+                if error.matches(poppler::Error::Encrypted)
+                    && let Ok(bytes) =
+                        serde_json::to_vec(&crate::sandbox::PdfPreviewError::PasswordProtected)
+                {
+                    let _ = fs::write(output.with_file_name("result.error"), bytes);
+                }
+                error.to_string()
+            })?;
+            let (png, page, pages, text_layer) = render_pdf_page(&document, page, size)?;
             text_layer_bytes = text_layer;
             (png, Some(format!("{page} {pages}")))
         }
+        "preview-route" => match route::render(input, value) {
+            Ok(bytes) => (bytes, None),
+            Err(message) => {
+                let _ = fs::write(output.with_file_name("result.error"), message.as_bytes());
+                return Err(message);
+            }
+        },
         "preview-model" => {
             let progress = |stage| {
                 if let Ok(bytes) = serde_json::to_vec(&stage) {
@@ -424,11 +442,11 @@ pub(crate) fn browser_render(
         Operation::Raw => response.png = render_camera_raw(input, 256).unwrap_or_default(),
         Operation::Pdf => response.png = render_pdf_thumbnail(input, 256).unwrap_or_default(),
         Operation::Video => response.png = render_media(input, 256).unwrap_or_default(),
-        Operation::ThreeMfThumbnail | Operation::FreeCadThumbnail => {
-            let format = if operation == Operation::ThreeMfThumbnail {
-                crate::services::ModelFormat::ThreeMf
-            } else {
-                crate::services::ModelFormat::FreeCad
+        Operation::ThreeMfThumbnail | Operation::FreeCadThumbnail | Operation::GcodeThumbnail => {
+            let format = match operation {
+                Operation::ThreeMfThumbnail => crate::services::ModelFormat::ThreeMf,
+                Operation::GcodeThumbnail => crate::services::ModelFormat::Gcode,
+                _ => crate::services::ModelFormat::FreeCad,
             };
             response.png = model::thumbnail(input, format, 256, 256, &|_| {}).unwrap_or_default();
         }
@@ -814,12 +832,10 @@ fn render_pdf_thumbnail(path: &Path, size: i32) -> Result<Vec<u8>, String> {
 type PdfPageRender = (Vec<u8>, i32, i32, Option<Vec<u8>>);
 
 fn render_pdf_page(
-    path: &Path,
+    document: &poppler::Document,
     requested_page: i32,
     size: PdfRenderSize,
 ) -> Result<PdfPageRender, String> {
-    let uri = gio::File::for_path(path).uri();
-    let document = poppler::Document::from_file(&uri, None).map_err(|error| error.to_string())?;
     let pages = document.n_pages();
     if pages <= 0 {
         return Err("This PDF has no pages".to_owned());

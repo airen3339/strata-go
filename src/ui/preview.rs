@@ -50,6 +50,7 @@ mod model;
 mod pdf_ranges_tests;
 mod pdf_text;
 mod player_layout;
+mod route;
 mod session;
 pub(super) mod video;
 mod waveform;
@@ -96,7 +97,9 @@ pub(crate) fn entry_supports_quick_preview(entry: &FileEntry) -> bool {
     if !matches!(entry.kind, EntryKind::File | EntryKind::FileSymbolicLink) {
         return false;
     }
-    if crate::services::is_model(&entry.native_name) {
+    if crate::services::is_model(entry)
+        || crate::services::route_preview::RouteFormat::for_name(&entry.native_name).is_some()
+    {
         return entry.location.native_path().is_some();
     }
     if crate::sandbox::CoverFormat::for_name(&entry.native_name).is_some() {
@@ -199,6 +202,7 @@ struct PreviewState {
     raw_details_scroll: gtk::ScrolledWindow,
     raw_metadata_load: RefCell<Option<super::raw_details::MetadataLoad>>,
     open: gtk::Button,
+    allow_external_open: bool,
     print: gtk::Button,
     wrap: gtk::ToggleButton,
     text_view: RefCell<Option<sourceview5::View>>,
@@ -212,6 +216,7 @@ struct PreviewState {
     audio: RefCell<Option<AudioPreview>>,
     video: RefCell<Option<VideoPreview>>,
     model: RefCell<Option<model::ModelPreview>>,
+    route: RefCell<Option<Rc<route::RoutePlayer>>>,
     model_spinner: gtk::Spinner,
     model_view: Cell<crate::services::ModelView>,
     handed_off: RefCell<Option<crate::model::Location>>,
@@ -447,6 +452,7 @@ impl PreviewDrawer {
             raw_details_scroll,
             raw_metadata_load: RefCell::new(None),
             open: open.clone(),
+            allow_external_open,
             print: print.clone(),
             wrap: wrap.clone(),
             text_view: RefCell::new(None),
@@ -484,6 +490,7 @@ impl PreviewDrawer {
             audio: RefCell::new(None),
             video: RefCell::new(None),
             model: RefCell::new(None),
+            route: RefCell::new(None),
             model_spinner,
             model_view: Cell::default(),
             handed_off: RefCell::new(None),
@@ -569,11 +576,18 @@ impl PreviewDrawer {
                 };
                 let entry = state.current.borrow().clone();
                 if let Some(entry) = entry
-                    && crate::services::is_model(&entry.native_name)
-                    && state.revealer.reveals_child()
+                    && (crate::services::is_model(&entry)
+                        || crate::services::route_preview::RouteFormat::for_name(
+                            &entry.native_name,
+                        )
+                        .is_some())
                     && state.current_request.get().is_some()
                 {
-                    state.load(entry, 0);
+                    if state.sizing.is_suspended() {
+                        state.sizing.defer_load();
+                    } else if state.revealer.reveals_child() {
+                        state.load(entry, 0);
+                    }
                 }
             },
         );
@@ -863,6 +877,9 @@ impl Drop for PreviewState {
 
 impl PreviewState {
     fn media_command(self: &Rc<Self>, command: MediaCommand) -> bool {
+        if let Some(route) = self.route.borrow().as_ref() {
+            return route.command(command);
+        }
         match command {
             MediaCommand::Previous => return self.step_media(-1, true),
             MediaCommand::Next => return self.step_media(1, true),
@@ -1286,6 +1303,7 @@ impl PreviewState {
                     }
                     PreviewContent::Image
                     | PreviewContent::Model { .. }
+                    | PreviewContent::Route { .. }
                     | PreviewContent::Media
                     | PreviewContent::SandboxedMedia { .. }
                     | PreviewContent::Archive { .. }
@@ -1524,7 +1542,10 @@ impl PreviewState {
                     }
                     self.current_request.set(None);
                     let title = crate::i18n::tr("Preview unavailable");
-                    if !self.show_audio_error(&title, &detail, None)
+                    if message == crate::sandbox::PDF_PASSWORD_PROTECTED && self.allow_external_open
+                    {
+                        self.show_message_with_external_open(&title, &detail);
+                    } else if !self.show_audio_error(&title, &detail, None)
                         && !self.show_video_error(&title, &detail, None)
                     {
                         self.show_message(&title, &detail);
@@ -1711,9 +1732,10 @@ impl PreviewState {
                 self.rendered_text.replace(Some(state));
                 self.content.append(&view);
             }
+            PreviewContent::Route { preview } => self.render_route(preview),
             PreviewContent::Model { png, mesh } => self.render_model(png, mesh),
             PreviewContent::Rasterized { png } => {
-                let model = crate::services::is_model(&preview.entry.native_name);
+                let model = crate::services::is_model(&preview.entry);
                 let cover =
                     crate::sandbox::CoverFormat::for_name(&preview.entry.native_name).is_some();
                 self.print.set_visible(!model && !cover);
@@ -1803,7 +1825,7 @@ impl PreviewState {
                         self.render_video(preview.entry, source, &media, &preferences);
                         None
                     }
-                    None => {
+                    None | Some(MediaFamily::Route) => {
                         let (overlay, center_play) = self.build_media_view(&media);
                         let section = media_layout::section(&overlay, &media);
                         self.content.append(&section);
@@ -1832,7 +1854,7 @@ impl PreviewState {
                                     audio.view.start_silently();
                                 }
                             }
-                            None => {}
+                            None | Some(MediaFamily::Route) => {}
                         }
                     }
                     self.sizing.play_or_defer(&media);
@@ -2928,6 +2950,7 @@ impl PreviewState {
         self.media.borrow().is_some()
             || self.audio.borrow().is_some()
             || self.video.borrow().is_some()
+            || self.route.borrow().is_some()
     }
 
     fn stepping_family(&self) -> Option<MediaFamily> {
@@ -3060,6 +3083,9 @@ impl PreviewState {
     }
 
     fn reset_content(&self, keep: Option<MediaFamily>) {
+        if let Some(route) = self.route.borrow_mut().take() {
+            route.pause();
+        }
         self.model.borrow_mut().take();
         let owned = self.content_owns_keys();
         self.detach_find();
@@ -3081,7 +3107,7 @@ impl PreviewState {
         let retained = match keep {
             Some(MediaFamily::Audio) => audio.is_some(),
             Some(MediaFamily::Video) => video.is_some(),
-            None => false,
+            None | Some(MediaFamily::Route) => false,
         };
         if !retained {
             self.media_toggle_mute.replace(None);
@@ -3230,13 +3256,25 @@ impl PreviewState {
         self.show_message_with_icon(title, detail, None, None);
     }
 
+    fn show_message_with_external_open(&self, title: &str, detail: &str) {
+        let feedback = self.show_message_with_icon(title, detail, None, None);
+        let open = gtk::Button::with_label(&crate::i18n::tr("Open"));
+        open.add_css_class("suggested-action");
+        open.add_css_class("preview-feedback-action");
+        open.set_halign(gtk::Align::Center);
+        let header_open = self.open.clone();
+        open.connect_clicked(move |_| header_open.emit_clicked());
+        feedback.append(&open);
+        self.hand_keys_to(&open);
+    }
+
     fn show_message_with_icon(
         &self,
         title: &str,
         detail: &str,
         icon: Option<&str>,
         command: Option<&str>,
-    ) {
+    ) -> gtk::Box {
         self.clear_content();
         let box_ = gtk::Box::new(gtk::Orientation::Vertical, 7);
         box_.add_css_class("preview-feedback");
@@ -3261,6 +3299,7 @@ impl PreviewState {
             box_.append(&super::controls::copyable_command(command));
         }
         self.content.append(&box_);
+        box_
     }
 }
 
@@ -3419,6 +3458,7 @@ impl ListingPosition {
 enum MediaFamily {
     Audio,
     Video,
+    Route,
 }
 
 fn media_family(content_type: &str) -> Option<MediaFamily> {
@@ -3443,6 +3483,9 @@ fn entry_family(entry: &FileEntry) -> Option<MediaFamily> {
         .and_then(|extension| extension.to_str())
         .filter(|_| !entry.is_directory())
         .map(str::to_ascii_lowercase)?;
+    if crate::services::route_preview::RouteFormat::for_name(&entry.native_name).is_some() {
+        return Some(MediaFamily::Route);
+    }
     if entry.duration_seconds == MetadataValue::Unavailable {
         return None;
     }
