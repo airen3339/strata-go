@@ -332,16 +332,23 @@ impl<'a> ExtractionSession<'a> {
                         Ok((placed, ())) => Placement::Made(resolver.made(placed)),
                         Err(unmade) => {
                             // A mount that cannot hold hard links gets a copy instead.
-                            if matches!(unmade, Unmade::Unheld(_))
-                                && let Ok(Some((mut source, size))) =
-                                    staging.open_extracted(&target)
-                            {
-                                return self.extract_member(
-                                    &path,
-                                    MemberContent::File(&mut source, Some(size)),
-                                    metadata,
-                                );
-                            }
+                            let unmade = match unmade {
+                                unheld @ Unmade::Unheld(_) => match staging.open_extracted(&target)
+                                {
+                                    Ok(Some((mut source, size))) => {
+                                        return self.extract_member(
+                                            &path,
+                                            MemberContent::File(&mut source, Some(size)),
+                                            metadata,
+                                        );
+                                    }
+                                    Ok(None) => unheld,
+                                    Err(reason) => {
+                                        Unmade::Failed(hard_link_failed(&path, &target, &reason))
+                                    }
+                                },
+                                unmade => unmade,
+                            };
                             return Err(unmade
                                 .worded(|error| hard_link_failed(&path, &target, error))
                                 .into());

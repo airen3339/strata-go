@@ -1876,10 +1876,11 @@ fn members_the_destination_will_not_make_fail_the_extraction_naming_them_and_why
 -> Result<(), Box<dyn Error>> {
     use Member::{File, Folder, Hard, Link};
     let invalid = "The name isn’t valid at this location";
+    let io_failed = crate::services::io_error_message(&Errno::IO.into());
     // Only `py:3` has a stricter name; the destination refuses it too, and
     // the first refusal is the one reported.
     type Fails<'a> = &'a [(Op, &'a str, Errno)];
-    let rows: [(Entry<'_>, Fails<'_>, String); 9] = [
+    let rows: [(Entry<'_>, Fails<'_>, String); 10] = [
         (
             (b"bin/python3", Link(b"python")),
             &[(Op::Symlink, "python3", Errno::NOSPC)],
@@ -1928,6 +1929,16 @@ fn members_the_destination_will_not_make_fail_the_extraction_naming_them_and_why
             (b"bin/hard", Hard("bin/python")),
             &[(Op::Link, "hard", Errno::INVAL)],
             format!("Could not link “bin/hard” to “bin/python”: {invalid}"),
+        ),
+        // The copy that stands in for a hard link the mount cannot hold
+        // reports why its target could not be read, not the refused link.
+        (
+            (b"bin/hard", Hard("bin/python")),
+            &[
+                (Op::Link, "hard", Errno::PERM),
+                (Op::OpenSource, "python", Errno::IO),
+            ],
+            format!("Could not link “bin/hard” to “bin/python”: {io_failed}"),
         ),
     ];
     for (member, fails, failure) in rows {

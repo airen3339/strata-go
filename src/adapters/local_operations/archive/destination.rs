@@ -569,8 +569,8 @@ impl ExtractionDestination {
             })
     }
 
-    /// The extracted regular file at `path` and its size, opened for reading
-    /// without following links, or `None` when something else is there.
+    /// The extracted regular file at `path` and its size. A folder there gives
+    /// `None`; a link is not followed and fails to open.
     pub(super) fn open_extracted(
         &self,
         path: &Path,
