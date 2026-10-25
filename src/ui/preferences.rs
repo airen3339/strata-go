@@ -2041,10 +2041,10 @@ fn salvage_preferences(saved: toml::Table) -> Preferences {
     merged.try_into().unwrap_or_default()
 }
 
-/// Returns `value` if `accepts` takes it, otherwise whatever still passes after
-/// dropping its bad entries, level by level. `accepts` judges a candidate for
-/// this position with everything already kept elsewhere. A value of the wrong
-/// shape, or a record missing a required field, yields `None`.
+/// Returns `value` if `accepts` takes it, otherwise the entries that still pass
+/// after dropping the bad ones, level by level. Entries are tried alone, so
+/// salvage stays linear in a collection's size, and then checked together. A
+/// value of the wrong shape, or a record missing a required field, yields `None`.
 fn salvage_value(
     value: toml::Value,
     accepts: &dyn Fn(&toml::Value) -> bool,
@@ -2056,12 +2056,11 @@ fn salvage_value(
         toml::Value::Table(table) => {
             let mut kept = toml::Table::new();
             for (key, child) in table {
-                let in_context = |candidate: &toml::Value| {
-                    let mut trial = kept.clone();
-                    trial.insert(key.clone(), candidate.clone());
+                let alone = |candidate: &toml::Value| {
+                    let trial = toml::Table::from_iter([(key.clone(), candidate.clone())]);
                     accepts(&toml::Value::Table(trial))
                 };
-                if let Some(child) = salvage_value(child, &in_context) {
+                if let Some(child) = salvage_value(child, &alone) {
                     kept.insert(key, child);
                 }
             }
@@ -2070,12 +2069,9 @@ fn salvage_value(
         toml::Value::Array(items) => {
             let mut kept = Vec::new();
             for item in items {
-                let in_context = |candidate: &toml::Value| {
-                    let mut trial = kept.clone();
-                    trial.push(candidate.clone());
-                    accepts(&toml::Value::Array(trial))
-                };
-                if let Some(item) = salvage_value(item, &in_context) {
+                let alone =
+                    |candidate: &toml::Value| accepts(&toml::Value::Array(vec![candidate.clone()]));
+                if let Some(item) = salvage_value(item, &alone) {
                     kept.push(item);
                 }
             }
