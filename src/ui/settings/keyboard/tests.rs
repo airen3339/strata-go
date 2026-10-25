@@ -199,7 +199,7 @@ fn warning_saves_and_shows_inactive() {
             assert!(
                 notes(&row)
                     .iter()
-                    .any(|note| note.starts_with("Type-to-search takes e")),
+                    .any(|note| note.starts_with("e does nothing while type-to-search")),
                 "{:?}",
                 notes(&row)
             );
@@ -621,8 +621,8 @@ fn rows_read_their_own_table_in_either_mode() {
                     "; 1\u{2013}9 / ; 0 run custom actions",
                 ),
                 ("Tenxer rename:", "“Copy” also uses Ctrl+C"),
-                ("Default rename:", "Type-to-search takes e"),
-                ("Default rename:", "“New tab” reads Ctrl+T first"),
+                ("Default rename:", "e does nothing while type-to-search"),
+                ("Default rename:", "“New tab” takes Ctrl+T first"),
             ] {
                 assert!(
                     rows.iter()

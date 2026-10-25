@@ -948,11 +948,9 @@ fn message(map: Map, command: Command, finding: Finding) -> String {
     match finding.kind {
         Kind::Duplicate(other) => {
             let message = match conflicts::duplicate_outcome(map, command, finding.binding, other) {
-                Outcome::Wins => {
-                    "This key takes %{keys} from “%{other}”, which then stops working."
-                }
-                Outcome::Loses => "“%{other}” reads %{keys} first, so this key never runs.",
-                Outcome::Either => "“%{other}” also uses %{keys}, so only one of them works.",
+                Outcome::Wins => "Takes %{keys} from “%{other}”.",
+                Outcome::Loses => "“%{other}” takes %{keys} first.",
+                Outcome::Either => "“%{other}” also uses %{keys}.",
             };
             rust_i18n::t!(message, keys = keys, other = named(other)).into_owned()
         }
@@ -974,11 +972,9 @@ fn message(map: Map, command: Command, finding: Finding) -> String {
             shift = shift
         )
         .into_owned(),
-        Kind::TypeToSearchShadowed => {
-            plain("Type-to-search takes %{keys} while it is on, so this key does nothing.")
-        }
+        Kind::TypeToSearchShadowed => plain("%{keys} does nothing while type-to-search is on."),
         Kind::TextFieldLimit(FieldLimit::Typing) => {
-            plain("Text fields and menus type %{keys}, so it works only outside them.")
+            plain("Doesn't work while a text field or menu has focus.")
         }
         Kind::TextFieldLimit(FieldLimit::FieldKey) => {
             plain("Text fields use %{keys} for editing, so there it usually edits text instead.")
