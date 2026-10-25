@@ -504,9 +504,9 @@ fn format_filesystem_selection_updates_label_limit_and_validity() {
                     .expect("selected filesystem");
                 assert_eq!(selected.string(), format!("{} (current)", fs.label()));
                 let selected_fs = available.get(selector.selected() as usize).copied();
-                refresh_format_selection(selected_fs, &field.entry, &confirm);
+                refresh_format_selection(selected_fs, &field, &confirm);
                 field.entry.set_text("abcdefghijklmnop");
-                refresh_format_selection(selected_fs, &field.entry, &confirm);
+                refresh_format_selection(selected_fs, &field, &confirm);
                 assert_eq!(field.entry.text(), expected_text);
                 assert!(confirm.is_sensitive());
             }
@@ -522,39 +522,43 @@ fn format_filesystem_selection_updates_label_limit_and_validity() {
             );
             refresh_format_selection(
                 available.get(unsupported.selected() as usize).copied(),
-                &field.entry,
+                &field,
                 &confirm,
             );
             assert_eq!(field.entry.text(), "abcdefghijk");
             assert!(confirm.is_sensitive());
 
             let empty_combo = gtk::DropDown::from_strings(&[]);
-            refresh_format_validity(&[], &empty_combo, &field.entry, &confirm);
+            refresh_format_validity(&[], &empty_combo, &field, &confirm);
             assert!(!confirm.is_sensitive());
         },
     );
 }
 
 #[test]
-fn a_label_over_the_backend_limit_in_utf16_units_blocks_continue() {
+fn label_entry_stops_at_the_backend_limit_in_its_own_units() {
     crate::test_support::gtk_test(
-        "ui::window::drive_dialogs::tests::a_label_over_the_backend_limit_in_utf16_units_blocks_continue",
+        "ui::window::drive_dialogs::tests::label_entry_stops_at_the_backend_limit_in_its_own_units",
         || {
             let field = FormTextField::with_character_limit(11);
             let confirm = gtk::Button::new();
-            for (fs, label, allowed) in [
-                (FilesystemType::Exfat, "😀😀😀😀😀", true),
-                (FilesystemType::Exfat, "😀😀😀😀😀😀", false),
-                (FilesystemType::Fat32, "😀😀😀😀😀😀", false),
-                (FilesystemType::Ntfs, "😀😀😀😀😀😀", true),
+            for (fs, typed, kept) in [
+                (FilesystemType::Exfat, "😀😀😀😀😀", "😀😀😀😀😀"),
+                (FilesystemType::Exfat, "😀😀😀😀😀😀", "😀😀😀😀😀"),
+                (FilesystemType::Fat32, "ÉTIQUETTE12", "ÉTIQUETTE1"),
+                (FilesystemType::Fat32, "VOLUME-ÉTÉ", "VOLUME-ÉT"),
+                (FilesystemType::Ntfs, "😀😀😀😀😀😀", "😀😀😀😀😀😀"),
             ] {
                 field.entry.set_text("");
-                refresh_format_selection(Some(fs), &field.entry, &confirm);
-                field.entry.set_text(label);
-                refresh_format_selection(Some(fs), &field.entry, &confirm);
-                assert_eq!(field.entry.text(), label, "{fs:?} fits the entry");
-                assert_eq!(confirm.is_sensitive(), allowed, "{} {label}", fs.label());
+                refresh_format_selection(Some(fs), &field, &confirm);
+                field.entry.set_text(typed);
+                assert_eq!(field.entry.text(), kept, "{} {typed}", fs.label());
+                assert!(confirm.is_sensitive(), "{} {typed}", fs.label());
             }
+
+            refresh_format_selection(Some(FilesystemType::Fat32), &field, &confirm);
+            assert_eq!(field.entry.text(), "😀😀");
+            assert!(confirm.is_sensitive());
         },
     );
 }

@@ -178,11 +178,19 @@ fn filesystem_label_limits_match_backends() {
 }
 
 #[test]
-fn label_length_counts_utf16_code_units() {
-    assert_eq!(FilesystemType::label_len("BACKUP"), 6);
-    assert_eq!(FilesystemType::label_len("日本語"), 3);
-    assert_eq!(FilesystemType::label_len("😀😀😀😀😀"), 10);
-    assert_eq!(FilesystemType::label_len("😀😀😀😀😀😀"), 12);
+fn labels_fit_in_the_units_each_backend_counts() {
+    let emoji = |count| "😀".repeat(count);
+    for (fs, label, fits) in [
+        (FilesystemType::Exfat, "日本語のラベル".to_owned(), true),
+        (FilesystemType::Exfat, emoji(5), true),
+        (FilesystemType::Exfat, emoji(6), false),
+        (FilesystemType::Fat32, "ARCH_202609".to_owned(), true),
+        (FilesystemType::Fat32, "ÉTIQUETTE12".to_owned(), false),
+        (FilesystemType::Ntfs, emoji(16), true),
+        (FilesystemType::Ntfs, emoji(17), false),
+    ] {
+        assert_eq!(fs.label_fits(&label), fits, "{} {label}", fs.label());
+    }
 }
 
 #[test]

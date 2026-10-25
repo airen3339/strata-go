@@ -36,9 +36,16 @@ impl FilesystemType {
         }
     }
 
-    /// Backends count UTF-16 code units, so an emoji takes two.
-    pub(super) fn label_len(label: &str) -> usize {
-        label.encode_utf16().count()
+    /// The unit `max_label_len` counts, as libblockdev checks it before UDisks wipes.
+    pub(super) fn label_measure(self) -> fn(&str) -> usize {
+        match self {
+            Self::Fat32 => str::len,
+            Self::Ntfs | Self::Exfat => |label| label.encode_utf16().count(),
+        }
+    }
+
+    pub(super) fn label_fits(self, label: &str) -> bool {
+        self.label_measure()(label) <= self.max_label_len()
     }
 
     pub(super) fn label_character_error(self, label: &str) -> Option<String> {
@@ -326,7 +333,7 @@ pub(super) async fn format_volume(
     if !is_eligible(Some(&volume)) {
         return Err(DriveOpError::DeviceNotFound);
     }
-    if FilesystemType::label_len(&label) > fs_type.max_label_len() {
+    if !fs_type.label_fits(&label) {
         return Err(DriveOpError::InvalidLabel(crate::i18n::tr(
             "Filesystem label is too long.",
         )));
