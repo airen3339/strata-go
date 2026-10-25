@@ -5,38 +5,40 @@ use std::{
     fs,
     os::unix::{ffi::OsStrExt as _, fs::PermissionsExt as _},
     path::{Path, PathBuf},
-    process::Command,
+    process::{Command, Stdio},
     time::{Duration, Instant},
 };
 
 use super::{
     SetupContext, disable_config, enable_config, install_at, install_file_manager_at,
-    refresh_configured_portal_at, refresh_stale_portal_at, secure_executable, succeeds_within,
+    output_within, refresh_configured_portal_at, refresh_stale_portal_at, secure_executable,
     uninstall_at, uninstall_file_manager_at,
 };
 
 const FILE_CHOOSER: &str = "org.freedesktop.impl.portal.FileChooser";
 
 #[test]
-fn a_helper_that_never_exits_is_stopped_at_the_deadline() {
-    let started = Instant::now();
-    assert!(!succeeds_within(
-        Command::new("sleep").arg("30"),
-        Duration::from_millis(200)
-    ));
-    assert!(started.elapsed() < Duration::from_secs(10));
-    assert!(succeeds_within(
-        &mut Command::new("true"),
-        Duration::from_secs(10)
-    ));
-    assert!(!succeeds_within(
-        &mut Command::new("false"),
-        Duration::from_secs(10)
-    ));
-    assert!(!succeeds_within(
-        &mut Command::new("strata-definitely-missing-tool"),
-        Duration::from_secs(10)
-    ));
+fn session_helpers_and_their_children_are_stopped_at_the_deadline() {
+    let run = |script: &str| {
+        let mut command = Command::new("sh");
+        command.args(["-c", script]).stdout(Stdio::piped());
+        let started = Instant::now();
+        let output = output_within(&mut command, Duration::from_millis(500));
+        assert!(started.elapsed() < Duration::from_secs(10), "{script}");
+        output
+    };
+    assert!(run("sleep 30; echo late").is_none());
+    let output = run("sleep 30 & echo ready").expect("wrapper exits");
+    assert!(output.status.success());
+    assert_eq!(output.stdout, b"ready\n");
+    assert!(!run("exit 3").expect("exits").status.success());
+    assert!(
+        output_within(
+            &mut Command::new("strata-definitely-missing-tool"),
+            Duration::from_secs(1)
+        )
+        .is_none()
+    );
 }
 
 #[test]

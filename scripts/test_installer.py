@@ -935,12 +935,17 @@ class InstallerTests(unittest.TestCase):
             self.assertEqual(fixture.recorded_calls(), [])
 
     def test_integration_failure_reports_that_the_application_is_installed(self) -> None:
-        for flag, status in (("--with-folder-association", 17), ("--with-file-chooser", 1), ("--with-udiskie-unlock", 1)):
-            with self.subTest(flag=flag), InstallerFixture(release_files={
+        for flag, status, xdg_mime in (
+            ("--with-folder-association", 17, "exit 17\n"),
+            ("--with-folder-association", 124, "exec sleep 20\n"),
+            ("--with-file-chooser", 1, None),
+            ("--with-udiskie-unlock", 1, None),
+        ):
+            with self.subTest(flag=flag, status=status), InstallerFixture(release_files={
                 "strata": '#!/bin/bash\nprintf "fixture integration failed\\n" >&2\nexit 17\n',
             }) as fixture:
-                if flag == "--with-folder-association":
-                    fixture.command("xdg-mime", "exit 17\n")
+                if xdg_mime is not None:
+                    fixture.command("xdg-mime", xdg_mime)
                 elif flag == "--with-udiskie-unlock":
                     fixture.command("udiskie", "exit 0\n")
                 result = fixture.run(flag)

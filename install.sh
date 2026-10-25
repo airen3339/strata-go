@@ -1514,9 +1514,9 @@ install_desktop_entry() {
   if [[ $make_default == yes ]]; then
     command -v xdg-mime >/dev/null 2>&1 \
       || die "xdg-mime is required to change the folder association."
-    xdg-mime default "$APP_ID.desktop" inode/directory
+    timeout 5 xdg-mime default "$APP_ID.desktop" inode/directory
     local current
-    current=$(xdg-mime query default inode/directory)
+    current=$(timeout 5 xdg-mime query default inode/directory)
     [[ $current == "$APP_ID.desktop" ]] \
       || die "The folder association did not change (current value: $current)."
     info "Strata is now the default application for folders."

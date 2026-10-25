@@ -8,13 +8,14 @@ pub(crate) mod udiskie;
 
 use std::{
     env, fs, io,
-    io::Write as _,
+    io::{Read as _, Write as _},
     os::unix::{
         ffi::OsStrExt as _,
         fs::{MetadataExt, OpenOptionsExt, PermissionsExt},
+        process::CommandExt as _,
     },
     path::{Path, PathBuf},
-    process::{Command, Stdio},
+    process::{Command, Output, Stdio},
     thread,
     time::{Duration, Instant},
 };
@@ -305,11 +306,12 @@ fn find_file_manager_conflict(service_directory: &Path) -> Result<Option<String>
 }
 
 fn query_default_file_manager() -> Option<String> {
-    crate::trusted_command::command("xdg-mime")
-        .ok()?
+    let mut command = crate::trusted_command::command("xdg-mime").ok()?;
+    command
         .args(["query", "default", INODE_DIRECTORY])
-        .output()
-        .ok()
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    output_within(&mut command, SESSION_COMMAND_DEADLINE)
         .filter(|output| output.status.success())
         .and_then(|output| String::from_utf8(output.stdout).ok())
         .map(|output| output.trim().to_owned())
@@ -317,12 +319,10 @@ fn query_default_file_manager() -> Option<String> {
 }
 
 fn set_default_file_manager() -> Result<(), String> {
-    let status = crate::trusted_command::command("xdg-mime")
-        .map_err(default_file_manager_error)?
-        .args(["default", DESKTOP_ID, INODE_DIRECTORY])
-        .status()
-        .map_err(default_file_manager_error)?;
-    if !status.success() {
+    let mut command =
+        crate::trusted_command::command("xdg-mime").map_err(default_file_manager_error)?;
+    command.args(["default", DESKTOP_ID, INODE_DIRECTORY]);
+    if !succeeds_within(&mut command) {
         return Err(crate::i18n::tr("The folder association did not change"));
     }
     let current = query_default_file_manager();
@@ -337,12 +337,10 @@ fn set_default_file_manager() -> Result<(), String> {
 }
 
 fn restore_default_file_manager(previous: &str) -> Result<(), String> {
-    let status = crate::trusted_command::command("xdg-mime")
-        .map_err(restore_file_manager_error)?
-        .args(["default", previous, INODE_DIRECTORY])
-        .status()
-        .map_err(restore_file_manager_error)?;
-    if !status.success() || query_default_file_manager().as_deref() != Some(previous) {
+    let mut command =
+        crate::trusted_command::command("xdg-mime").map_err(restore_file_manager_error)?;
+    command.args(["default", previous, INODE_DIRECTORY]);
+    if !succeeds_within(&mut command) || query_default_file_manager().as_deref() != Some(previous) {
         return Err(crate::i18n::tr(
             "Could not restore the previous file manager",
         ));
@@ -370,14 +368,10 @@ fn reload_dbus() {
     let _ = reload_dbus_config();
 }
 
-/// gdbus's own `--timeout` starts only after the connection exists, so a bus that never
-/// answers the handshake needs a deadline on the process.
 fn reload_dbus_config() -> bool {
-    let Ok(mut command) = crate::trusted_command::command("gdbus") else {
-        return false;
-    };
-    command
-        .args([
+    run_trusted(
+        "gdbus",
+        &[
             "call",
             "--session",
             "--timeout",
@@ -388,30 +382,52 @@ fn reload_dbus_config() -> bool {
             "/org/freedesktop/DBus",
             "--method",
             "org.freedesktop.DBus.ReloadConfig",
-        ])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
-    succeeds_within(&mut command, DBUS_RELOAD_DEADLINE)
+        ],
+    )
 }
 
-const DBUS_RELOAD_DEADLINE: Duration = Duration::from_secs(5);
+/// A session bus that accepts the connection but never answers the handshake blocks
+/// gdbus, systemctl and xdg-mime's dbus-send before their own timeouts start.
+const SESSION_COMMAND_DEADLINE: Duration = Duration::from_secs(5);
 
-fn succeeds_within(command: &mut Command, limit: Duration) -> bool {
-    let Ok(mut child) = command.spawn() else {
-        return false;
-    };
+fn succeeds_within(command: &mut Command) -> bool {
+    command.stdout(Stdio::null()).stderr(Stdio::null());
+    output_within(command, SESSION_COMMAND_DEADLINE).is_some_and(|output| output.status.success())
+}
+
+/// Runs the command in its own process group so a stuck helper started by a wrapper
+/// script is killed along with it.
+fn output_within(command: &mut Command, limit: Duration) -> Option<Output> {
+    use rustix::process::{Pid, Signal, WaitId, WaitIdOptions, kill_process_group, waitid};
+
+    let mut child = command.process_group(0).spawn().ok()?;
+    let group = Pid::from_child(&child);
     let deadline = Instant::now() + limit;
-    loop {
-        match child.try_wait() {
-            Ok(Some(status)) => return status.success(),
+    let exited = loop {
+        match waitid(
+            WaitId::Pid(group),
+            WaitIdOptions::EXITED | WaitIdOptions::NOWAIT | WaitIdOptions::NOHANG,
+        ) {
+            Ok(Some(_)) => break true,
             Ok(None) if Instant::now() < deadline => thread::sleep(Duration::from_millis(20)),
-            _ => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return false;
-            }
+            _ => break false,
         }
+    };
+    // The leader is not reaped yet, so its group id cannot have been reused.
+    let _ = kill_process_group(group, Signal::KILL);
+    let status = child.wait().ok()?;
+    if !exited {
+        return None;
     }
+    let mut stdout = Vec::new();
+    if let Some(mut pipe) = child.stdout.take() {
+        let _ = pipe.read_to_end(&mut stdout);
+    }
+    Some(Output {
+        status,
+        stdout,
+        stderr: Vec::new(),
+    })
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -1184,15 +1200,8 @@ fn refresh_portals() -> &'static str {
 }
 
 fn run_trusted(name: &str, args: &[&str]) -> bool {
-    crate::trusted_command::command(name)
-        .ok()
-        .and_then(|mut command| {
-            command
-                .args(args)
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .status()
-                .ok()
-        })
-        .is_some_and(|status| status.success())
+    crate::trusted_command::command(name).is_ok_and(|mut command| {
+        command.args(args);
+        succeeds_within(&mut command)
+    })
 }
