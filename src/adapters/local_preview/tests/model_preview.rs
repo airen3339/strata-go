@@ -175,6 +175,7 @@ fn gcode_entry(location: Location, name: &str) -> FileEntry {
         image_dimensions: MetadataValue::Unknown,
         child_count: MetadataValue::Unknown,
         duration_seconds: MetadataValue::Unknown,
+        listable: MetadataValue::Unknown,
         is_hidden: false,
         recent_uri: None,
     }
