@@ -4028,6 +4028,11 @@ impl Browser {
         {
             return;
         }
+        // The monitor reports the old name as removed, which moves the cursor and closes the
+        // child columns; a Move would keep a row that the listing never shows.
+        if entry.is_hidden && !self.preferences.get().show_hidden {
+            return;
+        }
         if let Some(parent) = old.parent() {
             let depths = (0..)
                 .map_while(|depth| self.location_at(depth).map(|location| (depth, location)))
