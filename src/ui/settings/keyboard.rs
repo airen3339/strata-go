@@ -191,7 +191,7 @@ pub(super) struct SearchTarget {
 
 pub(super) fn search_targets() -> Vec<SearchTarget> {
     let locale = rust_i18n::locale();
-    let catalog = crate::ui::actions::shared().catalog();
+    let catalog = crate::ui::actions::loaded_catalog();
     keys::registry()
         .map(|command| {
             let mut aliases = Vec::new();
