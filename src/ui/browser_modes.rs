@@ -4933,8 +4933,8 @@ fn install_modified_selection_click(
     click
 }
 
-/// This gesture claims modified clicks, so GTK never moves the origin its Shift+arrow range
-/// extends from. Only `list.select-item` does, and it replaces the selection, so the bits
+/// Modified clicks are claimed before GTK's own click handling, so GTK's Shift+arrow origin
+/// stays put. Only `list.select-item` moves it, and it replaces the selection, so the bits
 /// are put back.
 fn move_range_origin(
     row: &gtk::Widget,
