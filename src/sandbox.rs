@@ -67,6 +67,14 @@ impl MediaPreviewBackend {
     }
 }
 
+#[derive(serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum PdfPreviewError {
+    PasswordProtected,
+}
+
+pub(crate) const PDF_PASSWORD_PROTECTED: &str = "This PDF is password protected.";
+
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(crate) struct PdfRenderSize {
     pub(crate) width: i32,
@@ -331,7 +339,13 @@ impl ParseOperation {
             | Self::PreviewRaw
             | Self::RawMetadata
             | Self::PreviewPdf(_) => Some(MAX_RASTER_INPUT_BYTES),
-            Self::PreviewModel(_) | Self::ThumbnailModel(_) => Some(MAX_MODEL_INPUT_BYTES),
+            Self::PreviewModel(render) if render.format != ModelFormat::Gcode => {
+                Some(MAX_MODEL_INPUT_BYTES)
+            }
+            Self::ThumbnailModel(format) if *format != ModelFormat::Gcode => {
+                Some(MAX_MODEL_INPUT_BYTES)
+            }
+            Self::PreviewModel(_) | Self::ThumbnailModel(_) => None,
             Self::ThumbnailCover(_) | Self::PreviewCover(_) => {
                 Some(crate::sandbox_helper::archive_cover::MAX_INPUT_BYTES)
             }
@@ -603,10 +617,16 @@ fn parse_canonical(
             ParseOperation::PreviewModel(_)
                 | ParseOperation::InspectImage
                 | ParseOperation::ConvertImage
+                | ParseOperation::PreviewPdf(_)
         ) && let Ok(data) = read_private_output(&output.path().join("result.error"), 512)
-            && let Ok(message) = String::from_utf8(data)
         {
-            return Err(message);
+            if matches!(operation, ParseOperation::PreviewPdf(_)) {
+                if let Ok(PdfPreviewError::PasswordProtected) = serde_json::from_slice(&data) {
+                    return Err(PDF_PASSWORD_PROTECTED.to_owned());
+                }
+            } else if let Ok(message) = String::from_utf8(data) {
+                return Err(message);
+            }
         }
         return Err("The sandboxed preview renderer failed".to_owned());
     }
