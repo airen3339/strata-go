@@ -1249,6 +1249,7 @@
   "keys.name.home": "Home",
   "keys.name.insert": "插入",
   "keys.name.menu": "選單",
+  "keys.name.compose": "組合鍵",
   "keys.name.page_down": "下一頁",
   "keys.name.page_up": "上一頁",
   "keys.name.shift": "Shift",
@@ -1484,5 +1485,16 @@
   "Next model view": "下一個模型視角",
   "Camera position": "攝影機位置",
   "Binary STL": "二進位 STL",
-  "ASCII STL": "ASCII STL"
+  "ASCII STL": "ASCII STL",
+  "Keyboard": "鍵盤",
+  "Keyboard settings": "鍵盤設定",
+  "Shortcuts for each mode": "各模式的快捷鍵",
+  "KEYBOARD SHORTCUTS": "鍵盤快速鍵",
+  "Choose the keys that run each action. Default and 10xer mode each keep their own keys, and changes apply at once in every window.": "選擇執行每個動作的按鍵。預設與 10xer 模式各有自己的按鍵，變更會立即套用到所有視窗。",
+  "Reset all": "全部重設",
+  "Restore the shipped keys of every action in the shown mode.": "將顯示中模式的所有動作還原為原始按鍵。",
+  "Not bound": "未指派",
+  "Press a key…": "按下按鍵…",
+  "Turn off type-to-search": "關閉“輸入以搜尋”",
+  "settings_keywords.keyboard-shortcuts": "快捷鍵 快速鍵 按鍵 鍵盤 指派 重新指派 自訂 重設"
 }

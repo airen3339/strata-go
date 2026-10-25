@@ -319,6 +319,10 @@ pub(crate) struct Alternate {
 }
 
 impl Alternate {
+    pub(super) const fn command(self) -> Command {
+        self.command
+    }
+
     /// The binding at the alternate's position in the shipped entry. Once the
     /// entry is overridden, the first alternate shows all of it and the others
     /// nothing, so a row never hides a key the user added.

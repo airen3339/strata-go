@@ -536,7 +536,7 @@ fn bind_tenxer_unused_subtitle(
     manager.bind_preference(
         &description,
         PreferenceManager::shown_keys,
-        move |widget, (enabled, _)| {
+        move |widget, (enabled, ..)| {
             if let Some(label) = widget.downcast_ref::<gtk::Label>() {
                 label.set_text(&super::translated(if enabled { unused } else { normal }));
                 label.set_visible(true);

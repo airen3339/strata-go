@@ -542,6 +542,92 @@ fn digit_row_keys_are_digits_by_position() {
     assert!(de_mac_backslash.is(Binding::ctrl(Key::backslash)));
 }
 
+#[test]
+fn a_captured_press_records_the_key_dispatch_reads() {
+    let us = |keycode, level, typed, state| {
+        press(
+            &[US],
+            0,
+            keycode,
+            level,
+            typed,
+            (typed, state - SHIFT),
+            state,
+        )
+    };
+    let cases = [
+        (
+            us(12, 1, Key::numbersign, CTRL_SHIFT),
+            Binding::ctrl_shift(Key::_3),
+        ),
+        (
+            press(&[FR], 0, 10, 1, Key::_1, (Key::_1, CTRL), CTRL_SHIFT),
+            Binding::ctrl_shift(Key::_1),
+        ),
+        (
+            press(
+                &[DE],
+                0,
+                11,
+                1,
+                Key::quotedbl,
+                (Key::quotedbl, CTRL),
+                CTRL_SHIFT,
+            ),
+            Binding::ctrl_shift(Key::_2),
+        ),
+        (
+            us(12, 1, Key::numbersign, SHIFT),
+            Binding::plain(Key::numbersign),
+        ),
+        (us(12, 0, Key::_3, CTRL), Binding::ctrl(Key::_3)),
+        (
+            press(
+                &[DE],
+                0,
+                16,
+                3,
+                Key::backslash,
+                (Key::backslash, CTRL),
+                CTRL_SHIFT,
+            ),
+            Binding::ctrl(Key::backslash),
+        ),
+    ];
+    for (pressed, recorded) in cases {
+        assert_eq!(pressed.binding(), Some(recorded), "{pressed:?}");
+        assert!(pressed.is(recorded), "{pressed:?}");
+    }
+    assert_eq!(
+        us(12, 1, Key::numbersign, CTRL_SHIFT).digit_in(Digits::new(CTRL_SHIFT, 9, true)),
+        Some(3),
+        "tab numbers read the key the capture records"
+    );
+
+    // AZERTY's Ctrl+& is also Ctrl+1, which a capture must check as well.
+    let azerty_ctrl_1 = press(
+        &[FR],
+        0,
+        10,
+        0,
+        Key::ampersand,
+        (Key::ampersand, CTRL),
+        CTRL,
+    );
+    assert_eq!(azerty_ctrl_1.binding(), Some(Binding::ctrl(Key::ampersand)));
+    assert_eq!(azerty_ctrl_1.digit_position(), Some(Binding::ctrl(Key::_1)));
+    assert!(azerty_ctrl_1.is(Binding::ctrl(Key::_1)));
+    assert_eq!(us(12, 0, Key::_3, NONE).digit_position(), None);
+
+    // AltGr and a layout switch start a press rather than make one, and a
+    // key the keymap cannot load is never recorded.
+    for typed in [Key::ISO_Level3_Shift, Key::ISO_Next_Group] {
+        let held = press(&[DE], 0, 108, 0, typed, (typed, CTRL), CTRL);
+        assert!(held.is_modifier(), "{typed:?}");
+    }
+    assert_eq!(us(0, 0, Key::VoidSymbol, CTRL).binding(), None);
+}
+
 /// Real key events, which `forward` needs; an input method's `filter_key`
 /// builds them from a keycode.
 mod key_event {
@@ -852,6 +938,15 @@ mod labels {
             (Keys::One(Binding::ctrl(Key::backslash).shown()), "Ctrl+\\"),
             (Keys::One(Binding::plain(Key::F5).shown()), "F5"),
             (Keys::One(Binding::plain(Key::question).shown()), "?"),
+            (Keys::One(Binding::plain(Key::EuroSign).shown()), "€"),
+            (Keys::One(Binding::ctrl(Key::ae).shown()), "Ctrl+Æ"),
+            (Keys::One(Binding::plain(Key::ae).shown()), "æ"),
+            (
+                Keys::One(Binding::ctrl(Key::dead_circumflex).shown()),
+                "Ctrl+^",
+            ),
+            (Keys::One(Binding::plain(Key::dead_diaeresis).shown()), "¨"),
+            (Keys::One(Binding::plain(Key::Multi_key).shown()), "Compose"),
         ];
         for (keys, expected) in cases {
             assert_eq!(english(keys), expected);
@@ -915,6 +1010,11 @@ mod labels {
                 "Maj+Entrée",
             ),
             ("es", Keys::One(Binding::plain(Key::Delete).shown()), "Supr"),
+            (
+                "es",
+                Keys::One(Binding::ctrl(Key::Multi_key).shown()),
+                "Ctrl+Componer",
+            ),
             ("ru", Keys::One(Binding::ctrl(Key::c).shown()), "Ctrl+C"),
             (
                 "ja",

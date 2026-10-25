@@ -1293,6 +1293,7 @@
   "keys.name.home": "Home",
   "keys.name.insert": "Insert",
   "keys.name.menu": "Menu",
+  "keys.name.compose": "Compor",
   "keys.name.page_down": "Page Down",
   "keys.name.page_up": "Page Up",
   "keys.name.shift": "Shift",
@@ -1484,5 +1485,16 @@
   "Press Enter to close.": "Pressione Enter para fechar.",
   "The command opened in your terminal. Run diagnostics again when it finishes.": "O comando foi aberto no seu terminal. Execute o diagnóstico novamente quando ele terminar.",
   "Disabled": "Desativado",
-  "Open folder": "Abrir pasta"
+  "Open folder": "Abrir pasta",
+  "Keyboard": "Teclado",
+  "Keyboard settings": "Configurações de teclado",
+  "Shortcuts for each mode": "Atalhos de cada modo",
+  "KEYBOARD SHORTCUTS": "ATALHOS DE TECLADO",
+  "Choose the keys that run each action. Default and 10xer mode each keep their own keys, and changes apply at once in every window.": "Escolha as teclas que executam cada ação. O modo padrão e o modo 10xer têm teclas próprias, e as alterações valem na hora em todas as janelas.",
+  "Reset all": "Redefinir tudo",
+  "Restore the shipped keys of every action in the shown mode.": "Restaurar as teclas originais de todas as ações do modo exibido.",
+  "Not bound": "Não atribuído",
+  "Press a key…": "Pressione uma tecla…",
+  "Turn off type-to-search": "Desativar “Digite para buscar”",
+  "settings_keywords.keyboard-shortcuts": "atalhos teclas teclado atribuir reatribuir combinações redefinir"
 }

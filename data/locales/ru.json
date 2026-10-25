@@ -1293,6 +1293,7 @@
   "keys.name.home": "Home",
   "keys.name.insert": "Insert",
   "keys.name.menu": "Menu",
+  "keys.name.compose": "Compose",
   "keys.name.page_down": "Page Down",
   "keys.name.page_up": "Page Up",
   "keys.name.shift": "Shift",
@@ -1484,5 +1485,16 @@
   "Press Enter to close.": "Нажмите Enter, чтобы закрыть.",
   "The command opened in your terminal. Run diagnostics again when it finishes.": "Команда открыта в терминале. Когда она завершится, снова запустите диагностику.",
   "Disabled": "Отключено",
-  "Open folder": "Открыть папку"
+  "Open folder": "Открыть папку",
+  "Keyboard": "Клавиатура",
+  "Keyboard settings": "Настройки клавиатуры",
+  "Shortcuts for each mode": "Комбинации клавиш для каждого режима",
+  "KEYBOARD SHORTCUTS": "КОМБИНАЦИИ КЛАВИШ",
+  "Choose the keys that run each action. Default and 10xer mode each keep their own keys, and changes apply at once in every window.": "Выберите клавиши для каждого действия. У обычного режима и режима 10xer свои клавиши, а изменения сразу действуют во всех окнах.",
+  "Reset all": "Сбросить все",
+  "Restore the shipped keys of every action in the shown mode.": "Вернуть исходные клавиши всем действиям показанного режима.",
+  "Not bound": "Не назначено",
+  "Press a key…": "Нажмите клавишу…",
+  "Turn off type-to-search": "Выключить «Поиск при вводе»",
+  "settings_keywords.keyboard-shortcuts": "сочетания клавиши клавиатура назначить переназначить сбросить горячие"
 }

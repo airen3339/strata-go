@@ -213,3 +213,27 @@ fn conflicting_keys_in_the_file_are_logged_once_with_its_path() {
         },
     );
 }
+
+#[test]
+fn uppercase_letters_without_shift_are_logged() {
+    gtk_test(
+        "ui::preferences::tests::keymap::uppercase_letters_without_shift_are_logged",
+        || {
+            write_settings(
+                "[keymap.default]\nrename = [\"<Control>E\"]\n\n[keymap.tenxer]\nrename = [\"<Shift>R\"]\n",
+            );
+            let manager = PreferenceManager::shared();
+            let output = crate::test_support::capture_logs(|| {
+                manager.keymap();
+            });
+            let warning = "keymap accelerator names an uppercase letter without <Shift>";
+            let line = crate::test_support::captured_event(&output, warning);
+            assert!(line.contains("<Control>E"), "{line}");
+            assert_eq!(output.matches(warning).count(), 1, "{output}");
+            assert_eq!(
+                manager.keymap().bindings(Map::Default, RENAME),
+                [Binding::ctrl(Key::e)]
+            );
+        },
+    );
+}

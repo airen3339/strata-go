@@ -1293,6 +1293,7 @@
   "keys.name.home": "Inicio",
   "keys.name.insert": "Insert",
   "keys.name.menu": "Menú",
+  "keys.name.compose": "Componer",
   "keys.name.page_down": "Av Pág",
   "keys.name.page_up": "Re Pág",
   "keys.name.shift": "Mayús",
@@ -1484,5 +1485,16 @@
   "Press Enter to close.": "Pulsa Intro para cerrar.",
   "The command opened in your terminal. Run diagnostics again when it finishes.": "El comando se abrió en tu terminal. Vuelve a ejecutar el diagnóstico cuando termine.",
   "Disabled": "Desactivado",
-  "Open folder": "Abrir carpeta"
+  "Open folder": "Abrir carpeta",
+  "Keyboard": "Teclado",
+  "Keyboard settings": "Ajustes del teclado",
+  "Shortcuts for each mode": "Atajos de cada modo",
+  "KEYBOARD SHORTCUTS": "ATAJOS DE TECLADO",
+  "Choose the keys that run each action. Default and 10xer mode each keep their own keys, and changes apply at once in every window.": "Elige las teclas que ejecutan cada acción. El modo predeterminado y el modo 10xer tienen sus propias teclas, y los cambios se aplican al instante en todas las ventanas.",
+  "Reset all": "Restablecer todo",
+  "Restore the shipped keys of every action in the shown mode.": "Restaurar las teclas originales de todas las acciones del modo mostrado.",
+  "Not bound": "Sin asignar",
+  "Press a key…": "Pulsa una tecla…",
+  "Turn off type-to-search": "Desactivar «Escribe para buscar»",
+  "settings_keywords.keyboard-shortcuts": "atajos teclas teclado asignar reasignar combinaciones restablecer"
 }

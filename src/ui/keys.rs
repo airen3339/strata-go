@@ -12,6 +12,7 @@ use gtk::{
 
 mod alias;
 pub(crate) mod bindings;
+mod capture;
 mod command;
 mod composition;
 pub(crate) mod conflicts;
@@ -21,9 +22,12 @@ mod label;
 mod tests;
 
 pub(crate) use alias::install_native as install_native_aliases;
-pub(crate) use command::{Command, Keymap, Map, Matcher, Rejected};
+pub(crate) use capture::{Capture, capture};
 #[cfg(test)]
-pub(crate) use command::{registry, use_keymap};
+pub(crate) use command::use_keymap;
+pub(crate) use command::{
+    Command, Group, Keymap, Kind as CommandKind, Map, Matcher, Rejected, registry,
+};
 pub(crate) use label::{
     Digits, Keys, Shown, digit_label, label, label_in, label_in_map, modifiers_label,
     modifiers_label_in, search_text, shown,
@@ -127,7 +131,13 @@ impl Binding {
     /// position and a keypad key the main key it acts as. Only Ctrl, Alt, Shift
     /// and Super may be held.
     pub(crate) fn parse(accelerator: &str) -> Option<Self> {
-        let (key, mut modifiers) = gtk::accelerator_parse(accelerator)?;
+        let (key, modifiers) = gtk::accelerator_parse(accelerator)?;
+        Self::canonical(key, modifiers)
+    }
+
+    /// The saved form of `key` with `modifiers`, as [`Self::parse`] reads it,
+    /// or `None` when a keymap cannot hold it.
+    fn canonical(key: Key, mut modifiers: Modifiers) -> Option<Self> {
         if !SHORTCUT_MODIFIERS.contains(modifiers)
             || key.into_glib() == 0
             || key == Key::VoidSymbol
@@ -289,6 +299,33 @@ impl KeyPress {
         self.alias.is_some()
     }
 
+    /// The key as pressed, in the form a keymap saves and loads it: the
+    /// binding a shortcut capture records, or `None` for a key a keymap
+    /// cannot hold. A keypad digit is its digit-row key.
+    pub(crate) fn binding(&self) -> Option<Binding> {
+        // Tab numbers read Shift on the digit row by position, not as the
+        // symbol it types.
+        let (key, modifiers) = match self.digit_position() {
+            Some(position) if self.state.contains(Modifiers::SHIFT_MASK) => {
+                (position.key, position.modifiers)
+            }
+            _ => self.physical_key(),
+        };
+        Binding::canonical(key, modifiers)
+    }
+
+    /// The digit binding a digit-row press with Ctrl, Alt or Super also
+    /// matches, whatever the layout types there: AZERTY's Ctrl+& is Ctrl+1.
+    pub(crate) fn digit_position(&self) -> Option<Binding> {
+        self.digit
+            .filter(|_| {
+                self.state.intersects(
+                    Modifiers::CONTROL_MASK | Modifiers::ALT_MASK | Modifiers::SUPER_MASK,
+                )
+            })
+            .map(|digit| Binding::new(DIGITS[usize::from(digit)], self.state))
+    }
+
     /// The press without a plain printable alias such as **j** for ↓, for
     /// surfaces that never read **h j k l** as arrows.
     pub(crate) fn untyped(self) -> Self {
@@ -335,6 +372,7 @@ impl KeyPress {
 
 /// While the focused field is composing, the input method sees each key first;
 /// the handler gets only keys it passes back, like Escape after a Korean commit.
+/// An armed [`capture`] in the controller's window takes every other press.
 pub(crate) fn on_press(
     controller: &gtk::EventControllerKey,
     handler: impl Fn(&gtk::EventControllerKey, &KeyPress) -> Propagation + 'static,
@@ -359,6 +397,9 @@ pub(crate) fn on_press(
             }
         }
         let press = read(controller, keyval, keycode, state);
+        if let Some(captured) = capture::deliver(controller, &press) {
+            return captured;
+        }
         handler(
             controller,
             &alias::rewrite(press, alias::Context::of_controller(controller)),
@@ -500,7 +541,8 @@ impl Event {
     }
 }
 
-const MODIFIER_KEYS: [Key; 12] = [
+/// Keys that only change what other keys do, never a shortcut themselves.
+const MODIFIER_KEYS: [Key; 20] = [
     Key::Shift_L,
     Key::Shift_R,
     Key::Control_L,
@@ -511,7 +553,15 @@ const MODIFIER_KEYS: [Key; 12] = [
     Key::Super_R,
     Key::Meta_L,
     Key::Meta_R,
+    Key::Hyper_L,
+    Key::Hyper_R,
     Key::ISO_Level3_Shift,
+    Key::ISO_Level5_Shift,
+    Key::Mode_switch,
+    Key::ISO_Next_Group,
+    Key::ISO_Prev_Group,
+    Key::ISO_First_Group,
+    Key::ISO_Last_Group,
     Key::Caps_Lock,
 ];
 
@@ -557,7 +607,8 @@ where
         typed: event.typed,
         digit: position_digit(event.keycode, event.typed, event.level),
         fallback: latin.is_some(),
-        modifier: event.modifier,
+        // GDK does not count AltGr or a layout switch on every backend.
+        modifier: event.modifier || MODIFIER_KEYS.contains(&event.typed),
         aliasing: alias::Aliasing::Off,
         alias: None,
     }

@@ -48,10 +48,6 @@ impl KeymapOverrides {
         self.default.is_empty() && self.tenxer.is_empty()
     }
 
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the Settings keyboard page edits overrides")
-    )]
     fn entries_mut(&mut self, map: Map) -> &mut BTreeMap<String, toml::Value> {
         match map {
             Map::Default => &mut self.default,
@@ -88,6 +84,11 @@ impl KeymapOverrides {
                 }
             }
         };
+        if let Some(file) = file {
+            for (map, entries) in [(Map::Default, &self.default), (Map::Tenxer, &self.tenxer)] {
+                report_capital_letters(file, map, entries);
+            }
+        }
         Keymap::defaults()
             .overridden(Map::Default, entries(&self.default), report(Map::Default))
             .overridden(Map::Tenxer, entries(&self.tenxer), report(Map::Tenxer))
@@ -96,6 +97,25 @@ impl KeymapOverrides {
 
 fn entries(entries: &BTreeMap<String, toml::Value>) -> impl Iterator<Item = (&str, &toml::Value)> {
     entries.iter().map(|(id, value)| (id.as_str(), value))
+}
+
+/// GTK reads `G` as plain **g**, while labels show Shift+g as **G**, so an
+/// uppercase letter without `<Shift>` likely means a key the user did not get.
+fn report_capital_letters(file: &Path, map: Map, entries: &BTreeMap<String, toml::Value>) {
+    let file = file.display();
+    for (id, value) in entries {
+        let accelerators = value.as_array().into_iter().flatten();
+        for accelerator in accelerators.filter_map(toml::Value::as_str) {
+            let key = accelerator.rsplit('>').next().unwrap_or(accelerator);
+            let capital = key.len() == 1 && key.chars().all(|letter| letter.is_ascii_uppercase());
+            if capital && !accelerator.to_ascii_lowercase().contains("<shift>") {
+                tracing::warn!(
+                    %file, ?map, id, accelerator,
+                    "keymap accelerator names an uppercase letter without <Shift>, which means the plain letter; write <Shift> with it for the shifted key"
+                );
+            }
+        }
+    }
 }
 
 /// Logs what the checker finds about the keys the file's entries add. The
@@ -147,17 +167,18 @@ impl PreferenceManager {
         self.keymap_revision.get()
     }
 
-    /// What a shortcut label depends on: the active map and its keys.
-    pub(crate) fn shown_keys(&self) -> (bool, u64) {
-        (self.tenxer_mode(), self.keymap_revision())
+    /// What a shortcut label depends on: the active map, whether
+    /// type-to-search types the keys a user added, and the keys.
+    pub(crate) fn shown_keys(&self) -> (bool, bool, u64) {
+        (
+            self.tenxer_mode(),
+            self.type_to_search_active(),
+            self.keymap_revision(),
+        )
     }
 
     /// Saves `bindings`, primary first, as `map`'s entry for `command`. The
     /// shipped bindings remove the override; an empty list unbinds.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the Settings keyboard page edits overrides")
-    )]
     pub(crate) fn set_bindings(&self, map: Map, command: Command, bindings: Vec<Binding>) {
         let mut unique = Vec::with_capacity(bindings.len());
         for binding in bindings.into_iter().map(Binding::normalized) {
@@ -179,10 +200,6 @@ impl PreferenceManager {
         });
     }
 
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the Settings keyboard page resets rows")
-    )]
     pub(crate) fn reset_binding(&self, map: Map, command: Command) {
         self.edit_keymap(|overrides| {
             overrides.entries_mut(map).remove(command.id());
@@ -191,10 +208,6 @@ impl PreferenceManager {
 
     /// Restores every command of `map`; entries for ids this version does not
     /// know stay saved.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the Settings keyboard page resets a table")
-    )]
     pub(crate) fn reset_map(&self, map: Map) {
         self.edit_keymap(|overrides| {
             overrides
@@ -205,10 +218,6 @@ impl PreferenceManager {
 
     /// Rebuilds the tables before the change publishes, so bindings that
     /// render keys read the new ones.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the Settings keyboard page edits overrides")
-    )]
     fn edit_keymap(&self, edit: impl FnOnce(&mut KeymapOverrides)) {
         // Reports the loaded file's entries before an edit replaces them.
         self.keymap();

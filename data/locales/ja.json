@@ -1293,6 +1293,7 @@
   "keys.name.home": "Home",
   "keys.name.insert": "Insert",
   "keys.name.menu": "Menu",
+  "keys.name.compose": "Compose",
   "keys.name.page_down": "Page Down",
   "keys.name.page_up": "Page Up",
   "keys.name.shift": "Shift",
@@ -1484,5 +1485,16 @@
   "Press Enter to close.": "Enter キーを押すと閉じます。",
   "The command opened in your terminal. Run diagnostics again when it finishes.": "コマンドをターミナルで開きました。完了したら、もう一度診断を実行してください。",
   "Disabled": "無効",
-  "Open folder": "フォルダーを開く"
+  "Open folder": "フォルダーを開く",
+  "Keyboard": "キーボード",
+  "Keyboard settings": "キーボードの設定",
+  "Shortcuts for each mode": "モードごとのショートカット",
+  "KEYBOARD SHORTCUTS": "キーボードショートカット",
+  "Choose the keys that run each action. Default and 10xer mode each keep their own keys, and changes apply at once in every window.": "各操作を実行するキーを選択します。デフォルトと 10xer モードはそれぞれ別のキーを持ち、変更はすべてのウィンドウにすぐ反映されます。",
+  "Reset all": "すべてリセット",
+  "Restore the shipped keys of every action in the shown mode.": "表示中のモードのすべての操作を初期のキーに戻します。",
+  "Not bound": "未割り当て",
+  "Press a key…": "キーを押してください…",
+  "Turn off type-to-search": "「入力して検索」をオフにする",
+  "settings_keywords.keyboard-shortcuts": "ショートカット キー キーボード 割り当て 変更 リセット キーマップ"
 }

@@ -1000,7 +1000,8 @@ impl ShortcutFooter {
         let primed = Cell::new(false);
         manager.bind_preference(
             &self.root,
-            super::preferences::PreferenceManager::keymap_revision,
+            // Labels leave out the keys a user added that type-to-search types.
+            |preferences| (preferences.keymap_revision(), preferences.type_to_search()),
             move |_, _| {
                 if !primed.replace(true) {
                     return;

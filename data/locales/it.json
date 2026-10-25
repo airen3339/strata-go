@@ -1293,6 +1293,7 @@
   "keys.name.home": "Home",
   "keys.name.insert": "Ins",
   "keys.name.menu": "Menu",
+  "keys.name.compose": "Compose",
   "keys.name.page_down": "Pag Giù",
   "keys.name.page_up": "Pag Su",
   "keys.name.shift": "Maiusc",
@@ -1484,5 +1485,16 @@
   "Press Enter to close.": "Premi Invio per chiudere.",
   "The command opened in your terminal. Run diagnostics again when it finishes.": "Il comando è stato aperto nel terminale. Esegui di nuovo la diagnostica al termine.",
   "Disabled": "Disattivato",
-  "Open folder": "Apri cartella"
+  "Open folder": "Apri cartella",
+  "Keyboard": "Tastiera",
+  "Keyboard settings": "Impostazioni della tastiera",
+  "Shortcuts for each mode": "Scorciatoie per ogni modalità",
+  "KEYBOARD SHORTCUTS": "SCORCIATOIE DA TASTIERA",
+  "Choose the keys that run each action. Default and 10xer mode each keep their own keys, and changes apply at once in every window.": "Scegli i tasti che eseguono ogni azione. La modalità predefinita e la modalità 10xer hanno tasti propri, e le modifiche si applicano subito in tutte le finestre.",
+  "Reset all": "Ripristina tutto",
+  "Restore the shipped keys of every action in the shown mode.": "Ripristina i tasti originali di tutte le azioni della modalità mostrata.",
+  "Not bound": "Non assegnato",
+  "Press a key…": "Premi un tasto…",
+  "Turn off type-to-search": "Disattiva “Digita per cercare”",
+  "settings_keywords.keyboard-shortcuts": "scorciatoie tasti tastiera assegnare riassegnare combinazioni ripristinare"
 }

@@ -14,12 +14,23 @@ pub(crate) enum Shown {
 }
 
 impl Shown {
-    /// Every alternate in `map`, primary first.
+    /// Every alternate in `map` that can fire, primary first.
     pub(crate) fn bindings(self, map: Map) -> Vec<Binding> {
         match self {
-            Self::Command(command) => command.bindings_in(map),
-            Self::Alternate(alternate) => alternate.bindings_in(map),
+            Self::Command(command) => firing(command, map, command.bindings_in(map)),
+            Self::Alternate(alternate) => {
+                firing(alternate.command(), map, alternate.bindings_in(map))
+            }
             Self::Binding(binding) => vec![binding],
+        }
+    }
+
+    /// The command shown, unless this is a fixed binding.
+    fn command(self) -> Option<Command> {
+        match self {
+            Self::Command(command) => Some(command),
+            Self::Alternate(alternate) => Some(alternate.command()),
+            Self::Binding(_) => None,
         }
     }
 
@@ -31,6 +42,19 @@ impl Shown {
     fn primary_in(self, map: Map) -> Option<Binding> {
         self.bindings(map).first().copied()
     }
+}
+
+/// Leaves out keys that never fire, so a label never shows one: a key no
+/// press reaches, and a plain printable key a user added to the default map
+/// while type-to-search types it.
+fn firing(command: Command, map: Map, bindings: Vec<Binding>) -> Vec<Binding> {
+    let typing = map == Map::Default
+        && crate::ui::preferences::PreferenceManager::existing()
+            .is_some_and(|preferences| preferences.type_to_search_active());
+    bindings
+        .into_iter()
+        .filter(|binding| !super::conflicts::never_fires(map, command, *binding, typing))
+        .collect()
 }
 
 /// The [`Shown`] keys of catalog constants, commands and fixed bindings alike,
@@ -65,6 +89,19 @@ impl Keys {
     /// every step of a chord. An unbound row is left out rather than shown blank.
     pub(crate) fn is_bound(&self) -> bool {
         !label_in_map("en", self, Map::active()).is_empty()
+    }
+
+    /// The commands the keys show, in order, chord triggers and digit
+    /// prefixes included.
+    pub(crate) fn commands(&self) -> Vec<Command> {
+        match self {
+            Self::One(shown) => shown.command().into_iter().collect(),
+            Self::Any(shown) | Self::Chord(shown) => {
+                shown.iter().filter_map(|shown| shown.command()).collect()
+            }
+            Self::Digits(digits) => digits.prefix.and_then(Shown::command).into_iter().collect(),
+            Self::Mixed(keys) => keys.iter().flat_map(Self::commands).collect(),
+        }
     }
 
     fn resolved(&self, map: Map) -> Vec<Binding> {
@@ -302,9 +339,9 @@ fn binding_label(locale: &str, binding: Binding) -> String {
             return letter.to_string();
         }
         if modifiers == Modifiers::SHIFT_MASK {
-            return letter.to_ascii_uppercase().to_string();
+            return uppercase(letter);
         }
-        return with_modifiers(locale, modifiers, &letter.to_ascii_uppercase().to_string());
+        return with_modifiers(locale, modifiers, &uppercase(letter));
     }
     with_modifiers(locale, modifiers, &key_name(locale, binding.key()))
 }
@@ -330,7 +367,15 @@ fn modifier_names(locale: &str, modifiers: Modifiers) -> Vec<String> {
 
 fn letter(key: Key) -> Option<char> {
     key.to_unicode()
-        .filter(|character| character.is_ascii_lowercase())
+        .filter(|character| character.is_lowercase())
+}
+
+fn uppercase(letter: char) -> String {
+    let mut upper = letter.to_uppercase();
+    match (upper.next(), upper.next()) {
+        (Some(single), None) => single.to_string(),
+        _ => letter.to_string(),
+    }
 }
 
 fn key_name(locale: &str, key: Key) -> String {
@@ -352,14 +397,36 @@ fn key_name(locale: &str, key: Key) -> String {
         Key::End => "keys.name.end",
         Key::Insert => "keys.name.insert",
         Key::Menu => "keys.name.menu",
+        Key::Multi_key => "keys.name.compose",
         _ => {
             return key
                 .to_unicode()
-                .filter(|character| character.is_ascii_graphic())
-                .map(|character| character.to_ascii_uppercase().to_string())
+                .or_else(|| dead_key_mark(key))
+                .filter(|character| !character.is_control() && !character.is_whitespace())
+                .map(|character| character.to_string())
                 .or_else(|| key.name().map(Into::into))
                 .unwrap_or_default();
         }
     };
     rust_i18n::t!(name, locale = locale).into_owned()
+}
+
+/// The accent a dead key adds, as its keycap shows it.
+fn dead_key_mark(key: Key) -> Option<char> {
+    Some(match key {
+        Key::dead_grave => '`',
+        Key::dead_acute => '´',
+        Key::dead_circumflex => '^',
+        Key::dead_tilde => '~',
+        Key::dead_macron => '¯',
+        Key::dead_breve => '˘',
+        Key::dead_abovedot => '˙',
+        Key::dead_diaeresis => '¨',
+        Key::dead_abovering => '˚',
+        Key::dead_doubleacute => '˝',
+        Key::dead_caron => 'ˇ',
+        Key::dead_cedilla => '¸',
+        Key::dead_ogonek => '˛',
+        _ => return None,
+    })
 }

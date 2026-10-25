@@ -155,9 +155,63 @@ const fn within(context: &'static str, keys: Keys, action: &'static str) -> Shor
     }
 }
 
+/// `message` with its `%{keys}` filled in, or its keyless form while
+/// nothing in `keys` is bound.
 pub(crate) fn with_keys(message: &str, keys: Keys) -> String {
-    rust_i18n::t!(message, keys = keys::label(&keys)).into_owned()
+    let label = keys::label(&keys);
+    if label.is_empty()
+        && let Some((_, keyless)) = KEYLESS.iter().find(|(keyed, _)| *keyed == message)
+    {
+        return if keyless.is_empty() {
+            String::new()
+        } else {
+            crate::i18n::tr(keyless)
+        };
+    }
+    rust_i18n::t!(message, keys = label).into_owned()
 }
+
+/// What a message that names keys says once they are unbound; empty hides it.
+const KEYLESS: &[(&str, &str)] = &[
+    ("Back (%{keys})", "Back"),
+    ("Cancel (%{keys})", "Cancel"),
+    ("Cancel file selection (%{keys})", "Cancel file selection"),
+    ("Close preview (%{keys})", "Close preview"),
+    ("Close tab (%{keys})", "Close tab"),
+    ("Compact sidebar (%{keys})", "Compact sidebar"),
+    ("Decrease text size (%{keys})", "Decrease text size"),
+    ("Filter icons (%{keys})", "Filter icons"),
+    ("Filter list (%{keys})", "Filter list"),
+    ("Filter this pane (%{keys})", "Filter this pane"),
+    ("Forward (%{keys})", "Forward"),
+    ("Hide sidebar (%{keys})", "Hide sidebar"),
+    ("Increase text size (%{keys})", "Increase text size"),
+    ("Location (%{keys})", "Location"),
+    ("Mute/unmute (%{keys})", "Mute / unmute"),
+    ("Navigate (%{keys})", "Navigate"),
+    ("New Folder (%{keys})", "New Folder"),
+    ("New tab (%{keys})", "New tab"),
+    ("Next audio file (%{keys})", "Next audio file"),
+    ("Next video (%{keys})", "Next video"),
+    ("Parent folder (%{keys})", "Go to the parent folder"),
+    ("Play/Pause (%{keys})", "Play / pause"),
+    ("Previous audio file (%{keys})", "Previous audio file"),
+    ("Previous video (%{keys})", "Previous video"),
+    ("Refresh (%{keys})", "Refresh"),
+    ("Reset text size (%{keys})", "Reset text size"),
+    ("Search (%{keys})", "Search"),
+    ("Select folder (%{keys})", "Select folder"),
+    (
+        "Show all file-view shortcuts (%{keys})",
+        "Show all file-view shortcuts",
+    ),
+    ("Show sidebar (%{keys})", "Show sidebar"),
+    ("Toggle sidebar (%{keys})", "Toggle sidebar"),
+    ("%{keys} Shortcuts", "Shortcuts"),
+    ("%{keys}  navigate", ""),
+    ("%{keys}  open containing folder", ""),
+    ("Press %{keys} to paste into a supported directory.", ""),
+];
 
 /// Runs `render` now and whenever the active map or its keys change, for text
 /// that shows shortcuts on a widget built once.
@@ -1372,17 +1426,59 @@ fn tenxer_hint(hint: ContextHint) -> Option<Keys> {
     }))
 }
 
-/// The distinct rows of one map across all its scopes, each as the keys it
-/// shows: its own and those its action names.
-#[cfg(test)]
-pub(in crate::ui) fn reference_rows(tenxer: bool) -> Vec<Vec<Keys>> {
-    let mut sections = Vec::new();
+/// The section titles the reference shows in `map`, in its order, each with
+/// the commands its rows name across every browser mode and, in 10xer mode,
+/// every file chooser request. The three navigation titles read as one.
+pub(crate) fn command_sections(map: keys::Map) -> Vec<(&'static str, Vec<keys::Command>)> {
+    let mut merged: Vec<(&'static str, Vec<keys::Command>)> = Vec::new();
+    for sections in scoped_sections(map == keys::Map::Tenxer) {
+        let mut previous = None;
+        for section in sections {
+            let title = if NAVIGATION_TITLES.contains(&section.title) {
+                NAVIGATION
+            } else {
+                section.title
+            };
+            let index = match merged.iter().position(|(merged, _)| *merged == title) {
+                Some(index) => index,
+                None => {
+                    let index = previous.map_or(0, |previous| previous + 1);
+                    merged.insert(index, (title, Vec::new()));
+                    index
+                }
+            };
+            previous = Some(index);
+            let commands = &mut merged[index].1;
+            for shortcut in &section.rows {
+                let mentioned = match shortcut.mention {
+                    Some(Mention::Keys(keys)) => keys.commands(),
+                    Some(Mention::Held(_)) | None => Vec::new(),
+                };
+                for command in shortcut.keys.commands().into_iter().chain(mentioned) {
+                    if !commands.contains(&command) {
+                        commands.push(command);
+                    }
+                }
+            }
+        }
+    }
+    merged
+}
+
+/// The one title [`command_sections`] gives the navigation sections.
+const NAVIGATION: &str = "Navigation";
+
+const NAVIGATION_TITLES: [&str; 3] = ["Columns navigation", "Icons navigation", "List navigation"];
+
+/// One map's sections in every scope it has.
+fn scoped_sections(tenxer: bool) -> Vec<Vec<ReferenceSection>> {
+    let mut scopes = Vec::new();
     for mode in [BrowserMode::Columns, BrowserMode::Icons, BrowserMode::List] {
         if !tenxer {
-            sections.extend(default_sections(mode));
+            scopes.push(default_sections(mode));
             continue;
         }
-        sections.extend(tenxer_sections(mode, None));
+        scopes.push(tenxer_sections(mode, None));
         for request in [
             ChooserRequest::Files,
             ChooserRequest::Folders,
@@ -1390,15 +1486,26 @@ pub(in crate::ui) fn reference_rows(tenxer: bool) -> Vec<Vec<Keys>> {
             ChooserRequest::SaveFiles,
         ] {
             for multiple in [false, true] {
-                sections.extend(tenxer_sections(
+                scopes.push(tenxer_sections(
                     mode,
                     Some(ChooserScope { request, multiple }),
                 ));
             }
         }
     }
+    scopes
+}
+
+/// The distinct rows of one map across all its scopes, each as the keys it
+/// shows: its own and those its action names.
+#[cfg(test)]
+pub(in crate::ui) fn reference_rows(tenxer: bool) -> Vec<Vec<Keys>> {
     let mut rows: Vec<Shortcut> = Vec::new();
-    for shortcut in sections.into_iter().flat_map(|section| section.rows) {
+    for shortcut in scoped_sections(tenxer)
+        .into_iter()
+        .flatten()
+        .flat_map(|section| section.rows)
+    {
         if !rows.contains(&shortcut) {
             rows.push(shortcut);
         }

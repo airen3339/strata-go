@@ -148,10 +148,6 @@ impl Finding {
 
     /// Whether the binding never fires in the state checked, so a row shows
     /// it inactive.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the Settings keyboard page renders findings")
-    )]
     pub(crate) fn inactive(self) -> bool {
         matches!(self.kind, Kind::TypeToSearchShadowed | Kind::NeverMatches)
     }
@@ -237,10 +233,6 @@ pub(crate) fn check(
 }
 
 /// Every finding for every binding of `map`'s table.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the Settings keyboard page renders a whole table")
-)]
 pub(crate) fn audit(keymap: &Keymap, map: Map, policy: Policy) -> Vec<(Command, Finding)> {
     audit_where(keymap, map, policy, |_, _| true)
 }
@@ -272,6 +264,68 @@ fn audit_where(
         }
     }
     findings
+}
+
+/// Whether `binding` in `map`'s entry for `command` never fires, so labels
+/// leave it out: no press reaches the command with it, or, while `typing`
+/// (type-to-search is active), it is a plain printable key a user added to the
+/// default map.
+pub(super) fn never_fires(map: Map, command: Command, binding: Binding, typing: bool) -> bool {
+    let binding = binding.normalized();
+    let side = Side {
+        command,
+        place: Place::of(command, map),
+        binding,
+        map,
+    };
+    never_matches(side)
+        || (typing
+            && map == Map::Default
+            && binding.is_typed()
+            && !command.defaults(map).contains(&binding))
+}
+
+/// Which of two commands on one key acts, for a [`Kind::Duplicate`] finding.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Outcome {
+    /// The other command reads the key first; this binding never fires.
+    Loses,
+    /// This binding reads the key first, and the other command stops working.
+    Wins,
+    /// The stage order decides, which the checker does not model.
+    Either,
+}
+
+/// The outcome of `command` and `other` both holding `binding` in `map`.
+pub(crate) fn duplicate_outcome(
+    map: Map,
+    command: Command,
+    binding: Binding,
+    other: Command,
+) -> Outcome {
+    let binding = binding.normalized();
+    let side = |command| Side {
+        command,
+        place: Place::of(command, map),
+        binding,
+        map,
+    };
+    let (mine, theirs) = (side(command), side(other));
+    match (mine.place, theirs.place) {
+        (Place::Step(_), Place::Top(_)) if reads_before_steps(other) => Outcome::Loses,
+        (Place::Top(_), Place::Step(_)) if reads_before_steps(command) => Outcome::Wins,
+        (Place::Top(_), Place::Top(_))
+            if media_reads_first(theirs, command) || runs_first(other, command, map) =>
+        {
+            Outcome::Loses
+        }
+        (Place::Top(_), Place::Top(_))
+            if media_reads_first(mine, other) || runs_first(command, other, map) =>
+        {
+            Outcome::Wins
+        }
+        _ => Outcome::Either,
+    }
 }
 
 /// Where a command's bindings are matched.

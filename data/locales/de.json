@@ -1293,6 +1293,7 @@
   "keys.name.home": "Pos1",
   "keys.name.insert": "Einfg",
   "keys.name.menu": "Menü",
+  "keys.name.compose": "Compose",
   "keys.name.page_down": "Bild ab",
   "keys.name.page_up": "Bild auf",
   "keys.name.shift": "Umschalt",
@@ -1484,5 +1485,16 @@
   "Press Enter to close.": "Drücken Sie die Eingabetaste zum Schließen.",
   "The command opened in your terminal. Run diagnostics again when it finishes.": "Der Befehl wurde in Ihrem Terminal geöffnet. Führen Sie die Diagnose erneut aus, wenn er abgeschlossen ist.",
   "Disabled": "Deaktiviert",
-  "Open folder": "Ordner öffnen"
+  "Open folder": "Ordner öffnen",
+  "Keyboard": "Tastatur",
+  "Keyboard settings": "Tastatureinstellungen",
+  "Shortcuts for each mode": "Tastenkürzel je Modus",
+  "KEYBOARD SHORTCUTS": "TASTENKÜRZEL",
+  "Choose the keys that run each action. Default and 10xer mode each keep their own keys, and changes apply at once in every window.": "Wählen Sie die Tasten für jede Aktion. Standard und 10xer-Modus haben jeweils eigene Tasten, und Änderungen gelten sofort in allen Fenstern.",
+  "Reset all": "Alle zurücksetzen",
+  "Restore the shipped keys of every action in the shown mode.": "Ursprüngliche Tasten aller Aktionen im angezeigten Modus wiederherstellen.",
+  "Not bound": "Nicht belegt",
+  "Press a key…": "Taste drücken…",
+  "Turn off type-to-search": "„Zum Suchen tippen“ ausschalten",
+  "settings_keywords.keyboard-shortcuts": "Tastenkürzel Tasten Tastatur belegen zuweisen Kürzel zurücksetzen"
 }

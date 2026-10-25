@@ -1293,6 +1293,7 @@
   "keys.name.home": "Home",
   "keys.name.insert": "Insert",
   "keys.name.menu": "Menu",
+  "keys.name.compose": "Compose",
   "keys.name.page_down": "Page Down",
   "keys.name.page_up": "Page Up",
   "keys.name.shift": "Shift",
@@ -1484,5 +1485,16 @@
   "Press Enter to close.": "Nhấn Enter để đóng.",
   "The command opened in your terminal. Run diagnostics again when it finishes.": "Lệnh đã được mở trong terminal. Hãy chạy lại chẩn đoán khi lệnh hoàn tất.",
   "Disabled": "Đã tắt",
-  "Open folder": "Mở thư mục"
+  "Open folder": "Mở thư mục",
+  "Keyboard": "Bàn phím",
+  "Keyboard settings": "Cài đặt bàn phím",
+  "Shortcuts for each mode": "Phím tắt cho từng chế độ",
+  "KEYBOARD SHORTCUTS": "PHÍM TẮT",
+  "Choose the keys that run each action. Default and 10xer mode each keep their own keys, and changes apply at once in every window.": "Chọn phím để chạy từng hành động. Chế độ mặc định và chế độ 10xer có phím riêng, và thay đổi được áp dụng ngay trong mọi cửa sổ.",
+  "Reset all": "Đặt lại tất cả",
+  "Restore the shipped keys of every action in the shown mode.": "Khôi phục phím gốc của mọi hành động trong chế độ đang hiển thị.",
+  "Not bound": "Chưa gán",
+  "Press a key…": "Nhấn một phím…",
+  "Turn off type-to-search": "Tắt “Nhập để tìm kiếm”",
+  "settings_keywords.keyboard-shortcuts": "phím tắt phím bàn phím gán đổi đặt lại"
 }

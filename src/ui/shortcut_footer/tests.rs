@@ -802,6 +802,24 @@ fn reference_follows_keymap_overrides_without_reopening() {
                 reference_pairs(&labels, "Ctrl+Page Up", "Previous / next tab"),
                 "{labels:?}"
             );
+
+            manager.set_type_to_search(true);
+            manager.set_bindings(
+                Map::Default,
+                SEARCH,
+                vec![Binding::ctrl(gdk::Key::k), Binding::plain(gdk::Key::e)],
+            );
+            let labels = reference_labels(&footer);
+            assert!(
+                reference_pairs(&labels, "Ctrl+K", "Open global search"),
+                "type-to-search types the added key: {labels:?}"
+            );
+            manager.set_type_to_search(false);
+            let labels = reference_labels(&footer);
+            assert!(
+                reference_pairs(&labels, "Ctrl+K / e", "Open global search"),
+                "{labels:?}"
+            );
         },
     );
 }

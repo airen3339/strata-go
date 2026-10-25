@@ -1,0 +1,575 @@
+// SPDX-License-Identifier: MIT
+
+use gtk::gdk::{Key, ModifierType};
+
+use super::*;
+use crate::{test_support::gtk_test, ui::blur::BlurBin};
+
+struct OpenPage {
+    window: gtk::Window,
+    page: gtk::Widget,
+}
+
+impl OpenPage {
+    fn open() -> Self {
+        let page = keyboard_page(PreferenceManager::shared());
+        let window = gtk::Window::new();
+        window.set_default_size(1000, 800);
+        window.set_child(Some(&page));
+        window.present();
+        settle();
+        Self { window, page }
+    }
+
+    fn row(&self, map: Map, command: Command) -> gtk::Widget {
+        row_in(&self.page, map, command)
+    }
+
+    /// Sends a press through the page's key reader, as the window would.
+    fn press(&self, key: Key, modifiers: ModifierType) {
+        let content = descendants(&self.page)
+            .into_iter()
+            .find(|widget| widget.has_css_class("settings-keyboard-page"))
+            .expect("page content");
+        let controllers = content.observe_controllers();
+        for index in 0..controllers.n_items() {
+            if let Some(keys) = controllers
+                .item(index)
+                .and_downcast::<gtk::EventControllerKey>()
+            {
+                keys.emit_by_name::<bool>("key-pressed", &[&key, &0u32, &modifiers]);
+            }
+        }
+        settle();
+    }
+}
+
+impl Drop for OpenPage {
+    fn drop(&mut self) {
+        self.window.close();
+    }
+}
+
+fn settle() {
+    let context = glib::MainContext::default();
+    while context.pending() {
+        context.iteration(false);
+    }
+}
+
+fn descendants(widget: &gtk::Widget) -> Vec<gtk::Widget> {
+    let mut widgets = vec![widget.clone()];
+    let mut child = widget.first_child();
+    while let Some(current) = child {
+        child = current.next_sibling();
+        widgets.extend(descendants(&current));
+    }
+    widgets
+}
+
+fn row_in(root: &gtk::Widget, map: Map, command: Command) -> gtk::Widget {
+    let table = descendants(root)
+        .into_iter()
+        .find(|widget| {
+            widget.widget_name()
+                == match map {
+                    Map::Default => "keymap-default",
+                    Map::Tenxer => "keymap-tenxer",
+                }
+        })
+        .expect("keymap table");
+    descendants(&table)
+        .into_iter()
+        .find(|widget| widget.widget_name() == format!("settings-search-{}", target_id(command)))
+        .expect("command row")
+}
+
+fn button(row: &gtk::Widget, label: &str) -> gtk::Button {
+    descendants(row)
+        .into_iter()
+        .filter_map(|widget| widget.downcast::<gtk::Button>().ok())
+        .find(|button| button.label().as_deref() == Some(label))
+        .unwrap_or_else(|| panic!("{label} button"))
+}
+
+fn chips(row: &gtk::Widget) -> Vec<(String, bool)> {
+    descendants(row)
+        .into_iter()
+        .filter(|widget| widget.has_css_class("keymap-chip"))
+        .map(|chip| {
+            let key = descendants(&chip)
+                .into_iter()
+                .find_map(|widget| widget.downcast::<gtk::Label>().ok())
+                .expect("chip key");
+            (key.text().to_string(), chip.has_css_class("inactive"))
+        })
+        .collect()
+}
+
+fn notes(row: &gtk::Widget) -> Vec<String> {
+    descendants(row)
+        .into_iter()
+        .filter(|widget| widget.has_css_class("keymap-finding") && widget.is_visible())
+        .filter_map(|widget| widget.downcast::<gtk::Label>().ok())
+        .map(|label| label.text().to_string())
+        .collect()
+}
+
+fn capturing(row: &gtk::Widget) -> bool {
+    descendants(row)
+        .into_iter()
+        .any(|widget| widget.has_css_class("keymap-capture") && widget.is_visible())
+}
+
+fn rename_entry(map: Map) -> Vec<Binding> {
+    PreferenceManager::shared()
+        .keymap()
+        .bindings(map, RENAME)
+        .to_vec()
+}
+
+#[test]
+fn error_finding_blocks_commit() {
+    gtk_test(
+        "ui::settings::keyboard::tests::error_finding_blocks_commit",
+        || {
+            let open = OpenPage::open();
+            let row = open.row(Map::Default, RENAME);
+            button(&row, "Add").emit_clicked();
+            assert!(capturing(&row));
+            open.press(Key::Shift_L, ModifierType::empty());
+            assert!(capturing(&row), "a modifier alone waits for the key");
+            open.press(Key::c, ModifierType::CONTROL_MASK);
+            assert_eq!(rename_entry(Map::Default), RENAME.defaults(Map::Default));
+            assert!(capturing(&row), "the refused key keeps the capture waiting");
+            let refused = notes(&row);
+            assert!(
+                refused
+                    .iter()
+                    .any(|note| note.contains("Ctrl+C") && note.contains("“Copy”")),
+                "{refused:?}"
+            );
+            open.press(
+                Key::numbersign,
+                ModifierType::CONTROL_MASK | ModifierType::SHIFT_MASK,
+            );
+            assert_eq!(rename_entry(Map::Default), RENAME.defaults(Map::Default));
+            assert!(capturing(&row), "tab numbers keep Ctrl+Shift+3");
+            let refused = notes(&row);
+            assert!(
+                refused.iter().any(|note| note.contains("Ctrl+Shift+3")),
+                "{refused:?}"
+            );
+            open.press(Key::Escape, ModifierType::empty());
+            assert!(!capturing(&row));
+            assert!(notes(&row).is_empty(), "{:?}", notes(&row));
+            assert_eq!(rename_entry(Map::Default), RENAME.defaults(Map::Default));
+        },
+    );
+}
+
+#[test]
+fn warning_saves_and_shows_inactive() {
+    gtk_test(
+        "ui::settings::keyboard::tests::warning_saves_and_shows_inactive",
+        || {
+            let preferences = PreferenceManager::shared();
+            preferences.set_type_to_search(true);
+            let open = OpenPage::open();
+            let row = open.row(Map::Default, RENAME);
+            button(&row, "Add").emit_clicked();
+            open.press(Key::e, ModifierType::empty());
+            assert!(!capturing(&row));
+            assert_eq!(
+                rename_entry(Map::Default),
+                [
+                    Binding::plain(Key::F2),
+                    Binding::ctrl(Key::r),
+                    Binding::plain(Key::e)
+                ]
+            );
+            assert_eq!(
+                chips(&row),
+                [
+                    ("F2".to_owned(), false),
+                    ("Ctrl+R".to_owned(), false),
+                    ("e".to_owned(), true)
+                ]
+            );
+            assert!(
+                notes(&row)
+                    .iter()
+                    .any(|note| note.starts_with("Type-to-search takes e")),
+                "{:?}",
+                notes(&row)
+            );
+            assert_eq!(
+                keys::label(&Keys::One(RENAME.shown())),
+                "F2 / Ctrl+R",
+                "labels leave out a key that never fires"
+            );
+            button(&row, "Turn off type-to-search").emit_clicked();
+            settle();
+            assert!(!preferences.type_to_search());
+            assert!(chips(&row).iter().all(|(_, inactive)| !inactive));
+            assert!(
+                descendants(&row)
+                    .into_iter()
+                    .filter_map(|widget| widget.downcast::<gtk::Button>().ok())
+                    .all(|button| button.label().as_deref() != Some("Turn off type-to-search"))
+            );
+            assert_eq!(keys::label(&Keys::One(RENAME.shown())), "F2 / Ctrl+R / e");
+        },
+    );
+}
+
+#[test]
+fn reset_row_and_reset_table_restore_defaults() {
+    gtk_test(
+        "ui::settings::keyboard::tests::reset_row_and_reset_table_restore_defaults",
+        || {
+            let preferences = PreferenceManager::shared();
+            let open = OpenPage::open();
+            for map in [Map::Default, Map::Tenxer] {
+                preferences.set_bindings(map, RENAME, vec![Binding::ctrl(Key::e)]);
+                preferences.set_bindings(map, REFRESH, Vec::new());
+            }
+            settle();
+            let reset = |map| button(&open.row(map, RENAME), "Reset");
+            // The 10xer table is hidden, so only the button's own visibility counts.
+            assert!(reset(Map::Default).get_visible() && reset(Map::Tenxer).get_visible());
+
+            reset(Map::Default).emit_clicked();
+            settle();
+            assert_eq!(rename_entry(Map::Default), RENAME.defaults(Map::Default));
+            assert_eq!(rename_entry(Map::Tenxer), [Binding::ctrl(Key::e)]);
+            assert!(!reset(Map::Default).get_visible());
+
+            let reset_all = descendants(&open.page)
+                .into_iter()
+                .filter_map(|widget| widget.downcast::<gtk::Button>().ok())
+                .find(|button| button.label().as_deref() == Some("Reset all"))
+                .expect("Reset all");
+            reset_all.emit_clicked();
+            settle();
+            let keymap = preferences.keymap();
+            assert!(!keymap.overrides(Map::Default, REFRESH));
+            assert!(keymap.overrides(Map::Tenxer, REFRESH));
+            assert!(keymap.overrides(Map::Tenxer, RENAME));
+            assert!(!reset_all.is_sensitive());
+
+            let tenxer = descendants(&open.page)
+                .into_iter()
+                .filter_map(|widget| widget.downcast::<gtk::ToggleButton>().ok())
+                .find(|button| button.label().as_deref() == Some("10xer mode"))
+                .expect("10xer table choice");
+            tenxer.set_active(true);
+            settle();
+            assert!(reset_all.is_sensitive());
+            reset_all.emit_clicked();
+            settle();
+            let keymap = preferences.keymap();
+            for map in [Map::Default, Map::Tenxer] {
+                assert!(!keymap.overrides(map, RENAME) && !keymap.overrides(map, REFRESH));
+            }
+        },
+    );
+}
+
+#[test]
+fn page_reflects_external_change() {
+    gtk_test(
+        "ui::settings::keyboard::tests::page_reflects_external_change",
+        || {
+            let preferences = PreferenceManager::shared();
+            let (first, second) = (OpenPage::open(), OpenPage::open());
+            preferences.set_bindings(Map::Default, RENAME, vec![Binding::ctrl(Key::e)]);
+            settle();
+            for open in [&first, &second] {
+                let row = open.row(Map::Default, RENAME);
+                assert_eq!(chips(&row), [("Ctrl+E".to_owned(), false)]);
+                assert!(button(&row, "Reset").is_visible());
+            }
+            let copy = second.row(Map::Default, COPY);
+            let remove = descendants(&copy)
+                .into_iter()
+                .find(|widget| widget.has_css_class("keymap-chip-remove"))
+                .and_downcast::<gtk::Button>()
+                .expect("remove Ctrl+C");
+            remove.emit_clicked();
+            settle();
+            assert!(preferences.keymap().bindings(Map::Default, COPY).is_empty());
+            let row = first.row(Map::Default, COPY);
+            assert!(chips(&row).is_empty());
+            let unbound = descendants(&row)
+                .into_iter()
+                .filter_map(|widget| widget.downcast::<gtk::Label>().ok())
+                .find(|label| label.text() == "Not bound")
+                .expect("Not bound note");
+            assert!(unbound.is_visible());
+        },
+    );
+}
+
+#[test]
+fn search_finds_rows_by_action_and_key() {
+    gtk_test(
+        "ui::settings::keyboard::tests::search_finds_rows_by_action_and_key",
+        || {
+            crate::ui::prepare_portal_ui();
+            let button = gtk::Button::with_label("Settings");
+            let root = BlurBin::new(&button);
+            let layer = super::super::build_layer(
+                &button,
+                &root,
+                PreferenceManager::shared(),
+                Rc::new(|_| {}),
+                super::super::install_guard(),
+                Rc::new(|_| {}),
+            );
+            layer.set_visible(true);
+            let layer: gtk::Widget = layer.upcast();
+            let entry = descendants(&layer)
+                .into_iter()
+                .find(|widget| widget.has_css_class("settings-global-search-entry"))
+                .and_downcast::<gtk::Entry>()
+                .expect("global search");
+            let stack = descendants(&layer)
+                .into_iter()
+                .find_map(|widget| widget.downcast::<gtk::Stack>().ok())
+                .expect("settings pages");
+            let shown = |widget: &gtk::Widget| {
+                let mut current = Some(widget.clone());
+                while let Some(widget) = current {
+                    if !widget.is_visible() {
+                        return false;
+                    }
+                    if widget
+                        .parent()
+                        .is_some_and(|parent| parent.is::<gtk::Stack>())
+                    {
+                        return true;
+                    }
+                    current = widget.parent();
+                }
+                false
+            };
+            for query in ["Rename", "F2"] {
+                entry.set_text(query);
+                settle();
+                assert_eq!(stack.visible_child_name().as_deref(), Some(PAGE), "{query}");
+                assert!(shown(&row_in(&layer, Map::Default, RENAME)), "{query}");
+                assert!(!shown(&row_in(&layer, Map::Default, COPY)), "{query}");
+            }
+            let tenxer = descendants(&stack.child_by_name(PAGE).expect("keyboard page"))
+                .into_iter()
+                .filter_map(|widget| widget.downcast::<gtk::ToggleButton>().ok())
+                .find(|button| button.label().as_deref() == Some("10xer mode"))
+                .expect("10xer table choice");
+            assert!(
+                shown(tenxer.upcast_ref()) && !tenxer.is_active(),
+                "the table switch stays"
+            );
+            // Only the 10xer table has chord triggers.
+            entry.set_text("Go chord");
+            settle();
+            assert!(tenxer.is_active());
+            assert!(shown(&row_in(&layer, Map::Tenxer, GO)));
+            entry.set_text("");
+            settle();
+            assert!(shown(&row_in(&layer, Map::Tenxer, COPY)));
+        },
+    );
+}
+
+#[test]
+fn captures_in_two_windows_stay_armed() {
+    gtk_test(
+        "ui::settings::keyboard::tests::captures_in_two_windows_stay_armed",
+        || {
+            let (first, second) = (OpenPage::open(), OpenPage::open());
+            let rows = [&first, &second].map(|open| open.row(Map::Default, RENAME));
+            for row in &rows {
+                button(row, "Add").emit_clicked();
+            }
+            assert!(rows.iter().all(capturing));
+            first.press(Key::e, ModifierType::CONTROL_MASK);
+            assert!(!capturing(&rows[0]));
+            assert!(capturing(&rows[1]), "the other window keeps waiting");
+            second.press(Key::F7, ModifierType::empty());
+            assert!(!capturing(&rows[1]));
+            assert_eq!(
+                rename_entry(Map::Default),
+                [
+                    Binding::plain(Key::F2),
+                    Binding::ctrl(Key::r),
+                    Binding::ctrl(Key::e),
+                    Binding::plain(Key::F7)
+                ]
+            );
+        },
+    );
+}
+
+#[test]
+fn step_rows_follow_their_trigger() {
+    gtk_test(
+        "ui::settings::keyboard::tests::step_rows_follow_their_trigger",
+        || {
+            let preferences = PreferenceManager::shared();
+            let open = OpenPage::open();
+            descendants(&open.page)
+                .into_iter()
+                .filter_map(|widget| widget.downcast::<gtk::ToggleButton>().ok())
+                .find(|button| button.label().as_deref() == Some("10xer mode"))
+                .expect("10xer table choice")
+                .set_active(true);
+            let row = open.row(Map::Tenxer, GO_HOME);
+            let prefix = || {
+                descendants(&row)
+                    .into_iter()
+                    .find(|widget| widget.has_css_class("keymap-prefix"))
+                    .and_downcast::<gtk::Label>()
+                    .filter(|label| label.get_visible())
+                    .map(|label| label.text().to_string())
+            };
+            assert_eq!(prefix().as_deref(), Some("g"));
+
+            preferences.set_bindings(Map::Tenxer, GO, vec![Binding::ctrl(Key::g)]);
+            settle();
+            assert_eq!(prefix().as_deref(), Some("Ctrl+G"));
+
+            preferences.set_bindings(Map::Tenxer, GO, Vec::new());
+            settle();
+            assert_eq!(prefix(), None);
+            assert_eq!(chips(&row), [("h".to_owned(), true)]);
+            assert!(
+                notes(&row).iter().any(|note| note.contains("“Go chord”")),
+                "{:?}",
+                notes(&row)
+            );
+
+            preferences.reset_binding(Map::Tenxer, GO);
+            preferences.set_bindings(Map::Tenxer, GO_HOME, vec![Binding::plain(Key::_1)]);
+            settle();
+            assert!(!preferences.tenxer_mode());
+            assert!(
+                notes(&row)
+                    .iter()
+                    .any(|note| note.starts_with("g 1\u{2013}9 open pinned folders")),
+                "digits read from the row's table, not the active one: {:?}",
+                notes(&row)
+            );
+
+            preferences.set_bindings(Map::Tenxer, GO, Vec::new());
+            settle();
+            assert!(
+                notes(&row)
+                    .iter()
+                    .any(|note| note.starts_with("1\u{2013}9 open pinned folders")),
+                "{:?}",
+                notes(&row)
+            );
+        },
+    );
+}
+
+/// Everything each row of both tables shows, hidden table included.
+fn rows_text(page: &gtk::Widget) -> Vec<String> {
+    let mut rows = Vec::new();
+    for map in [Map::Default, Map::Tenxer] {
+        for command in keys::registry() {
+            if map == Map::Default && matches!(command.kind(), CommandKind::Trigger(_)) {
+                continue;
+            }
+            let row = row_in(page, map, command);
+            let shown = |widget: &gtk::Widget| {
+                let mut current = Some(widget.clone());
+                while let Some(widget) = current.filter(|widget| *widget != row) {
+                    if !widget.get_visible() {
+                        return false;
+                    }
+                    current = widget.parent();
+                }
+                true
+            };
+            let texts: Vec<String> = descendants(&row)
+                .into_iter()
+                .filter(shown)
+                .filter_map(|widget| widget.downcast::<gtk::Label>().ok())
+                .map(|label| label.text().to_string())
+                .collect();
+            rows.push(format!(
+                "{map:?} {}: {texts:?} {:?}",
+                command.id(),
+                chips(&row)
+            ));
+        }
+    }
+    rows
+}
+
+#[test]
+fn rows_read_their_own_table_in_either_mode() {
+    gtk_test(
+        "ui::settings::keyboard::tests::rows_read_their_own_table_in_either_mode",
+        || {
+            let preferences = PreferenceManager::shared();
+            preferences.set_type_to_search(true);
+            preferences.set_bindings(
+                Map::Default,
+                RENAME,
+                vec![
+                    Binding::plain(Key::F2),
+                    Binding::ctrl(Key::t),
+                    Binding::plain(Key::e),
+                ],
+            );
+            preferences.set_bindings(Map::Tenxer, GO_HOME, vec![Binding::plain(Key::_1)]);
+            preferences.set_bindings(Map::Tenxer, ACTIONS_EXTRACT, vec![Binding::plain(Key::_2)]);
+            preferences.set_bindings(Map::Tenxer, RENAME, vec![Binding::ctrl(Key::c)]);
+            let shown_in = |tenxer| {
+                preferences.set_tenxer_mode(tenxer);
+                let open = OpenPage::open();
+                let targets: Vec<(String, String)> = search_targets()
+                    .into_iter()
+                    .map(|target| (target.id, target.aliases))
+                    .collect();
+                (rows_text(&open.page), targets)
+            };
+            let (rows, targets) = shown_in(false);
+            for (row, text) in [
+                ("Tenxer go.home:", "g 1\u{2013}9 open pinned folders"),
+                (
+                    "Tenxer actions.extract:",
+                    "; 1\u{2013}9 / ; 0 run custom actions",
+                ),
+                ("Tenxer rename:", "“Copy” also uses Ctrl+C"),
+                ("Default rename:", "Type-to-search takes e"),
+                ("Default rename:", "“New tab” reads Ctrl+T first"),
+            ] {
+                assert!(
+                    rows.iter()
+                        .any(|shown| shown.starts_with(row) && shown.contains(text)),
+                    "{row} {text}"
+                );
+            }
+            assert_eq!((rows, targets), shown_in(true));
+        },
+    );
+}
+
+#[test]
+fn every_command_row_has_a_name_in_every_catalog() {
+    use rust_i18n::Backend;
+    let catalogs = crate::i18n::Catalogs::compiled();
+    for command in keys::registry() {
+        assert_ne!(name(command), command.id(), "{command:?} needs a name");
+        for locale in catalogs.available_locales() {
+            assert!(
+                catalogs.translate(&locale, name(command)).is_some(),
+                "{locale} has no name for {command:?}"
+            );
+        }
+    }
+}

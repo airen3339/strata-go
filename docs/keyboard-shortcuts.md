@@ -134,7 +134,12 @@ Shortcuts follow the key's label first, then its physical position:
 
 Every place that shows a shortcut renders it from the binding the app matches:
 the F1 reference, Settings, context menus, and footer hints. A displayed
-shortcut is therefore always one that works.
+shortcut is therefore always one that works: labels leave out a binding that
+never fires, such as `<Shift>exclam` or a plain printable key a user added to
+the default map while type-to-search types it, and a message that names keys
+that are all unbound shows its keyless form (**Close tab**, not
+**Close tab ()**). The Settings keyboard page is the one place that still shows
+such bindings, struck through, with the reason beside them.
 
 - **Labels show the Latin key**: **Ctrl+C** with a Russian layout active,
   **Ctrl+1** on AZERTY. Keyboards for non-Latin layouts print the Latin letters
@@ -170,6 +175,12 @@ is how Enter arrives after an input method passes it back.
 `ui::keys` follows the preedit of each window's focused `gtk::Text` or
 `gtk::TextView` through `preedit-changed`, so handlers need no check of their
 own. Release handlers still run.
+
+`keys::capture(anchor, handler)` records a new shortcut for Settings: while the
+returned guard lives and the anchor is mapped, every press in the anchor's
+window except a lone modifier reaches `handler`, as pressed and before any alias
+is applied, and no other handler sees it. Each window holds at most one capture.
+`KeyPress::binding()` is the press in the form a keymap saves.
 
 `clippy.toml` lists `EventControllerKey::connect_key_pressed`,
 `EventControllerKey::connect_key_released`, and
@@ -327,6 +338,10 @@ places.
 | `FixedKey(fixed)` | Error | A key a fixed role holds where the command acts: a pin, action or tab digit after its chord (an armed chord reads steps first, so `go.home = ["1"]` takes pin 1), **Ctrl+Shift** with a tab digit, **Backspace** (with or without Shift or Super), **Space** in the 10xer file list, which selects the cursor's item, or **Space** on a media preview command, which plays and pauses first, as the page keys, **Home** and **End** seek before the commands the preview reads after them. Only the key as bound counts: a modifier a surface tolerates beside it loses to the fixed role. |
 | `NeverMatches` | Error | No press reaches it where it acts: Shift with a symbol Shift types (`<Shift>exclam`), Ctrl or Super on history, the parent folder or the home folder, which the window reads only without them (in 10xer, only the home folder), a chord trigger in the default map, which has no chords, or a typed key for a command the 10xer stage leaves to later stages or for the 10xer folder accept, which the focused 10xer file list keeps. An alias on another structural key's canonical key is a `Duplicate`: modifier-tolerant matchers, such as Escape's, still read it as pressed. Inactive. |
 
+`never_fires` is the cheap part of `check` that labels use to leave a binding
+out, and `duplicate_outcome` says which side of a `Duplicate` keeps the key
+where the stage order is modeled, so a message can say which one stops working.
+
 A chord step on its own trigger's key, such as **g g**, is a step like any other:
 the armed chord reads the second press as the step. Surfaces are a short table in
 `conflicts.rs`: the preview, the F1 reference, global search, the file chooser's
@@ -341,6 +356,32 @@ a stage reads its keys must update `conflicts.rs` in the same change;
 `chooser::tests::keyboard::folder_accept_order_matches_the_conflict_check`
 drive the real dispatchers with a row per table and fail when `check` and the
 dispatcher disagree.
+
+### Settings keyboard page
+
+**Settings → Keyboard** (`ui/settings/keyboard.rs`) edits the overrides through
+`PreferenceManager::set_bindings`, `reset_binding` and `reset_map`, and turns
+type-to-search off from its warning; it initializes nothing. A segmented
+control shows the default table or the 10xer table, starting with the active
+map. Rows come from the registry under the F1 reference's section titles and
+order: a command sits in the first section of its own map's reference that names
+it, then of the other map's. Every command has a row in both tables, unbound
+ones showing **Not bound**, except chord triggers in the default table, which
+has no chords. A 10xer chord step shows its trigger's key before its own.
+
+Each binding is a chip with a remove button. **Add** turns the row into a
+capture: Escape cancels, Backspace unbinds the command, and any other key is
+checked with `conflicts::check`. An error keeps the capture waiting and shows
+why under the row; otherwise the key is appended to the entry. Findings from
+`conflicts::audit` render as text under each row, never as tooltips; a key with
+`NeverMatches` shows only that finding, and an inactive one is struck through.
+A row's **Reset** appears once its entry differs from the shipped one, and
+**Reset all** restores the shown table. Settings search finds a row by its
+action name or by any key either table gives it; action names score like a
+setting's aliases, so a setting that matches as well keeps the query, and the
+table switch stays shown. Each command's name is in the
+page's `NAMES` table and every catalog; a command with a one-row F1 entry reuses
+that row's text.
 
 ### Labels
 
@@ -486,6 +527,10 @@ and **Ctrl+A** clears it first.
    has focus, or one matched with `ignoring(..)` goes in the matching table of
    `ui::keys::conflicts`. `audit_of_default_tables_is_clean` checks the shipped
    tables against every rule.
+6. Give a new command a name in the Settings keyboard page's `NAMES` table,
+   translated in every catalog;
+   `settings::keyboard::tests::every_command_row_has_a_name_in_every_catalog`
+   fails until it has one.
 
 ## Testing
 
@@ -518,6 +563,11 @@ focused preview reads before the window's (**Ctrl+F**, **Shift+Enter**, and in
 while type-to-search is on. Run
 them with `./scripts/test-headless.py keys::`, and run
 `./scripts/test-headless.py i18n::` after changing key names.
+`./scripts/test-headless.py settings::keyboard` covers the Settings page:
+capture through the page's key reader, refused and saved keys, resets per row
+and per table, live updates from another window, and search;
+`window::tests::preferences::capture_commits_and_second_window_follows`
+captures in one window's Settings and presses the key in another.
 
 End-to-end scenarios switch layouts on the harness's private Xvfb: `setxkbmap`
 loads the layouts and an XKB group lock selects the active one. Never change the

@@ -1293,6 +1293,7 @@
   "keys.name.home": "Home",
   "keys.name.insert": "Insert",
   "keys.name.menu": "Menu",
+  "keys.name.compose": "组合键",
   "keys.name.page_down": "Page Down",
   "keys.name.page_up": "Page Up",
   "keys.name.shift": "Shift",
@@ -1484,5 +1485,16 @@
   "Press Enter to close.": "按 Enter 键关闭。",
   "The command opened in your terminal. Run diagnostics again when it finishes.": "已在终端中打开命令。完成后请重新运行诊断。",
   "Disabled": "已禁用",
-  "Open folder": "打开文件夹"
+  "Open folder": "打开文件夹",
+  "Keyboard": "键盘",
+  "Keyboard settings": "键盘设置",
+  "Shortcuts for each mode": "各模式的快捷键",
+  "KEYBOARD SHORTCUTS": "键盘快捷键",
+  "Choose the keys that run each action. Default and 10xer mode each keep their own keys, and changes apply at once in every window.": "选择运行各项操作的按键。默认模式和 10xer 模式各有一套按键，更改会立即应用到所有窗口。",
+  "Reset all": "全部重置",
+  "Restore the shipped keys of every action in the shown mode.": "将所显示模式中所有操作恢复为原始按键。",
+  "Not bound": "未分配",
+  "Press a key…": "按下按键…",
+  "Turn off type-to-search": "关闭“键入即搜索”",
+  "settings_keywords.keyboard-shortcuts": "快捷键 按键 键盘 绑定 重新分配 自定义 重置"
 }

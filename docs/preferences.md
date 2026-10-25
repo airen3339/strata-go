@@ -107,7 +107,7 @@ control that might be midway through synchronization.
 | Theme, Omarchy following/variant, text size | `ThemeManager` applies shared CSS when theme selection, Omarchy following, Omarchy variant, text size, or element glow change; controls and theme-card selections bind to preferences through `ThemeManager::bind_theme_preference`. Newly saved custom themes appear in other open theme pages. Missing themes/Omarchy use the existing fallback policy. |
 | Language | Initialized before application UI from the saved manual language or system locale priorities. The selection and Restart button synchronize across Settings windows, but the running interface keeps its startup language until a full restart. This deliberate restart-to-apply exception avoids rebuilding active browsers, dialogs, and operations. |
 | Interface renderer | GTK selects the renderer at process startup. The saved GTK default or Cairo choice is read before GTK initializes; GTK default is selected for new installs. The control and Restart button synchronize across Settings windows, but changes take effect only after restarting Strata (via the button or after fully quitting and reopening). An explicit `GSK_RENDERER` always overrides the saved choice. |
-| Keymap overrides | Every key dispatcher, the portal chooser included, reads the tables built from the saved overrides at press time, before Settings opens; labels that show shortcuts follow changes live across windows. See [Keymap](#keymap). Not exposed in Settings yet. |
+| Keymap overrides | Every key dispatcher, the portal chooser included, reads the tables built from the saved overrides at press time, before Settings opens; labels that show shortcuts follow changes live across windows. See [Keymap](#keymap). Edited under **Settings → Keyboard**, one table per mode. |
 | Keybinding hints | Navigation hints and the shortcuts button bind immediately and live. When hidden, the status bar appears only while the clipboard badge or F1 reference needs it; otherwise the empty bar is hidden. |
 | Show thumbnails | Enabled by default. **Settings → Appearance → File icons** switches file thumbnails to the existing file-type icons. Applies before Settings opens and live across browser windows, the portal chooser, searches, peeks, and rebuilt views. Disabling cancels pending thumbnail requests and prevents cache reads and decoding for new requests; re-enabling restores thumbnails for still-bound entries. Live thumbnail changes preserve pending dimensions and duration metadata; rebinding or unbinding a row still discards stale updates. Custom icons and the preview panel are unchanged. |
 | Thumbnail workers | Browser construction binds the shared decoder limit before Settings opens. Changes apply across windows and rebuilt views; lowering the limit lets active work finish and retires excess idle supervisors. |
@@ -517,6 +517,10 @@ toggle_sidebar = ["<Control>b", "<Control>n"]
   Digit ranges are not commands and keep their keys. Quote ids that contain a
   dot: unquoted, TOML reads `go.home = [..]` as a table, which is logged and
   left out.
+- An uppercase letter without `<Shift>`, such as `<Control>E`, is logged once
+  as a warning, because GTK reads it as the plain letter while labels show
+  Shift+e as **E**; the entry still applies as the plain letter. Keys recorded
+  in Settings are always saved in the lowercase, Shift-explicit form.
 - An entry whose id names no command, that is not a list, or that holds an
   accelerator Strata cannot read is logged once with the file's path, kept
   verbatim in the file, and left out of the tables, so that command keeps its
@@ -534,8 +538,10 @@ toggle_sidebar = ["<Control>b", "<Control>n"]
   saving the shipped keys removes the entry, and `reset_map` keeps unknown ids.
   `keys::active_keymap()` reads these tables, so dispatch in every window and
   the portal file chooser follows the file loaded at startup before Settings
-  opens. Text built once that shows shortcuts binds to `shown_keys` (10xer mode
-  and `keymap_revision()`) through `shortcut_reference::follow_keys`: footer
+  opens. Text built once that shows shortcuts binds to `shown_keys` (10xer mode,
+  whether type-to-search is active, since labels then leave out the plain keys a
+  user added to the default map, and `keymap_revision()`) through
+  `shortcut_reference::follow_keys`: footer
   hints, the F1 reference, sidebar keycaps, tooltips, Settings copy that names
   keys, and context-menu hints with their native `accel` attributes follow a
   change in every open window.
@@ -543,6 +549,12 @@ toggle_sidebar = ["<Control>b", "<Control>n"]
   popovers, the file chooser's own keys, thumbnail resizing), the default
   table's overrides apply in both modes; a `[keymap.tenxer]` entry changes only
   what the 10xer stages claim.
+
+**Settings → Keyboard** edits the same overrides: capturing a key appends it,
+removing a chip or resetting writes the entry again, and saving the shipped keys
+removes the entry. The page reads the tables and the checker's findings when an
+override or type-to-search changes, in every open window; see
+[Settings keyboard page](keyboard-shortcuts.md#settings-keyboard-page).
 
 Like other preferences, hand edits made while Strata runs are read on the next
 launch.

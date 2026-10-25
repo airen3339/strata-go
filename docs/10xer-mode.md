@@ -745,7 +745,8 @@ numbers. See [browser tabs](keyboard-navigation.md#browser-tabs).
 
 These default-map shortcuts are unbound or remapped while the mode is on. The
 table lists the shipped keys; overrides saved under `[keymap.tenxer]` change
-them (see [Keymap](preferences.md#keymap)):
+them (see [Keymap](preferences.md#keymap)), and **Settings → Keyboard** shows
+the live 10xer table, with **Not bound** on every command it leaves out:
 
 | Default-map key | In 10xer mode |
 | --- | --- |

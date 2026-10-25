@@ -31,6 +31,7 @@ mod exclusions;
 mod general;
 mod install_command;
 mod integrations;
+mod keyboard;
 mod release_picker;
 mod search;
 mod theme;
@@ -1005,6 +1006,11 @@ pub fn build_layer(
                         let page = actions::actions_page();
                         search::apply(&page, &search_state);
                         stack.add_named(&page, Some("actions"));
+                    }
+                    keyboard::PAGE => {
+                        let page = keyboard::keyboard_page(preferences.clone());
+                        search::apply(&page, &search_state);
+                        stack.add_named(&page, Some(keyboard::PAGE));
                     }
                     "integrations" => {
                         let open_folder = open_folder.clone();
@@ -3158,7 +3164,7 @@ struct NavigationEntry {
 
 /// Settings pages in navigation order. Search finds page titles here and routes
 /// to the button built from each entry.
-static NAVIGATION: [NavigationEntry; 7] = [
+static NAVIGATION: [NavigationEntry; 8] = [
     NavigationEntry {
         page: "general",
         label: "General",
@@ -3179,6 +3185,13 @@ static NAVIGATION: [NavigationEntry; 7] = [
         subtitle: "Custom actions",
         icon: icons::PLAY,
         accessible_label: None,
+    },
+    NavigationEntry {
+        page: keyboard::PAGE,
+        label: "Keyboard",
+        subtitle: "Shortcuts for each mode",
+        icon: icons::KEYBOARD,
+        accessible_label: Some("Keyboard settings"),
     },
     NavigationEntry {
         page: "integrations",
