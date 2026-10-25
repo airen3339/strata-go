@@ -1349,42 +1349,89 @@ fn read_metadata(path: &Path) -> (i32, i32) {
 }
 
 const PRIVATE_OUTPUT_PREFIX: &str = "strata-preview-";
+const PRIVATE_OUTPUT_ATTEMPTS: usize = 64;
 
-struct PrivateOutput(PathBuf);
+// The flock on the directory marks it as in use; the sweep removes only directories it can
+// lock, which also works across pid namespaces that share the temp directory.
+struct PrivateOutput {
+    path: PathBuf,
+    _lock: rustix::fd::OwnedFd,
+}
 
 impl PrivateOutput {
     fn create() -> io::Result<Self> {
-        use std::os::unix::fs::DirBuilderExt;
-
         static SWEEP: Once = Once::new();
         SWEEP.call_once(|| {
             thread::spawn(|| prune_orphaned_private_outputs(&std::env::temp_dir()));
         });
-        let path = std::env::temp_dir().join(format!(
-            "{PRIVATE_OUTPUT_PREFIX}{}-{}",
-            std::process::id(),
-            NEXT_DIRECTORY.fetch_add(1, Ordering::Relaxed)
-        ));
-        fs::DirBuilder::new().mode(0o700).create(&path)?;
-        Ok(Self(path))
+        Self::create_in(&std::env::temp_dir())
+    }
+
+    fn create_in(parent: &Path) -> io::Result<Self> {
+        use std::os::unix::fs::DirBuilderExt;
+
+        for _ in 0..PRIVATE_OUTPUT_ATTEMPTS {
+            let path = parent.join(format!(
+                "{PRIVATE_OUTPUT_PREFIX}{}-{}",
+                std::process::id(),
+                NEXT_DIRECTORY.fetch_add(1, Ordering::Relaxed)
+            ));
+            match fs::DirBuilder::new().mode(0o700).create(&path) {
+                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+                result => result?,
+            }
+            if let Some(lock) = lock_new_private_output(&path)? {
+                return Ok(Self { path, _lock: lock });
+            }
+        }
+        Err(io::Error::from(io::ErrorKind::AlreadyExists))
     }
 
     fn path(&self) -> &Path {
-        &self.0
+        &self.path
     }
 }
 
 impl Drop for PrivateOutput {
     fn drop(&mut self) {
-        let _removed = fs::remove_dir_all(&self.0);
+        let _removed = fs::remove_dir_all(&self.path);
     }
 }
 
-// Worker pools and detached threads still own their output when the process exits, and
-// a killed process never drops it, so earlier runs leave directories behind. The owner's
-// pid is in the name.
+fn open_private_output(path: &Path) -> rustix::io::Result<rustix::fd::OwnedFd> {
+    use rustix::fs::{Mode, OFlags, open};
+
+    open(
+        path,
+        OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+        Mode::empty(),
+    )
+}
+
+// `None` means a concurrent sweep claimed the new directory before it was locked.
+fn lock_new_private_output(path: &Path) -> io::Result<Option<rustix::fd::OwnedFd>> {
+    use rustix::fs::{FlockOperation, flock, fstat, lstat};
+
+    let fd = match open_private_output(path) {
+        Ok(fd) => fd,
+        Err(rustix::io::Errno::NOENT) => return Ok(None),
+        Err(error) => return Err(error.into()),
+    };
+    // Other lock errors are ignored: without lock support the sweep cannot lock it either.
+    if let Err(rustix::io::Errno::WOULDBLOCK) = flock(&fd, FlockOperation::NonBlockingLockExclusive)
+    {
+        return Ok(None);
+    }
+    let locked = fstat(&fd)?;
+    let same = lstat(path)
+        .is_ok_and(|current| (current.st_dev, current.st_ino) == (locked.st_dev, locked.st_ino));
+    Ok(same.then_some(fd))
+}
+
+// Worker pools and detached threads still own their output when the process exits, and a
+// killed process never drops it, so earlier runs leave directories behind.
 fn prune_orphaned_private_outputs(tmp: &Path) {
-    use std::os::unix::fs::MetadataExt;
+    use rustix::fs::{FlockOperation, flock, fstat};
 
     let Ok(entries) = fs::read_dir(tmp) else {
         return;
@@ -1394,28 +1441,23 @@ fn prune_orphaned_private_outputs(tmp: &Path) {
         |text: &str| !text.is_empty() && text.bytes().all(|byte| byte.is_ascii_digit());
     for entry in entries.flatten() {
         let name = entry.file_name();
-        let Some(owner) = name
+        let matches = name
             .to_str()
             .and_then(|name| name.strip_prefix(PRIVATE_OUTPUT_PREFIX))
             .and_then(|rest| rest.split_once('-'))
-            .filter(|(pid, sequence)| all_digits(pid) && all_digits(sequence))
-            .and_then(|(pid, _)| pid.parse::<i32>().ok())
-        else {
+            .is_some_and(|(pid, sequence)| all_digits(pid) && all_digits(sequence));
+        if !matches {
+            continue;
+        }
+        let path = entry.path();
+        let Ok(fd) = open_private_output(&path) else {
             continue;
         };
-        let ours = entry.file_type().is_ok_and(|kind| kind.is_dir())
-            && entry.metadata().is_ok_and(|metadata| metadata.uid() == uid);
-        if ours && !process_exists(owner) {
-            let _ignored = fs::remove_dir_all(entry.path());
+        let ours = fstat(&fd).is_ok_and(|stat| stat.st_uid == uid);
+        if ours && flock(&fd, FlockOperation::NonBlockingLockExclusive).is_ok() {
+            let _ignored = fs::remove_dir_all(&path);
         }
     }
-}
-
-fn process_exists(pid: i32) -> bool {
-    let Some(pid) = Pid::from_raw(pid) else {
-        return false;
-    };
-    rustix::process::test_kill_process(pid) != Err(rustix::io::Errno::SRCH)
 }
 
 #[cfg(test)]
