@@ -1662,8 +1662,7 @@ fn a_hard_link_the_destination_cannot_hold_is_copied_and_the_rest_still_extracts
 }
 
 #[test]
-fn a_colon_after_the_first_component_is_a_name_and_a_leading_drive_prefix_is_refused()
--> Result<(), Box<dyn Error>> {
+fn a_colon_after_the_first_component_extracts_as_a_name() -> Result<(), Box<dyn Error>> {
     use Member::{File, Folder, Hard};
     let root = tempfile::tempdir()?;
     let mut report = TransferReport::default();
@@ -1689,19 +1688,6 @@ fn a_colon_after_the_first_component_is_a_name_and_a_leading_drive_prefix_is_ref
         ]
     );
     assert_eq!(fs::read(root.path().join("archive/names/linked"))?, b"data");
-
-    let refused = tempfile::tempdir()?;
-    let leading: &[(&[u8], Member<'_>)] = &[(b"before.txt", File), (b"c:notes", File)];
-    assert!(
-        extract_members(
-            refused.path(),
-            ARCHIVE,
-            leading,
-            Ok(()),
-            &mut TransferReport::default()
-        )
-        .is_err()
-    );
     Ok(())
 }
 

@@ -14,7 +14,8 @@ members instead of aborting the entire operation. A directory entry that names
 only the archive root (`.`, `./`, `././`, or the same name with backslashes)
 is skipped. Other empty paths stay invalid, including a file or link named `.`
 and a directory that reaches the root through `..`. Absolute paths and a leading
-Windows drive prefix remain invalid; a colon in a later component is an ordinary name.
+Windows drive prefix remain invalid; a colon in a later component is an ordinary
+name.
 
 The sanitized path still passes through the descriptor-relative destination
 writer, which refuses symlink traversal. Normal conflict renaming also applies,
