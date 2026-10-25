@@ -511,9 +511,19 @@ toggle_sidebar = ["<Control>b", "<Control>n"]
   alternates. Such a key on `shortcut_reference` opens the reference wherever
   it would not type, as 10xer's **~** does. Repeated accelerators in one entry
   count once.
-- Chord steps such as `go.home` match only while their trigger is pending.
-  Shift with a Sort step reverses it on whatever key the step is bound to; a
-  key bound to a step itself, such as `<Shift>a`, picks that step instead.
+- In `[keymap.tenxer]`, chord steps such as `go.home` match only while their
+  trigger is pending. Shift with a Sort step reverses it on whatever key the
+  step is bound to; a key bound to a step itself, such as `<Shift>a`, picks
+  that step instead.
+- A command a map ships no key for runs there only if one of its stages reads
+  it. In `[keymap.default]` that is `open_with`, `move_to`, `copy_to`,
+  `restore`, `invert_selection`, `search_subfolders`, `jump_visited`,
+  `jump_recent`, `half_page_up`, `half_page_down`, and the `sort.*`,
+  `copy_as.*` and `actions.*` steps, which act as plain keys there, without a
+  trigger or Shift reversal; in `[keymap.tenxer]`, `duplicate`, `pin`,
+  `jump_to_folder`, `arrow_scope` and, with a modified key, `copy_path`. Any
+  other such entry, such as `yank` or `"go.home"` in `[keymap.default]`, does
+  nothing, and the load-time check below logs it.
   Digit ranges are not commands and keep their keys. Quote ids that contain a
   dot: unquoted, TOML reads `go.home = [..]` as a table, which is logged and
   left out.

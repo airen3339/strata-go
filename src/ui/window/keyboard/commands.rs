@@ -97,7 +97,9 @@ impl Dispatcher {
             );
             return Some(Propagation::Stop);
         }
-        if event.press.is(ESCAPE_ANY) && self.view.dismiss_focused_filter() {
+        if event.press.is(ESCAPE_ANY)
+            && (self.view.dismiss_focused_filter() || self.dismiss_direct_search(event))
+        {
             return Some(Propagation::Stop);
         }
         if event.press.is(FILTER.in_map(Map::Default)) && self.view.show_filter() {

@@ -59,6 +59,10 @@ fn alias_rewrites_typed_keys_only_outside_text_and_popovers() {
                 let typed = rewrite(e, typing);
                 assert!(!typed.is(ENTER) && !typed.aliased(), "{owner:?}");
             }
+            let field = gtk::TextView::new();
+            assert!(!rewrite(e, Context::of(Some(field.upcast_ref()), false)).aliased());
+            let document = gtk::TextView::builder().editable(false).build();
+            assert!(!rewrite(e, Context::of(Some(document.upcast_ref()), false)).aliased());
 
             let type_to_search = Context::of(None, true);
             assert!(rewrite(ctrl_m, type_to_search).is(ENTER));
@@ -78,6 +82,12 @@ fn alias_rewrites_typed_keys_only_outside_text_and_popovers() {
                     assert!(rewrite(plain, listing()).is(arrow), "{letter:?} {tenxer}");
                     assert!(!rewrite(plain, type_to_search).is(arrow));
                     assert!(!rewrite(plain, Context::of(Some(text.upcast_ref()), false)).is(arrow));
+                    // Only 10xer reads a read-only text view as a document.
+                    assert_eq!(
+                        rewrite(plain, Context::of(Some(document.upcast_ref()), false)).is(arrow),
+                        tenxer,
+                        "{letter:?}"
+                    );
                     for modifier in [
                         Modifiers::SHIFT_MASK,
                         Modifiers::CONTROL_MASK,

@@ -188,7 +188,7 @@ impl Dispatcher {
         self.rename_target.replace(Some(entry));
     }
 
-    fn open_transfer_prompt(&self, kind: Prompt) {
+    pub(super) fn open_transfer_prompt(&self, kind: Prompt) {
         match self.view.transfer_targets(kind == Prompt::MoveTo) {
             Ok(targets) => self.open_destination_prompt(kind, targets),
             Err(reason) => self.shortcuts.show_feedback(&crate::i18n::tr(reason)),
@@ -201,7 +201,7 @@ impl Dispatcher {
         }
     }
 
-    fn restore_targets(&self) {
+    pub(super) fn restore_targets(&self) {
         use crate::ui::browser::TargetCommand;
         match self.view.restore_targets() {
             TargetCommand::Nothing => self
@@ -326,7 +326,7 @@ impl Dispatcher {
         true
     }
 
-    fn complete_folder_action(&self, press: &KeyPress) -> bool {
+    pub(super) fn complete_folder_action(&self, press: &KeyPress) -> bool {
         use crate::ui::browser::TargetCommand;
         if press.is(ACTIONS_TERMINAL) {
             if !self.view.open_focused_folder_terminal() {
@@ -359,7 +359,7 @@ impl Dispatcher {
         true
     }
 
-    fn open_with_targets(&self) {
+    pub(super) fn open_with_targets(&self) {
         self.open_with.invalidate();
         let generation = self.open_with.generation.clone();
         let expected = generation.get();

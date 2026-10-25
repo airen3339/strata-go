@@ -746,14 +746,20 @@ numbers. See [browser tabs](keyboard-navigation.md#browser-tabs).
 These default-map shortcuts are unbound or remapped while the mode is on. The
 table lists the shipped keys; overrides saved under `[keymap.tenxer]` change
 them (see [Keymap](preferences.md#keymap)), and **Settings → Keyboard** shows
-the live 10xer table, with **Not bound** on every command it leaves out:
+the live 10xer table, with **Not bound** on every command it leaves out. Jump to
+folder, arrow scope, duplicate and pin have no 10xer key, but a key bound to one
+of them in the 10xer table works; Settings marks any other command 10xer does
+not run. The default table can likewise bind Open with, Move to, Copy to,
+Restore, invert selection, search subfolders, **z** / **Z**, half-page paging and
+the Sort, Copy and Action steps as plain keys without their chord (see
+[Keyboard shortcuts](keyboard-shortcuts.md#commands-bindings-and-the-catalog)):
 
 | Default-map key | In 10xer mode |
 | --- | --- |
 | **Ctrl+Shift+K** | Unbound. Use **z** / **Z**. |
 | **Ctrl+Alt+T** | Opens a terminal from the file list and the sidebar, as in the default map; elsewhere, such as in a text field, it does nothing. **;** **t** opens one in the keyboard-focused folder. |
 | **Ctrl+\\** | Unbound. Arrows never leave the file list. |
-| **Ctrl+D** | Half page down. Duplicate is dropped. |
+| **Ctrl+D** | Half page down. Duplicate is unbound. |
 | **Ctrl+F** | Full page down. Filter is **f**. |
 | **Ctrl+B** | Full page up. Sidebar toggle is **Ctrl+N**. |
 | **Ctrl+R** | Invert selection. Rename is **r** / **F2**. |

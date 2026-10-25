@@ -14,6 +14,7 @@ use crate::services::{
 };
 mod audio_tracks;
 mod context_menus;
+mod direct_commands;
 mod escape_precedence;
 mod file_commands;
 mod file_verbs;

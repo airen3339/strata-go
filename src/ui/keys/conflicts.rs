@@ -8,10 +8,10 @@
 use gtk::gdk::{Key, ModifierType as Modifiers};
 
 use super::{
-    Binding, Command, Digits, Keymap, Map, SHORTCUT_MODIFIERS, alias,
+    Binding, Command, DIRECT_IN_TENXER, Digits, Keymap, Map, SHORTCUT_MODIFIERS, alias,
     bindings::{
-        ACTIONS_NUMBERS, ARROW_SCOPE, BACKSPACE, CHOOSE_FOLDER, COMPLETE, CONTEXT_MENU, COPY, CUT,
-        DELETE_PERMANENTLY, DOWN, END_KEY, ENTER, ESCAPE, EXTEND_DOWN, EXTEND_LEFT,
+        ACTIONS_NUMBERS, ARROW_SCOPE, BACKSPACE, CHOOSE_FOLDER, COMPLETE, CONTEXT_MENU, COPY,
+        COPY_PATH, CUT, DELETE_PERMANENTLY, DOWN, END_KEY, ENTER, ESCAPE, EXTEND_DOWN, EXTEND_LEFT,
         EXTEND_PAGE_DOWN, EXTEND_PAGE_UP, EXTEND_RIGHT, EXTEND_TO_FIRST, EXTEND_TO_LAST, EXTEND_UP,
         FILTER, FILTER_SLASH, FIND_IN_PREVIEW, FOCUS_NEXT, FOCUS_PREVIOUS, GO_PROMPT, HIDDEN_FILES,
         HISTORY_BACK, HISTORY_FORWARD, HOME_FOLDER, HOME_KEY, JUMP_TO_FOLDER, LEFT, LOCATION,
@@ -30,7 +30,7 @@ use super::{
         THUMBNAILS_RESET, THUMBNAILS_SMALLER, UNDO, UP, VIEW_COLUMNS, VIEW_ICONS, VIEW_LIST,
     },
     command::{Group, Kind as CommandKind, registry},
-    digit_value,
+    digit_value, direct_commands,
 };
 
 /// What the checker cannot read from the table.
@@ -85,6 +85,8 @@ pub(crate) enum Kind {
     FixedKey(Fixed),
     /// No press reaches the command with the binding where it acts.
     NeverMatches,
+    /// Nothing runs the command in this map, whatever its key.
+    NoPath,
 }
 
 /// A role that keeps its keys whatever the keymap says.
@@ -119,7 +121,8 @@ impl Kind {
             | Self::ReservedByGtk
             | Self::InputMethodKey
             | Self::FixedKey(_)
-            | Self::NeverMatches => Severity::Error,
+            | Self::NeverMatches
+            | Self::NoPath => Severity::Error,
             Self::SortStepCannotReverse
             | Self::TypeToSearchShadowed
             | Self::TextFieldLimit(_)
@@ -149,7 +152,10 @@ impl Finding {
     /// Whether the binding never fires in the state checked, so a row shows
     /// it inactive.
     pub(crate) fn inactive(self) -> bool {
-        matches!(self.kind, Kind::TypeToSearchShadowed | Kind::NeverMatches)
+        matches!(
+            self.kind,
+            Kind::TypeToSearchShadowed | Kind::NeverMatches | Kind::NoPath
+        )
     }
 }
 
@@ -163,6 +169,9 @@ pub(crate) fn check(
     policy: Policy,
 ) -> Vec<Finding> {
     let candidate = candidate.normalized();
+    if no_path(command, map) {
+        return vec![Finding::new(Kind::NoPath, candidate)];
+    }
     let shipped = command.defaults(map).contains(&candidate);
     let mut findings = Vec::new();
     let mut add = |kind| {
@@ -198,12 +207,7 @@ pub(crate) fn check(
     let in_text_fields = acts_in_text_fields(command, map);
     // Focused fields keep plain printable keys from structural aliases and
     // from keys a user adds; shipped keys of other commands still act there.
-    // A focused 10xer text preview keeps added ones from the window's
-    // commands.
-    if candidate.is_typed()
-        && ((in_text_fields && (mine.is_alias() || !shipped))
-            || (!shipped && map == Map::Tenxer && scope == Scope::Window))
-    {
+    if candidate.is_typed() && in_text_fields && (mine.is_alias() || !shipped) {
         add(Kind::TextFieldLimit(FieldLimit::Typing));
     } else if mine.is_alias() && TEXT_FIELD_KEYS.iter().any(|key| overlaps(*key, candidate)) {
         add(Kind::TextFieldLimit(FieldLimit::FieldKey));
@@ -278,7 +282,8 @@ pub(super) fn never_fires(map: Map, command: Command, binding: Binding, typing: 
         binding,
         map,
     };
-    never_matches(side)
+    no_path(command, map)
+        || never_matches(side)
         || (typing
             && map == Map::Default
             && binding.is_typed()
@@ -467,8 +472,12 @@ const CHOOSER_SHARED: &[(Command, Tables)] = &[
 ];
 
 /// Listing commands the 10xer stage passes on in a chooser, which has no
-/// tabs or windows to open.
-const CHOOSER_DECLINES: [Command; 2] = [OPEN_IN_NEW_TAB, OPEN_IN_NEW_WINDOW];
+/// tabs or windows to open and runs neither the item commands nor the direct
+/// ones.
+fn chooser_declines(command: Command) -> bool {
+    [OPEN_IN_NEW_TAB, OPEN_IN_NEW_WINDOW, COPY_PATH].contains(&command)
+        || DIRECT_IN_TENXER.contains(&command)
+}
 
 /// Commands the 10xer stage passes on in a window but refuses in a chooser,
 /// taking their keys there.
@@ -487,6 +496,7 @@ const TENXER_PASSES: &[Command] = &[
     CUT,
     PASTE,
     HOME_FOLDER,
+    COPY_PATH,
     VIEW_COLUMNS,
     VIEW_ICONS,
     VIEW_LIST,
@@ -597,17 +607,20 @@ const IN_TEXT_FIELDS: &[Command] = &[
     NEW_FOLDER,
     NEW_FOLDER_WITH_SELECTION,
     REFRESH,
-    TERMINAL,
     SEARCH,
     VIEW_COLUMNS,
     VIEW_ICONS,
     VIEW_LIST,
     REFERENCE,
     HOME_FOLDER,
+    JUMP_TO_FOLDER,
+    ARROW_SCOPE,
 ];
 
-/// Commands a text field stage matches from the default table in both modes.
+/// Commands a text field stage matches only from the default table, most in
+/// both modes. 10xer runs its terminal key from the file list and sidebar only.
 const IN_DEFAULT_TEXT_FIELDS: &[Command] = &[
+    TERMINAL,
     RENAME,
     FILTER,
     HIDDEN_FILES,
@@ -615,9 +628,11 @@ const IN_DEFAULT_TEXT_FIELDS: &[Command] = &[
     THUMBNAILS_SMALLER,
     FIND_IN_PREVIEW,
     PREVIEW,
-    JUMP_TO_FOLDER,
-    ARROW_SCOPE,
 ];
+
+/// Commands a map ships no key for that a stage of that map still reads,
+/// besides the direct ones.
+const READ_UNBOUND: &[(Command, Map)] = &[(COPY_PATH, Map::Tenxer)];
 
 /// Keys GTK list views act on once the dispatcher yields them.
 const GTK_OWNED: [Binding; 9] = [
@@ -674,7 +689,10 @@ impl Side {
     /// The binding with the modifiers some surface also accepts held.
     fn widened(self) -> Binding {
         let tolerated = if self.command.canonical().is_some() {
-            if self.is_alias() && !self.binding.is_typed() {
+            // `ESCAPE_ANY` reads physical Escape with any modifiers.
+            if (self.is_alias() && !self.binding.is_typed())
+                || (self.command == ESCAPE && self.binding.key() == Key::Escape)
+            {
                 SHORTCUT_MODIFIERS
             } else {
                 Modifiers::empty()
@@ -808,7 +826,7 @@ fn runs_first(first: Command, second: Command, map: Map) -> bool {
                 || (map == Map::Tenxer
                     && Place::of(first, map) == Place::Top(Scope::Window)
                     && (!TENXER_PASSES.contains(&first) || CHOOSER_REFUSES.contains(&first))
-                    && !CHOOSER_DECLINES.contains(&first))))
+                    && !chooser_declines(first))))
 }
 
 /// Whether `command`, outside `scope`, also reads keys there.
@@ -822,7 +840,7 @@ fn also_on(command: Command, scope: Scope, map: Map) -> bool {
                 || listed(CHOOSER_SHARED, command, map)
                 || (map == Map::Tenxer
                     && Place::of(command, map) == Place::Top(Scope::Window)
-                    && !CHOOSER_DECLINES.contains(&command))
+                    && !chooser_declines(command))
         }
         _ => false,
     }
@@ -851,20 +869,17 @@ fn known_overlap(first: Command, second: Command) -> bool {
         .any(|pair| *pair == (first, second) || *pair == (second, first))
 }
 
+/// Whether `map` ships no key for `command` and none of its stages reads one:
+/// a 10xer verb or chord step in the default map, or a default-map command in
+/// 10xer, that the direct stage does not run either.
+fn no_path(command: Command, map: Map) -> bool {
+    command.defaults(map).is_empty()
+        && !is_trigger(command)
+        && !direct_commands(map).contains(&command)
+        && !READ_UNBOUND.contains(&(command, map))
+}
+
 fn never_matches(side: Side) -> bool {
-    // The window's default-map stage reads these only without Ctrl or Super
-    // held; the 10xer stage reads history and the parent folder itself, and
-    // the file chooser accepts them all.
-    let unmodified_only = if side.map == Map::Default {
-        &[HISTORY_BACK, HISTORY_FORWARD, PARENT_FOLDER, HOME_FOLDER][..]
-    } else {
-        &[HOME_FOLDER][..]
-    };
-    let modified_navigation = unmodified_only.contains(&side.command)
-        && side
-            .binding
-            .modifiers()
-            .intersects(Modifiers::CONTROL_MASK | SUPER);
     // The focused 10xer listing keeps typed keys from what its stage leaves to
     // later ones, the folder accept included. Thumbnail size reads first.
     let typed_past_tenxer_stage = side.map == Map::Tenxer
@@ -873,10 +888,7 @@ fn never_matches(side: Side) -> bool {
             || (TENXER_PASSES.contains(&side.command)
                 && ![THUMBNAILS_LARGER, THUMBNAILS_SMALLER, THUMBNAILS_RESET]
                     .contains(&side.command)));
-    side.place == Place::Inert
-        || modified_navigation
-        || shift_is_consumed(side.binding)
-        || typed_past_tenxer_stage
+    side.place == Place::Inert || shift_is_consumed(side.binding) || typed_past_tenxer_stage
 }
 
 /// The fixed role holding a key where `side` acts. The tab strip reads its

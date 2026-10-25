@@ -246,6 +246,27 @@ Backspace, GTK-owned keys, and generic keys that many surfaces read for their
 own job (Space, and Home, End and the page keys outside the file listing) stay
 fixed `Binding` constants.
 
+A command one map ships no key for usually has no stage there either. The
+window's direct stage (`window/keyboard/direct.rs`) gives some of them one,
+listed in `keys::DIRECT_IN_DEFAULT` and `keys::DIRECT_IN_TENXER`: in the
+default map Open with, Move to, Copy to, Restore, invert selection, search
+subfolders, the visited and recent folder jumps, half-page paging, and the Sort,
+Copy and Action chord steps, which there are plain keys with no trigger; in
+10xer duplicate, pin, jump to folder and arrow scope. A key a user binds to
+one of them runs the handler the other map's key runs, with the same prompt,
+dialog or action, on the active map's targets: 10xer duplicate acts on the
+fill or the item under the cursor, as 10xer verbs do, and 10xer pin takes the
+search hit under the cursor, while default-map verbs act on the selection only,
+as Copy does, and do nothing when the focused row is not selected.
+In the default map, half-page keys move the selection as Page Down does, and
+Escape from the file list ends a search the direct key started. The stage runs after the window commands and before inline
+editing, never while a text field or text view (a text preview included) has
+focus and never in a file chooser, and the focused 10xer file list passes
+typed keys on to it. Neither table binds these commands by default, and Shift
+does not reverse a direct sort key.
+`conflicts::check` reports `NoPath` for a key on any other command its map
+ships no key for, such as yank or a Go step in the default map.
+
 Every shortcut is a named constant in the catalog, `ui::keys::bindings`, with
 one file per area under `src/ui/keys/bindings/`. The `catalog!` macro declares
 each area's constants, such as `COPY: Command "copy" = Binding::ctrl(Key::c);`
@@ -289,7 +310,10 @@ key holds, so **Ctrl+J** standing in for ↓ reads as plain ↓, while `text()`
 keeps what was typed. A canonical key, with any modifiers, is never read as
 another, and physical Escape matches `ESCAPE` even when a table leaves it out.
 A plain printable alias is not rewritten while a text field or popover has
-focus or type-to-search is on.
+focus or type-to-search is on. In 10xer a read-only text view, such as a text
+preview, is a document rather than a field: plain printable aliases are
+rewritten there, and a key a user adds acts wherever the command's shipped keys
+do. The default map treats it as a field.
 
 A structural command compares the key the press reads as; fixed bindings and
 other commands compare the key as pressed, so the 10xer **g h** step still sees
@@ -329,14 +353,15 @@ places.
 | `ShiftedSortStep` | Error | A Sort step holds Shift, which reverses a step. |
 | `SortStepCannotReverse` | Warning | A Sort step is a digit, which already accepts Shift, or a symbol that Shift turns into another, so Shift cannot reverse it. |
 | `TypeToSearchShadowed` | Warning | A plain printable key in the default map while type-to-search is on: one a user adds, on any surface, or a shipped one in the file list other than Space and the **/** that opens the filter. Inactive. |
-| `TextFieldLimit(Typing)` | Warning | A plain printable key that focused text fields keep: an alias of a structural key, a key a user adds to a command that also acts in text fields, or one a user adds to a 10xer window command, which a focused text preview keeps. |
+| `TextFieldLimit(Typing)` | Warning | A plain printable key that focused text fields keep: an alias of a structural key, or a key a user adds to a command that also acts in text fields. |
 | `TextFieldLimit(FieldKey)` | Warning | An alias of a structural key that `gtk::Text` binds itself, such as **Ctrl+A** or **Ctrl+Backspace**. |
 | `ContextOverlap(other)` | Warning | Both commands take the key in some state, and the stage that sees it first decides: a pair listed as sharing by design (10xer **Ctrl+Page Up** pages where no tab strip takes it), the 10xer list's **<** and **>**, which change the track only while a media preview is open, a focused document's zoom reset, which runs before text size, a preview command, which a focused preview reads before the window's commands, the file chooser's keys read after its folder accept or only in some states, a 10xer key the 10xer stage leaves to the chooser, a modifier a surface tolerates beside the key, or an alias read on a surface the other command belongs to. |
 | `ReservedByGtk` | Error | **Ctrl+Space**, or Shift with an arrow, Home, End, Page Up or Page Down, on a command the file list or file chooser matches. |
 | `InputMethodKey` | Error | **Ctrl+Space** or **Super+Space**, which switch input methods, on a command that acts while a text field has focus, or a shipped plain digit or `-` `,` `.` `/` `;` `'` `[` `]` on one. |
 | `ChooserMnemonic` | Warning | Alt with a letter, which the file chooser's accept button may take as its mnemonic. |
 | `FixedKey(fixed)` | Error | A key a fixed role holds where the command acts: a pin, action or tab digit after its chord (an armed chord reads steps first, so `go.home = ["1"]` takes pin 1), **Ctrl+Shift** with a tab digit, **Backspace** (with or without Shift or Super), **Space** in the 10xer file list, which selects the cursor's item, or **Space** on a media preview command, which plays and pauses first, as the page keys, **Home** and **End** seek before the commands the preview reads after them. Only the key as bound counts: a modifier a surface tolerates beside it loses to the fixed role. |
-| `NeverMatches` | Error | No press reaches it where it acts: Shift with a symbol Shift types (`<Shift>exclam`), Ctrl or Super on history, the parent folder or the home folder, which the window reads only without them (in 10xer, only the home folder), a chord trigger in the default map, which has no chords, or a typed key for a command the 10xer stage leaves to later stages or for the 10xer folder accept, which the focused 10xer file list keeps. An alias on another structural key's canonical key is a `Duplicate`: modifier-tolerant matchers, such as Escape's, still read it as pressed. Inactive. |
+| `NeverMatches` | Error | No press reaches it where it acts: Shift with a symbol Shift types (`<Shift>exclam`), a chord trigger in the default map, which has no chords, or a typed key for a command the 10xer stage leaves to later stages (copy path included) or for the 10xer folder accept, which the focused 10xer file list keeps. An alias on another structural key's canonical key is a `Duplicate`: modifier-tolerant matchers, such as Escape's, still read it as pressed. Inactive. |
+| `NoPath` | Error | The map ships no key for the command and none of its stages runs it: a 10xer verb or a Go or Tabs step in the default map, or the type-to-search filter key in 10xer. The direct stage's commands, and copy path, which the 10xer file list reads with a modified key, have a path. It is the binding's only finding. Inactive. |
 
 `never_fires` is the cheap part of `check` that labels use to leave a binding
 out, and `duplicate_outcome` says which side of a `Duplicate` keeps the key
@@ -346,7 +371,8 @@ A chord step on its own trigger's key, such as **g g**, is a step like any other
 the armed chord reads the second press as the step. Surfaces are a short table in
 `conflicts.rs`: the preview, the F1 reference, global search, the file chooser's
 own keys, path completion and the trash confirmation each match their own
-commands, and everything else is the window's. The chooser's handler, which
+commands, and everything else is the window's, the direct stage's commands
+included; a file chooser declines those in 10xer. The chooser's handler, which
 reads some window commands before and after its folder accept, is listed in
 that order. So are the commands that act in
 text fields and the modifiers each command's surfaces tolerate. These tables
@@ -374,7 +400,8 @@ capture: Escape cancels, Backspace unbinds the command, and any other key is
 checked with `conflicts::check`. An error keeps the capture waiting and shows
 why under the row; otherwise the key is appended to the entry. Findings from
 `conflicts::audit` render as text under each row, never as tooltips; a key with
-`NeverMatches` shows only that finding, and an inactive one is struck through.
+`NeverMatches` shows only that finding, a row whose command has no path in the
+shown table says so once, and an inactive key is struck through.
 A row's **Reset** appears once its entry differs from the shipped one, and
 **Reset all** restores the shown table. Settings search finds a row by its
 action name or by any key either table gives it; action names score like a
@@ -477,10 +504,13 @@ the window dispatcher, not GTK application accelerators. The dispatcher checks
 them after its own stages yield the key and activates the same guarded `win.*`
 actions; the key is consumed whenever the action is enabled.
 `add_guarded_window_action` still decides whether they run while a modal or an
-inline edit owns input. 10xer mode leaves jump to folder and arrow scope
-unbound. Open terminal keeps **Ctrl+Alt+T** in the 10xer map, where the file
-list and sidebar run it, but this after-yield path does not, so in a text field
-it does nothing; the dispatcher checks when the key arrives.
+inline edit owns input. Each action runs wherever the active map's table binds
+it, text fields included, except open terminal in 10xer; the dispatcher checks
+when the key arrives. 10xer mode ships no key for jump to folder and arrow
+scope, which a key bound in its table runs here and through the direct stage.
+Open terminal keeps **Ctrl+Alt+T** in the 10xer map, where the file list and
+sidebar run it, but this after-yield path does not, so in a text field it does
+nothing.
 
 ### Text fields
 
@@ -526,7 +556,9 @@ and **Ctrl+A** clears it first.
 5. A command only one surface matches, one a stage matches while a text field
    has focus, or one matched with `ignoring(..)` goes in the matching table of
    `ui::keys::conflicts`. `audit_of_default_tables_is_clean` checks the shipped
-   tables against every rule.
+   tables against every rule. A command one map ships no key for is `NoPath`
+   there unless the direct stage lists it or `conflicts.rs` names the stage
+   that reads it.
 6. Give a new command a name in the Settings keyboard page's `NAMES` table,
    translated in every catalog;
    `settings::keyboard::tests::every_command_row_has_a_name_in_every_catalog`
@@ -568,6 +600,9 @@ capture through the page's key reader, refused and saved keys, resets per row
 and per table, live updates from another window, and search;
 `window::tests::preferences::capture_commits_and_second_window_follows`
 captures in one window's Settings and presses the key in another.
+`window::tests::keyboard_dispatch::direct_commands` binds each direct command in
+the map it gains and requires the same effect as the other map's key, and
+checks that the shipped tables reach none of them.
 
 End-to-end scenarios switch layouts on the harness's private Xvfb: `setxkbmap`
 loads the layouts and an XKB group lock selects the active one. Never change the

@@ -63,6 +63,8 @@ enum State {
     /// The list, with a folder to go back to.
     Visited,
     Filter,
+    /// The location bar, a text field in either map.
+    LocationBar,
     Armed(Chord),
     Document,
     Media,
@@ -89,6 +91,7 @@ enum Effect {
     Muted,
     Reference,
     LeavesPreview,
+    WindowAction,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -108,6 +111,7 @@ struct Seen {
     audio: (f64, bool),
     reference: bool,
     preview_focus: bool,
+    window_actions: usize,
 }
 
 impl Effect {
@@ -132,6 +136,7 @@ impl Effect {
             Self::Muted => before.audio.1 != after.audio.1,
             Self::Reference => before.reference != after.reference,
             Self::LeavesPreview => before.preview_focus && !after.preview_focus,
+            Self::WindowAction => before.window_actions != after.window_actions,
         }
     }
 }
@@ -177,6 +182,7 @@ struct Window {
     preferences: Rc<PreferenceManager>,
     root: Location,
     visited: Location,
+    window_actions: Rc<Cell<usize>>,
 }
 
 impl Window {
@@ -200,11 +206,19 @@ impl Window {
         fixture.view.refresh();
         wait_loaded(&browser, 0);
         browser.set_folders_first(0, false);
+        let window_actions = Rc::new(Cell::new(0));
+        for name in ["jump-folder", "toggle-arrow-scope"] {
+            let action = gio::SimpleAction::new(name, None);
+            let runs = window_actions.clone();
+            action.connect_activate(move |_, _| runs.set(runs.get() + 1));
+            fixture.window.add_action(&action);
+        }
         Self {
             fixture,
             preferences,
             root: Location::local(&root),
             visited: Location::local(root.join("d")),
+            window_actions,
         }
     }
 
@@ -232,6 +246,7 @@ impl Window {
             ),
             reference: fixture.shortcuts.reference_is_open(),
             preview_focus: preview_has_focus(fixture),
+            window_actions: self.window_actions.get(),
         }
     }
 
@@ -295,6 +310,11 @@ impl Window {
                 focus_files(fixture);
                 assert!(fixture.view.show_filter());
                 wait_until(|| fixture.view.filter_has_focus());
+            }
+            State::LocationBar => {
+                focus_files(fixture);
+                fixture.view.begin_location_edit();
+                wait_until(|| fixture.view.location_has_focus());
             }
             State::Armed(chord) => {
                 select_named(fixture, "a.txt");
@@ -408,13 +428,74 @@ const ROWS: &[Row] = &[
         acts: Effect::Renames,
         owner: Some(Effect::Yields),
     },
-    // NeverMatches: the default map's directory stage refuses Ctrl.
+    // The directory stage reads history before it refuses Ctrl.
     Row {
         map: Map::Default,
         state: State::Visited,
         command: HISTORY_BACK,
         key: "<Control>e",
         acts: Effect::Location,
+        owner: None,
+    },
+    Row {
+        map: Map::Tenxer,
+        state: State::List,
+        command: HOME_FOLDER,
+        key: "<Control>e",
+        acts: Effect::Location,
+        owner: None,
+    },
+    // The direct stage runs a step with no chord in the default map.
+    Row {
+        map: Map::Default,
+        state: State::List,
+        command: SORT_BY_SIZE,
+        key: "<Control><Alt>e",
+        acts: Effect::Sort(SortKey::Size, SortDirection::Ascending),
+        owner: None,
+    },
+    Row {
+        map: Map::Default,
+        state: State::List,
+        command: INVERT_SELECTION,
+        key: "<Control><Alt>e",
+        acts: Effect::Selection,
+        owner: None,
+    },
+    // It reads keys before inline editing.
+    Row {
+        map: Map::Default,
+        state: State::List,
+        command: RESTORE,
+        key: "F2",
+        acts: Effect::Feedback,
+        owner: Some(Effect::Renames),
+    },
+    // NoPath: the default map runs no Go step.
+    Row {
+        map: Map::Default,
+        state: State::List,
+        command: GO_HOME,
+        key: "<Control><Alt>e",
+        acts: Effect::Location,
+        owner: None,
+    },
+    // The focused 10xer listing passes a direct command's typed key on.
+    Row {
+        map: Map::Tenxer,
+        state: State::List,
+        command: JUMP_TO_FOLDER,
+        key: "w",
+        acts: Effect::WindowAction,
+        owner: None,
+    },
+    // A 10xer text field yields to the window action its table binds.
+    Row {
+        map: Map::Tenxer,
+        state: State::LocationBar,
+        command: ARROW_SCOPE,
+        key: "<Control><Alt>e",
+        acts: Effect::WindowAction,
         owner: None,
     },
     // NeverMatches: the default map has no chords.

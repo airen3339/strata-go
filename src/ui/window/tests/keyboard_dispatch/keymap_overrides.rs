@@ -266,3 +266,37 @@ fn document_zoom_reset_follows_its_own_keys() {
         },
     );
 }
+
+/// A focused text preview is a document, so a plain letter a user adds to a
+/// 10xer command reaches the listing from it as the shipped letter does.
+#[test]
+fn added_letter_leaves_a_text_preview_like_a_shipped_one() {
+    crate::test_support::gtk_test(
+        "ui::window::tests::keyboard_dispatch::keymap_overrides::added_letter_leaves_a_text_preview_like_a_shipped_one",
+        || {
+            use crate::ui::keys::{Binding, Keymap, Map, bindings::RENAME, use_keymap};
+            let fixture = super::preview_ownership::ownership_fixture();
+            let browser = fixture.view.browser();
+            let _keymap = use_keymap(Keymap::defaults().with(
+                Map::Tenxer,
+                RENAME,
+                vec![Binding::plain(Key::r), Binding::plain(Key::e)],
+            ));
+            let text_focused = || {
+                gtk::prelude::RootExt::focus(&fixture.window)
+                    .is_some_and(|focused| focused.has_css_class("preview-text"))
+            };
+            for key in [Key::r, Key::e] {
+                move_to_named(&fixture, &browser, "short.txt");
+                fixture.press(Key::l, ModifierType::empty());
+                wait_until(text_focused);
+                assert!(fixture.press(key, ModifierType::empty()), "{key:?}");
+                wait_until(|| {
+                    fixture.shortcuts.open_prompt_kind()
+                        == Some(crate::ui::tenxer_mode::Prompt::Rename)
+                });
+                fixture.shortcuts.dismiss_prompt();
+            }
+        },
+    );
+}

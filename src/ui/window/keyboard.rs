@@ -26,6 +26,7 @@ use super::{SidebarState, SidebarView, TypeToSearch, topmost_modal_layer, visibl
 mod chooser;
 pub(super) mod chords;
 mod commands;
+mod direct;
 mod escape;
 mod files;
 mod focus;
@@ -39,15 +40,15 @@ use sidebar::{SidebarChord, activate_sidebar_focus, move_sidebar_focus, sidebar_
 // None tries the next Strata stage; Some(Proceed) gives the event to GTK instead.
 type KeyResult = Option<Propagation>;
 
-/// Window actions that run once every other stage yields the key. The flag
-/// marks those that do not run here in 10xer mode, even where a 10xer entry
-/// binds them, as terminal's does for the file list and sidebar.
-const WINDOW_ACTIONS: [(Command, &str, bool); 5] = [
-    (SEARCH, "search", false),
-    (JUMP_TO_FOLDER, "jump-folder", true),
-    (TERMINAL, "open-terminal", true),
-    (REFRESH, "refresh", false),
-    (ARROW_SCOPE, "toggle-arrow-scope", true),
+/// Window actions that run once every other stage yields the key, wherever
+/// the active table binds them. 10xer runs its terminal key only from the file
+/// list and sidebar, so it is left out here in that map.
+const WINDOW_ACTIONS: [(Command, &str); 5] = [
+    (SEARCH, "search"),
+    (JUMP_TO_FOLDER, "jump-folder"),
+    (TERMINAL, "open-terminal"),
+    (REFRESH, "refresh"),
+    (ARROW_SCOPE, "toggle-arrow-scope"),
 ];
 
 pub(super) struct DispatcherParts {
@@ -730,6 +731,7 @@ impl Dispatcher {
             header_left_boundary: false,
         };
         self.window_commands(&event)
+            .or_else(|| self.direct_commands(&event))
             .or_else(|| self.default_tab_navigation(&event))
             .or_else(|| self.inline_editing(&event))
             .or_else(|| self.filter_and_location_commands(&event))
@@ -849,15 +851,17 @@ impl Dispatcher {
     /// Like a GTK accelerator, an enabled action consumes its key even when the
     /// action's guard then declines to run.
     fn window_action(&self, press: &KeyPress) -> Propagation {
-        let Some((_, name, unbound_in_tenxer)) = WINDOW_ACTIONS
+        let Some((command, name)) = WINDOW_ACTIONS
             .iter()
-            .find(|(binding, _, _)| press.is(*binding))
+            .find(|(command, _)| press.is(*command))
         else {
             return Propagation::Proceed;
         };
-        let bound = !(*unbound_in_tenxer && self.type_to_search.preferences.tenxer_mode());
+        if *command == TERMINAL && self.type_to_search.preferences.tenxer_mode() {
+            return Propagation::Proceed;
+        }
         match self.window.downcast_ref::<gtk::ApplicationWindow>() {
-            Some(window) if bound && window.is_sensitive() && window.is_action_enabled(name) => {
+            Some(window) if window.is_sensitive() && window.is_action_enabled(name) => {
                 gtk::gio::prelude::ActionGroupExt::activate_action(window, name, None);
                 Propagation::Stop
             }
@@ -964,7 +968,9 @@ impl Dispatcher {
             return Some(Propagation::Stop);
         }
         if claims_unbound_command(press)
-            || (self.view.item_view_has_focus() && claims_file_list_typing(press))
+            || (self.view.item_view_has_focus()
+                && claims_file_list_typing(press)
+                && !self.runs_directly(press))
         {
             return Some(Propagation::Stop);
         }

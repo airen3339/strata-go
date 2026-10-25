@@ -164,6 +164,22 @@ fn error_finding_blocks_commit() {
             assert!(!capturing(&row));
             assert!(notes(&row).is_empty(), "{:?}", notes(&row));
             assert_eq!(rename_entry(Map::Default), RENAME.defaults(Map::Default));
+
+            let yank = open.row(Map::Default, YANK);
+            button(&yank, "Add").emit_clicked();
+            open.press(Key::e, ModifierType::CONTROL_MASK);
+            assert!(capturing(&yank), "no key runs yank in the default map");
+            assert!(
+                PreferenceManager::shared()
+                    .keymap()
+                    .bindings(Map::Default, YANK)
+                    .is_empty()
+            );
+            assert_eq!(
+                notes(&yank),
+                ["Only 10xer mode runs this action, so its keys do nothing here."]
+            );
+            open.press(Key::Escape, ModifierType::empty());
         },
     );
 }
@@ -371,10 +387,10 @@ fn search_finds_rows_by_action_and_key() {
                 "the table switch stays"
             );
             // Only the 10xer table has chord triggers.
-            entry.set_text("Go chord");
+            entry.set_text("Sort chord");
             settle();
             assert!(tenxer.is_active());
-            assert!(shown(&row_in(&layer, Map::Tenxer, GO)));
+            assert!(shown(&row_in(&layer, Map::Tenxer, SORT_BY)));
             entry.set_text("");
             settle();
             assert!(shown(&row_in(&layer, Map::Tenxer, COPY)));
@@ -557,6 +573,23 @@ fn rows_read_their_own_table_in_either_mode() {
             assert_eq!((rows, targets), shown_in(true));
         },
     );
+}
+
+/// Two rows of one table with the same name could not tell a user which
+/// binding each one edits.
+#[test]
+fn rows_of_one_table_have_distinct_names() {
+    let mut shared = Vec::new();
+    for map in [Map::Default, Map::Tenxer] {
+        let mut seen: Vec<Command> = Vec::new();
+        for command in sections(map).into_iter().flat_map(|(_, commands)| commands) {
+            if let Some(other) = seen.iter().find(|other| name(**other) == name(command)) {
+                shared.push(format!("{map:?}: {other:?} and {command:?}"));
+            }
+            seen.push(command);
+        }
+    }
+    assert!(shared.is_empty(), "{shared:#?}");
 }
 
 #[test]

@@ -374,18 +374,29 @@ impl Dispatcher {
                 return Some(Propagation::Stop);
             }
         }
+        // Ahead of the Ctrl and Super guard, which a user's binding may hold.
+        let jumped = if press.is(HISTORY_BACK.in_map(Map::Default).ignoring(SHIFT)) {
+            browser.back();
+            true
+        } else if press.is(HISTORY_FORWARD.in_map(Map::Default).ignoring(SHIFT)) {
+            browser.forward();
+            true
+        } else if press.is(PARENT_FOLDER.ignoring(SHIFT)) {
+            browser.parent();
+            true
+        } else if press.is(HOME_FOLDER.ignoring(SHIFT)) {
+            browser.navigate(Location::local(home_directory()));
+            true
+        } else {
+            false
+        };
+        if jumped {
+            return Some(Propagation::Stop);
+        }
         if !event.without(Modifiers::CONTROL_MASK | SUPER) {
             return Some(Propagation::Proceed);
         }
-        if press.is(HISTORY_BACK.in_map(Map::Default).ignoring(SHIFT)) {
-            browser.back();
-        } else if press.is(HISTORY_FORWARD.in_map(Map::Default).ignoring(SHIFT)) {
-            browser.forward();
-        } else if press.is(PARENT_FOLDER.ignoring(SHIFT)) {
-            browser.parent();
-        } else if press.is(HOME_FOLDER.ignoring(SHIFT)) {
-            browser.navigate(Location::local(home_directory()));
-        } else if press.is(DOWN.ignoring(SHIFT).or_alternates()) {
+        if press.is(DOWN.ignoring(SHIFT).or_alternates()) {
             browser.move_selection(1);
         } else if press.is(UP.ignoring(SHIFT).or_alternates()) {
             browser.move_selection(-1);
@@ -549,19 +560,23 @@ impl Dispatcher {
     }
 
     fn tenxer_selection_command(&self, press: &KeyPress) -> bool {
-        if press.is(INVERT_SELECTION) && self.view.invert_filter_results() {
-            return true;
+        if press.is(INVERT_SELECTION) {
+            return self.invert_selection();
         }
-        if self.view.selected_search_results().is_some() {
-            return false;
-        }
-        let filled = if press.is(SELECT_ALL) {
-            self.view.select_focused_pane()
-        } else if press.is(INVERT_SELECTION) {
-            self.view.invert_focused_pane()
-        } else {
-            return false;
-        };
+        press.is(SELECT_ALL)
+            && self.view.selected_search_results().is_none()
+            && self.fill_selection(self.view.select_focused_pane())
+    }
+
+    /// Inverts the filter's hits or the focused pane; false while search hits
+    /// own the selection.
+    pub(super) fn invert_selection(&self) -> bool {
+        self.view.invert_filter_results()
+            || (self.view.selected_search_results().is_none()
+                && self.fill_selection(self.view.invert_focused_pane()))
+    }
+
+    fn fill_selection(&self, filled: bool) -> bool {
         if !filled {
             self.shortcuts
                 .show_feedback(&crate::i18n::tr("Nothing to select"));
@@ -609,10 +624,15 @@ impl Dispatcher {
         } else {
             return false;
         };
+        self.page_cursor(direction, half);
+        true
+    }
+
+    /// Search hits shown in the listing swallow paging.
+    pub(super) fn page_cursor(&self, direction: i32, half: bool) {
         if !self.view.listing_search_active() {
             self.view.page_displayed_cursor(direction, half);
         }
-        true
     }
 
     fn tenxer_alt_navigation(&self, browser: &Rc<Browser>, press: &KeyPress) -> bool {

@@ -944,6 +944,10 @@ fn message(map: Map, command: Command, finding: Finding) -> String {
             rust_i18n::t!(message, keys = keys, digits = range).into_owned()
         }
         Kind::NeverMatches => plain("%{keys} never reaches this action, so it does nothing."),
+        Kind::NoPath => crate::i18n::tr(match map {
+            Map::Default => "Only 10xer mode runs this action, so its keys do nothing here.",
+            Map::Tenxer => "10xer mode does not run this action, so its keys do nothing here.",
+        }),
     }
 }
 
@@ -1074,7 +1078,7 @@ const NAMES: &[(Command, &str)] = &[
     (GO_TRASH, "Trash"),
     (GO_NETWORK, "Network"),
     (GO_RECENT, "Recent"),
-    (GO_PIN, "Pin a folder"),
+    (GO_PIN, "Pin a folder (go chord)"),
     (GO_UNPIN, "Unpin a folder"),
     (SORT_BY, "Sort chord"),
     (SORT_BY_NAME, "Sort by name"),
@@ -1082,7 +1086,7 @@ const NAMES: &[(Command, &str)] = &[
     (SORT_BY_SIZE, "Sort by size"),
     (SORT_BY_TYPE, "Sort by type"),
     (COPY_AS, "Copy chord"),
-    (COPY_AS_PATH, "Copy path"),
+    (COPY_AS_PATH, "Copy path (copy chord)"),
     (COPY_AS_NAME, "Copy name"),
     (ACTIONS, "Action chord"),
     (ACTIONS_TERMINAL, "Open a terminal in the focused folder"),
@@ -1093,9 +1097,9 @@ const NAMES: &[(Command, &str)] = &[
     (ACTIONS_EXTRACT, "Extract here"),
     (ACTIONS_EXTRACT_TO, "Extract to a typed folder"),
     (TAB_CHORD, "Tab chord"),
-    (TAB_CHORD_NEW, "New tab"),
-    (TAB_CHORD_CLOSE, "Close tab"),
-    (TAB_CHORD_PREVIOUS, "Previous tab"),
+    (TAB_CHORD_NEW, "New tab (tab chord)"),
+    (TAB_CHORD_CLOSE, "Close tab (tab chord)"),
+    (TAB_CHORD_PREVIOUS, "Previous tab (tab chord)"),
     (MEDIA_PLAY_PAUSE, "Play / pause"),
     (MEDIA_SEEK_BACK, "Seek back 5 seconds"),
     (MEDIA_SEEK_FORWARD, "Seek forward 5 seconds"),

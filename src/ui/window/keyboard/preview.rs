@@ -296,6 +296,8 @@ fn passes_through_preview(press: &KeyPress) -> bool {
         REFERENCE,
         REFRESH,
         SEARCH,
+        JUMP_TO_FOLDER,
+        ARROW_SCOPE,
         LOCATION,
         SETTINGS,
         SIDEBAR,
