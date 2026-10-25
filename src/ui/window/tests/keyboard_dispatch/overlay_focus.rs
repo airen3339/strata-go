@@ -716,49 +716,59 @@ fn renaming_an_open_folder_to_a_hidden_name_closes_its_column_and_keeps_rename_w
     crate::test_support::gtk_test(
         "ui::window::tests::keyboard_dispatch::overlay_focus::renaming_an_open_folder_to_a_hidden_name_closes_its_column_and_keeps_rename_working",
         || {
-            PreferenceManager::seed_saved_preferences_for_test();
-            let preferences = PreferenceManager::shared();
-            let mut sort = preferences.sort_preferences();
-            sort.show_hidden = false;
-            preferences.set_sort_preferences(sort);
-            let fixture = ComposedFolder::open();
-            let browser = &fixture.content.browser;
-            let directory = fixture._directory.path();
-            std::fs::create_dir(directory.join("folder")).expect("folder");
-            std::fs::write(directory.join("folder/child.txt"), b"child").expect("child");
-            browser.refresh();
-            wait_until(|| rendered_name(&browser.widget(), "folder"));
-            browser.set_view_mode(BrowserMode::Columns);
-            let model = browser.browser();
-            let count = model.column_snapshot(0).expect("root column").count;
-            let folder = (0..count)
-                .find(|position| {
+            // A folder loaded with hidden files shown keeps a monitor that reports the
+            // rename as a move after they are hidden again.
+            for hidden_on_load in [false, true] {
+                PreferenceManager::seed_saved_preferences_for_test();
+                let preferences = PreferenceManager::shared();
+                let mut sort = preferences.sort_preferences();
+                sort.show_hidden = hidden_on_load;
+                preferences.set_sort_preferences(sort);
+                let fixture = ComposedFolder::open();
+                let browser = &fixture.content.browser;
+                let directory = fixture._directory.path();
+                for folder in ["a-folder", "b-folder"] {
+                    std::fs::create_dir(directory.join(folder)).expect("folder");
+                }
+                std::fs::write(directory.join("b-folder/child.txt"), b"child").expect("child");
+                browser.refresh();
+                wait_until(|| rendered_name(&browser.widget(), "b-folder"));
+                browser.set_view_mode(BrowserMode::Columns);
+                let model = browser.browser();
+                let count = model.column_snapshot(0).expect("root column").count;
+                let folder = (0..count)
+                    .find(|position| {
+                        model
+                            .entry_at(0, *position)
+                            .is_some_and(|entry| entry.display_name == "b-folder")
+                    })
+                    .expect("folder row");
+                model.activate(0, folder);
+                wait_until(|| {
                     model
-                        .entry_at(0, *position)
-                        .is_some_and(|entry| entry.display_name == "folder")
-                })
-                .expect("folder row");
-            model.activate(0, folder);
-            wait_until(|| {
-                model
-                    .column_snapshot(1)
-                    .is_some_and(|column| !column.loading)
-            });
-            model.select(0, folder);
-            model.focus_active();
-            assert!(model.column_snapshot(1).is_some());
-            wait_until(|| browser.begin_rename());
-            let field = browser.active_rename_field().expect("rename field");
-            field.set_text(".hidden-folder");
-            field.emit_activate();
-            wait_until(|| directory.join(".hidden-folder").exists());
+                        .column_snapshot(1)
+                        .is_some_and(|column| !column.loading)
+                });
+                if hidden_on_load {
+                    model.toggle_hidden();
+                }
+                assert!(!model.preferences().show_hidden);
+                model.select(0, folder);
+                model.focus_active();
+                assert!(model.column_snapshot(1).is_some());
+                wait_until(|| browser.begin_rename());
+                let field = browser.active_rename_field().expect("rename field");
+                field.set_text(".hidden-folder");
+                field.emit_activate();
+                wait_until(|| directory.join(".hidden-folder").exists());
 
-            wait_until(|| model.column_snapshot(1).is_none());
-            wait_until(|| !rendered_name(&browser.widget(), ".hidden-folder"));
-            wait_until(|| browser.begin_rename());
-            let field = browser.active_rename_field().expect("rename field");
-            assert_ne!(field.text(), ".hidden-folder");
-            assert!(browser.cancel_rename());
+                wait_until(|| model.column_snapshot(1).is_none());
+                wait_until(|| !rendered_name(&browser.widget(), ".hidden-folder"));
+                wait_until(|| browser.begin_rename());
+                let field = browser.active_rename_field().expect("rename field");
+                assert_eq!(field.text(), "a.txt", "hidden on load: {hidden_on_load}");
+                assert!(browser.cancel_rename());
+            }
         },
     );
 }
